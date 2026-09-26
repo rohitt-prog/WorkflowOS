@@ -99,4 +99,16 @@ class EventService:
         logger.info(f"Purged {result.deleted_count} events from database.")
         return result.deleted_count
 
+    async def delete_events_by_session(self, session_id: str) -> int:
+        """
+        Delete all events belonging to a specific session_id.
+        Only affects the targeted session — other sessions are untouched.
+        Intended for dev/test idempotent re-seeding.
+        """
+        result = await self.collection.delete_many({"session_id": session_id})
+        logger.info(
+            f"Deleted {result.deleted_count} events for session '{session_id}'."
+        )
+        return result.deleted_count
+
 event_service = EventService()

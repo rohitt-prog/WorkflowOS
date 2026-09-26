@@ -63,9 +63,27 @@ async def get_event(event_id: str):
 
 @router.delete(
     "",
-    summary="Purge events (Development / Testing only)",
-    description="Clears all activity events from the database. For dev/testing environments."
+    summary="Purge all events (Development / Testing only)",
+    description="Clears ALL activity events from the database. For dev/testing environments."
 )
-async def delete_events():
+async def delete_all_events():
     deleted_count = await event_service.delete_all_events()
     return {"message": "All events cleared", "deleted_count": deleted_count}
+
+
+@router.delete(
+    "/session/{session_id}",
+    summary="Delete events for a specific session (Development / Testing only)",
+    description=(
+        "Removes all events belonging to the given session_id. "
+        "Does not affect any other sessions. "
+        "Intended for idempotent dev/test re-seeding workflows."
+    )
+)
+async def delete_session_events(session_id: str):
+    deleted_count = await event_service.delete_events_by_session(session_id)
+    return {
+        "message": f"Events for session '{session_id}' cleared",
+        "session_id": session_id,
+        "deleted_count": deleted_count,
+    }
