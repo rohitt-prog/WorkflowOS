@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import init_indexes, close_mongo_connection
 from backend.routes.events import router as events_router
+from backend.routes.discovery import router as discovery_router
 
 # Configure logging
 logging.basicConfig(
@@ -44,8 +45,9 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok"}
 
-# Include events router
+# Include routers
 app.include_router(events_router)
+app.include_router(discovery_router)
 
 if __name__ == "__main__":
     import uvicorn

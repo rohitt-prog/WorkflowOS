@@ -23,6 +23,20 @@ interface ActivityEvent {
   metadata?: EventMetadata;
 }
 
+// ── Phase 2: Discovery types matching the backend DiscoveryResult model ──
+interface DiscoveredWorkflow {
+  label: string;
+  sequence: string[];
+  occurrences: number;
+  similarity: number;
+  session_ids: string[];
+}
+
+interface DiscoveryResult {
+  detected: boolean;
+  workflows: DiscoveredWorkflow[];
+}
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
 
@@ -38,6 +52,11 @@ export default function Dashboard() {
   const [appFilter, setAppFilter] = useState<string>("ALL");
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [mounted, setMounted] = useState<boolean>(false);
+
+  // Phase 2: Workflow Discovery state
+  const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
+  const [discoveryLoading, setDiscoveryLoading] = useState<boolean>(true);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -87,19 +106,44 @@ export default function Dashboard() {
     }
   }, []);
 
+  // Phase 2: Fetch discovery results from GET /api/discovery/repeated
+  const fetchDiscovery = useCallback(async () => {
+    setDiscoveryError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/discovery/repeated`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error(`Discovery API returned ${res.status}: ${res.statusText}`);
+      }
+      const data: DiscoveryResult = await res.json();
+      setDiscovery(data);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Discovery API unavailable";
+      setDiscoveryError(msg);
+      setDiscovery(null);
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    fetchDiscovery();
+  }, [fetchData, fetchDiscovery]);
 
   // Polling interval if autoRefresh is enabled (every 5 seconds)
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
       fetchData(false);
+      fetchDiscovery();
     }, 5000);
     return () => clearInterval(interval);
-  }, [autoRefresh, fetchData]);
+  }, [autoRefresh, fetchData, fetchDiscovery]);
 
   // Helper to extract customer identifier from event metadata
   const getCustomer = (metadata?: EventMetadata): string | null => {
@@ -203,6 +247,13 @@ export default function Dashboard() {
     });
   }, [events, appFilter, searchTerm]);
 
+  // Helper: prettify event_type verb for display (e.g. open_email → Open Email)
+  const formatEventStep = (step: string): string =>
+    step
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
       {/* Top Navigation / App Header */}
@@ -218,7 +269,7 @@ export default function Dashboard() {
                   WorkFlow<span className="text-cyan-400">OS</span>
                 </h1>
                 <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60">
-                  Phase 1
+                  Phase 2
                 </span>
               </div>
               <p className="text-xs text-zinc-400">Observational Event Ingestion & Activity Monitor</p>
@@ -375,6 +426,186 @@ export default function Dashboard() {
             </p>
           </div>
         </section>
+
+        {/* ──────────────────────────────────────────────────────────────
+            Phase 2: WORKFLOW DISCOVERY SECTION
+        ────────────────────────────────────────────────────────────── */}
+        <section className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl overflow-hidden shadow-sm">
+          {/* Section header */}
+          <div className="px-5 py-3.5 border-b border-zinc-800/80 flex items-center justify-between bg-zinc-900/30">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+              </svg>
+              <h2 className="text-sm font-semibold tracking-tight text-white">Workflow Discovery</h2>
+              <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/60">Phase 2</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-zinc-500 font-mono">GET /api/discovery/repeated</span>
+              <button
+                id="discovery-refresh-btn"
+                onClick={() => { setDiscoveryLoading(true); fetchDiscovery(); }}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Scan
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="p-5">
+            {/* Loading state */}
+            {discoveryLoading ? (
+              <div className="flex items-center gap-3 py-6">
+                <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-zinc-400">Scanning event history for repeated workflows...</span>
+              </div>
+            ) : discoveryError ? (
+              /* Error state */
+              <div className="bg-amber-950/30 border border-amber-800/60 rounded-lg p-4 flex items-start gap-3">
+                <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-amber-300">Discovery Unavailable</p>
+                  <p className="text-xs text-amber-300/70 mt-0.5">{discoveryError}</p>
+                  <p className="text-[11px] text-amber-400/60 mt-1">
+                    Ensure the backend is running at <code className="bg-amber-900/30 px-1 rounded font-mono">{API_BASE_URL}</code>.
+                  </p>
+                </div>
+              </div>
+            ) : !discovery || !discovery.detected ? (
+              /* No repeated workflow state */
+              <div className="py-8 text-center">
+                <div className="w-12 h-12 rounded-xl bg-zinc-800/60 border border-zinc-700/60 flex items-center justify-center mx-auto text-zinc-500 mb-3">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-zinc-300">No Repeated Workflows Detected</h3>
+                <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
+                  WorkFlowOS needs at least 2 sessions sharing a sequence of ≥3 events to detect a pattern.
+                </p>
+                <div className="mt-4 inline-block text-left bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs">
+                  <p className="text-zinc-400 font-mono text-[11px] mb-1">Seed Phase 2 test data:</p>
+                  <code className="text-indigo-400 font-mono select-all">
+                    python backend/test_event.py --seed-workflows
+                  </code>
+                </div>
+              </div>
+            ) : (
+              /* Detected workflows */
+              <div className="space-y-5">
+                {/* Detection banner */}
+                <div className="flex items-center gap-3 bg-emerald-950/40 border border-emerald-800/60 rounded-lg px-4 py-3">
+                  <span className="text-xl" role="img" aria-label="magnifier">🔍</span>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-300">Repeated Workflow Detected</p>
+                    <p className="text-xs text-emerald-400/70">
+                      {discovery.workflows.length} workflow pattern{discovery.workflows.length > 1 ? "s" : ""} found across multiple sessions.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Workflow cards */}
+                {discovery.workflows.map((wf, idx) => (
+                  <div
+                    key={idx}
+                    id={`workflow-card-${idx}`}
+                    className="bg-zinc-950/70 border border-indigo-900/60 rounded-xl p-5 shadow-sm relative overflow-hidden"
+                  >
+                    {/* Glow accent */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-purple-500/5 pointer-events-none" />
+
+                    {/* Workflow label & stats */}
+                    <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white">{wf.label}</h3>
+                        <p className="text-xs text-zinc-400 mt-0.5">Deterministic workflow pattern (Phase 2)</p>
+                      </div>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {/* Occurrences badge */}
+                        <div className="flex flex-col items-center bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 min-w-[64px]">
+                          <span className="text-lg font-bold font-mono text-indigo-300">{wf.occurrences}×</span>
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Repeated</span>
+                        </div>
+                        {/* Similarity badge */}
+                        <div className="flex flex-col items-center bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 min-w-[64px]">
+                          <span className="text-lg font-bold font-mono text-emerald-300">
+                            {Math.round(wf.similarity * 100)}%
+                          </span>
+                          <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Similarity</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sequence steps */}
+                    <div className="mb-4">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-3">Workflow Steps</p>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {wf.sequence.map((step, si) => (
+                          <React.Fragment key={si}>
+                            <span
+                              className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-medium
+                                bg-indigo-950/60 text-indigo-200 border border-indigo-800/60"
+                            >
+                              {formatEventStep(step)}
+                            </span>
+                            {si < wf.sequence.length - 1 && (
+                              <svg className="w-3.5 h-3.5 text-zinc-600 mx-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Session IDs */}
+                    <div className="mb-5">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-2">Sessions</p>
+                      <div className="flex flex-wrap gap-2">
+                        {wf.session_ids.map((sid) => (
+                          <span
+                            key={sid}
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono
+                              bg-zinc-800/80 text-zinc-300 border border-zinc-700/60"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                            {sid}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Action footer */}
+                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/60">
+                      <p className="text-[11px] text-zinc-600 italic">
+                        AI workflow generation coming in Phase 3.
+                      </p>
+                      <button
+                        id={`review-workflow-btn-${idx}`}
+                        disabled
+                        title="AI workflow generation coming in Phase 3."
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                          bg-zinc-800/60 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        Review Workflow
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+        {/* ── End Workflow Discovery ────────────────────────────────── */}
 
         {/* API Error Notification */}
         {error && (
@@ -687,11 +918,13 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="border-t border-zinc-800/80 bg-zinc-950 text-zinc-500 text-xs py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p>© 2026 WorkFlowOS. Phase 1 - Observational Event Ingestion.</p>
+          <p>© 2026 WorkFlowOS. Phase 2 — Workflow Discovery Engine.</p>
           <div className="flex items-center gap-4 text-[11px]">
             <span>FastAPI: <code className="text-zinc-400">{API_BASE_URL}</code></span>
             <span>•</span>
             <span>MongoDB Atlas</span>
+            <span>•</span>
+            <span className="text-indigo-400/70">Discovery: /api/discovery/repeated</span>
           </div>
         </div>
       </footer>
