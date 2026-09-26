@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
 
 // Types matching the backend EventResponse model
 interface EventMetadata {
@@ -375,15 +376,27 @@ export default function Dashboard() {
                   WorkFlow<span className="text-cyan-400">OS</span>
                 </h1>
                 <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-700/60">
-                  Phase 3
+                  Phase 3 &amp; 4.1
                 </span>
               </div>
-              <p className="text-xs text-zinc-400">Observational Event Ingestion, Discovery & AI Workflow Understanding</p>
+              <p className="text-xs text-zinc-400">Observational Event Ingestion, Discovery &amp; AI Workflow Understanding</p>
             </div>
           </div>
 
           {/* Status Badges & Controls */}
           <div className="flex items-center gap-3">
+            {/* Launch Demo Apps Button */}
+            <Link
+              href="/demo"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-900/60 via-indigo-900/60 to-cyan-900/60 hover:from-purple-800/80 hover:to-cyan-800/80 text-white border border-indigo-600/50 active:scale-95 transition shadow-sm cursor-pointer"
+              title="Launch Phase 4.1 Demo Applications (Mail, CRM, Chat)"
+            >
+              <svg className="w-3.5 h-3.5 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <span>Demo Apps</span>
+            </Link>
+
             {/* Backend Connection Indicator */}
             <div
               className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
