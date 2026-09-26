@@ -17,6 +17,10 @@ class Settings:
     # CORS: Allowed origins for frontend access
     FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
     
+    # AI / Gemini Configuration (Phase 3)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    
     @property
     def cors_origins(self) -> List[str]:
         # Return unique list of configured origins

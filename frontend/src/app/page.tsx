@@ -37,6 +37,32 @@ interface DiscoveryResult {
   workflows: DiscoveredWorkflow[];
 }
 
+// ── Phase 3: AI Workflow Proposal types ──
+interface WorkflowTrigger {
+  type: string;
+  application: string;
+  description: string;
+}
+
+interface WorkflowAction {
+  type: string;
+  application: string;
+  description: string;
+  target: string;
+}
+
+interface WorkflowProposal {
+  name: string;
+  intent: string;
+  trigger: WorkflowTrigger;
+  actions: WorkflowAction[];
+  variables: string[];
+  applications: string[];
+  requires_approval: boolean;
+}
+
+type ApprovalStatus = "idle" | "approved" | "rejected";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
 
@@ -57,6 +83,15 @@ export default function Dashboard() {
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
   const [discoveryLoading, setDiscoveryLoading] = useState<boolean>(true);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+
+  // Phase 3: AI Workflow Understanding state
+  const [reviewModalOpen, setReviewModalOpen] = useState<boolean>(false);
+  const [activeReviewWorkflow, setActiveReviewWorkflow] = useState<DiscoveredWorkflow | null>(null);
+  const [workflowProposal, setWorkflowProposal] = useState<WorkflowProposal | null>(null);
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("idle");
+  const [workflowApprovals, setWorkflowApprovals] = useState<Record<string, "approved" | "rejected">>({});
 
   useEffect(() => {
     setMounted(true);
@@ -128,6 +163,77 @@ export default function Dashboard() {
       setDiscoveryLoading(false);
     }
   }, []);
+
+  // Phase 3: AI Workflow Review handler
+  const handleReviewWorkflow = useCallback(
+    async (wf: DiscoveredWorkflow) => {
+      setActiveReviewWorkflow(wf);
+      setReviewModalOpen(true);
+      setWorkflowProposal(null);
+      setAiLoading(true);
+      setAiError(null);
+      setApprovalStatus(workflowApprovals[wf.label] || "idle");
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/ai/workflow/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workflow: wf,
+            sequence: wf.sequence,
+            context: {
+              label: wf.label,
+              occurrences: wf.occurrences,
+              similarity: wf.similarity,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(
+            errorData.detail || `Server returned ${res.status}: ${res.statusText}`
+          );
+        }
+
+        const data = await res.json();
+        if (data.success && data.workflow) {
+          setWorkflowProposal(data.workflow);
+        } else {
+          throw new Error(data.error || "No workflow proposal generated");
+        }
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Failed to understand workflow with AI";
+        setAiError(msg);
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [workflowApprovals]
+  );
+
+  const handleApprove = () => {
+    setApprovalStatus("approved");
+    if (activeReviewWorkflow) {
+      setWorkflowApprovals((prev) => ({
+        ...prev,
+        [activeReviewWorkflow.label]: "approved",
+      }));
+    }
+  };
+
+  const handleReject = () => {
+    setApprovalStatus("rejected");
+    if (activeReviewWorkflow) {
+      setWorkflowApprovals((prev) => ({
+        ...prev,
+        [activeReviewWorkflow.label]: "rejected",
+      }));
+    }
+  };
 
   // Initial load
   useEffect(() => {
@@ -268,11 +374,11 @@ export default function Dashboard() {
                 <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
                   WorkFlow<span className="text-cyan-400">OS</span>
                 </h1>
-                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60">
-                  Phase 2
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-700/60">
+                  Phase 3
                 </span>
               </div>
-              <p className="text-xs text-zinc-400">Observational Event Ingestion & Activity Monitor</p>
+              <p className="text-xs text-zinc-400">Observational Event Ingestion, Discovery & AI Workflow Understanding</p>
             </div>
           </div>
 
@@ -583,18 +689,33 @@ export default function Dashboard() {
 
                     {/* Action footer */}
                     <div className="flex items-center justify-between pt-4 border-t border-zinc-800/60">
-                      <p className="text-[11px] text-zinc-600 italic">
-                        AI workflow generation coming in Phase 3.
-                      </p>
+                      <div>
+                        {workflowApprovals[wf.label] === "approved" ? (
+                          <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span>Workflow approved & ready for automation</span>
+                          </div>
+                        ) : workflowApprovals[wf.label] === "rejected" ? (
+                          <div className="flex items-center gap-1.5 text-xs text-rose-400 font-medium">
+                            <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                            <span>Workflow rejected by human review</span>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-zinc-500 italic">
+                            Infer intent & synthesize structured workflow with Gemini AI
+                          </p>
+                        )}
+                      </div>
                       <button
                         id={`review-workflow-btn-${idx}`}
-                        disabled
-                        title="AI workflow generation coming in Phase 3."
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-                          bg-zinc-800/60 text-zinc-500 border border-zinc-700/60 cursor-not-allowed opacity-60"
+                        onClick={() => handleReviewWorkflow(wf)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold
+                          bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500
+                          text-white border border-indigo-500/50 shadow-md shadow-indigo-950/60
+                          hover:shadow-indigo-500/20 active:scale-95 transition-all cursor-pointer"
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        <svg className="w-3.5 h-3.5 text-cyan-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                         Review Workflow
                       </button>
@@ -839,6 +960,305 @@ export default function Dashboard() {
         </section>
       </main>
 
+      {/* ──────────────────────────────────────────────────────────────
+          Phase 3: AI WORKFLOW PROPOSAL REVIEW MODAL
+      ────────────────────────────────────────────────────────────── */}
+      {reviewModalOpen && activeReviewWorkflow && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn"
+          onClick={() => {
+            if (!aiLoading) setReviewModalOpen(false);
+          }}
+        >
+          <div
+            id="workflow-review-modal"
+            className="bg-zinc-900 border border-zinc-700/80 rounded-2xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl relative max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-zinc-800 shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 uppercase tracking-wider">
+                    AI Workflow Proposal
+                  </span>
+                  <span className="text-zinc-600">•</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950/70 text-indigo-300 border border-indigo-800/60">
+                    Phase 3 • Gemini SDK
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold text-white mt-1">
+                  {workflowProposal ? workflowProposal.name : activeReviewWorkflow.label}
+                </h3>
+              </div>
+              <button
+                onClick={() => setReviewModalOpen(false)}
+                disabled={aiLoading}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition disabled:opacity-40 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="py-4 space-y-4 overflow-y-auto pr-1">
+              {/* 1. Loading State */}
+              {aiLoading && (
+                <div className="py-14 text-center space-y-4">
+                  <div className="relative w-14 h-14 mx-auto">
+                    <div className="absolute inset-0 rounded-full border-2 border-indigo-500/30 animate-ping"></div>
+                    <div className="w-14 h-14 rounded-full border-2 border-indigo-500 border-t-cyan-400 animate-spin"></div>
+                  </div>
+                  <div>
+                    <h4 className="text-base font-semibold text-white">
+                      Understanding workflow with AI...
+                    </h4>
+                    <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1">
+                      Gemini is analyzing the observed sequence across sessions to infer user intent, trigger, actions, and dynamic variables.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-1.5 pt-2">
+                    {activeReviewWorkflow.sequence.map((step, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-1 rounded text-xs font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700/60"
+                      >
+                        {formatEventStep(step)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. Error State */}
+              {!aiLoading && aiError && (
+                <div className="py-6 space-y-4">
+                  <div className="bg-rose-950/40 border border-rose-800/80 rounded-xl p-4 flex items-start gap-3">
+                    <svg className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-semibold text-rose-300">Workflow Understanding Unavailable</p>
+                      <p className="text-xs text-rose-300/80 mt-1">{aiError}</p>
+                      <p className="text-[11px] text-zinc-400 mt-2">
+                        Verify that <code className="text-indigo-300">GEMINI_API_KEY</code> is configured in <code className="text-zinc-300">.env</code> and that the backend server is reachable.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setReviewModalOpen(false)}
+                      className="px-3.5 py-1.5 rounded-lg text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                    <button
+                      onClick={() => handleReviewWorkflow(activeReviewWorkflow)}
+                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Retry Analysis
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Generated Proposal Content */}
+              {!aiLoading && !aiError && workflowProposal && (
+                <>
+                  {/* Intent */}
+                  <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-semibold block mb-1">
+                      Intent
+                    </span>
+                    <p className="text-sm text-zinc-200 leading-relaxed">
+                      {workflowProposal.intent}
+                    </p>
+                  </div>
+
+                  {/* Trigger */}
+                  <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-semibold">
+                        Trigger
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${getAppBadge(workflowProposal.trigger.application)}`}>
+                        {workflowProposal.trigger.application}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-white font-medium bg-zinc-850 px-2 py-0.5 rounded border border-zinc-700">
+                        {workflowProposal.trigger.type}
+                      </span>
+                      <span className="text-xs text-zinc-300">
+                        {workflowProposal.trigger.description}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Ordered Actions */}
+                  <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-purple-400 font-semibold">
+                        Actions ({workflowProposal.actions.length} Ordered Steps)
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono">Strict execution order</span>
+                    </div>
+                    <div className="space-y-2">
+                      {workflowProposal.actions.map((act, aIdx) => (
+                        <div
+                          key={aIdx}
+                          className="flex items-start justify-between gap-3 p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/60"
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800/80 flex items-center justify-center text-xs font-mono font-bold shrink-0 mt-0.5">
+                              {aIdx + 1}
+                            </span>
+                            <div>
+                              <p className="text-xs font-medium text-white">{act.description}</p>
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                <span className="font-mono text-[11px] text-cyan-300 bg-cyan-950/30 px-1.5 py-0.5 rounded border border-cyan-800/40">
+                                  {act.type}
+                                </span>
+                                {act.target && (
+                                  <span className="font-mono text-[11px] text-zinc-400">
+                                    Target: <code className="text-zinc-300">{act.target}</code>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono border shrink-0 ${getAppBadge(act.application)}`}>
+                            {act.application}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Variables and Applications */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Variables */}
+                    <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-semibold block mb-2">
+                        Variables
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {workflowProposal.variables && workflowProposal.variables.length > 0 ? (
+                          workflowProposal.variables.map((v, vi) => (
+                            <span
+                              key={vi}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-mono bg-amber-950/40 text-amber-300 border border-amber-800/60"
+                            >
+                              <span className="text-amber-500 font-bold">$</span>
+                              {v}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-zinc-500 italic">No dynamic variables detected</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Applications */}
+                    <div className="bg-zinc-950/80 rounded-xl p-4 border border-zinc-800">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-semibold block mb-2">
+                        Applications
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {workflowProposal.applications.map((app, ai) => (
+                          <span
+                            key={ai}
+                            className={`px-2.5 py-1 rounded text-xs font-mono border ${getAppBadge(app)}`}
+                          >
+                            {app}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Approval State Banners */}
+                  {approvalStatus === "approved" && (
+                    <div className="bg-emerald-950/60 border border-emerald-500/60 rounded-xl p-4 flex items-center gap-3 shadow-lg shadow-emerald-950/30 animate-fadeIn">
+                      <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-base font-bold shrink-0">
+                        ✓
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-emerald-200">
+                          Workflow approved and ready for automation.
+                        </p>
+                        <p className="text-xs text-emerald-400/80 mt-0.5">
+                          Phase 3 human review complete. Browser and application automation will execute in Phase 4.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {approvalStatus === "rejected" && (
+                    <div className="bg-zinc-950/80 border border-rose-800/60 rounded-xl p-4 flex items-center gap-3 animate-fadeIn">
+                      <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-base font-bold shrink-0">
+                        ✕
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-rose-200">Workflow rejected.</p>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          This workflow proposal was dismissed by human operator. No automation will be created.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer / Approval Controls */}
+            {!aiLoading && !aiError && workflowProposal && (
+              <div className="pt-4 border-t border-zinc-800 flex items-center justify-between gap-4 shrink-0">
+                {approvalStatus === "idle" ? (
+                  <>
+                    <div className="flex items-center gap-1.5 text-xs text-amber-400/90 font-medium">
+                      <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <span>Human review required before automation (Phase 3)</span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        id="reject-workflow-btn"
+                        onClick={handleReject}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-rose-950/60 hover:text-rose-200 hover:border-rose-700/60 border border-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        id="approve-workflow-btn"
+                        onClick={handleApprove}
+                        className="px-5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 border border-emerald-500/50 text-white rounded-lg text-xs font-semibold shadow-lg shadow-emerald-950/50 hover:shadow-emerald-500/20 transition active:scale-95 cursor-pointer"
+                      >
+                        Approve Workflow
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="w-full flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">Human decision recorded in session state</span>
+                    <button
+                      onClick={() => setReviewModalOpen(false)}
+                      className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Raw Event Modal / Drawer */}
       {selectedEvent && (
         <div
@@ -918,13 +1338,13 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="border-t border-zinc-800/80 bg-zinc-950 text-zinc-500 text-xs py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p>© 2026 WorkFlowOS. Phase 2 — Workflow Discovery Engine.</p>
+          <p>© 2026 WorkFlowOS. Phase 3 — AI Workflow Understanding Engine.</p>
           <div className="flex items-center gap-4 text-[11px]">
             <span>FastAPI: <code className="text-zinc-400">{API_BASE_URL}</code></span>
             <span>•</span>
             <span>MongoDB Atlas</span>
             <span>•</span>
-            <span className="text-indigo-400/70">Discovery: /api/discovery/repeated</span>
+            <span className="text-indigo-400/70">AI: /api/ai/workflow/generate</span>
           </div>
         </div>
       </footer>
