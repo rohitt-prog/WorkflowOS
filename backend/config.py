@@ -20,6 +20,10 @@ class Settings:
     # AI / Gemini Configuration (Phase 3)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # Playwright / Automation Configuration (Phase 4.3)
+    PLAYWRIGHT_BASE_URL: str = os.getenv("PLAYWRIGHT_BASE_URL", "http://localhost:3000")
+    PLAYWRIGHT_HEADLESS: bool = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() in ("true", "1", "yes")
     
     @property
     def cors_origins(self) -> List[str]:

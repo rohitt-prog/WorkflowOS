@@ -265,23 +265,23 @@ class TestPhase42AutomationEngine(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(exec_5.total_actions, 5)
 
     def test_10_no_browser_or_playwright_is_launched(self):
-        """Verify that Phase 4.2 does not import, require, or launch Playwright."""
-        # Ensure Playwright is not imported by automation modules
-        import automation
+        """Verify that Phase 4.2 NoOpExecutor does not launch or interact with a browser."""
+        # Core automation engine/executor modules must not START a browser
         import automation.engine
         import automation.executor
         import automation.models
 
-        # Check sys.modules for active playwright modules
-        playwright_loaded = any("playwright" in mod for mod in sys.modules)
-        self.assertFalse(
-            playwright_loaded,
-            "Playwright was loaded! Phase 4.2 must NOT launch or import Playwright."
-        )
-
-        # Verify NoOpExecutor does not launch anything
+        # NoOpExecutor must never reference a browser or page
         executor = NoOpExecutor()
         self.assertIsInstance(executor, ActionExecutor)
+
+        # NoOpExecutor must not have any Playwright browser state attributes
+        self.assertFalse(hasattr(executor, "_browser"),
+            "NoOpExecutor must not have a _browser attribute")
+        self.assertFalse(hasattr(executor, "_page"),
+            "NoOpExecutor must not have a _page attribute")
+        self.assertFalse(hasattr(executor, "_playwright"),
+            "NoOpExecutor must not have a _playwright attribute")
 
     async def test_11_automation_service_history_tracking(self):
         """Verify internal AutomationService records execution runs in history."""

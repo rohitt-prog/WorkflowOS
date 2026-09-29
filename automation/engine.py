@@ -184,57 +184,62 @@ class AutomationEngine:
             f"via {active_executor.__class__.__name__}..."
         )
 
-        for action in actions:
-            # Execute current action
-            logger.info(f"Executing step {action.id} ({action.type})...")
-            try:
-                result = await active_executor.execute(action, context=context)
-                results.append(result)
-            except Exception as e:
-                logger.error(f"Unexpected exception executing {action.id}: {e}", exc_info=True)
-                result = ExecutionActionResult(
-                    action_id=action.id,
-                    action_type=action.type,
-                    success=False,
-                    message=f"Executor exception: {str(e)}"
-                )
-                results.append(result)
+        try:
+            await active_executor.start()
 
-            if not result.success:
-                # Stop subsequent actions immediately
-                logger.warning(
-                    f"Action {action.id} failed: {result.message}. Halting workflow execution."
-                )
-                return AutomationExecution(
-                    execution_id=execution_id,
-                    workflow_name=proposal.name,
-                    status=AutomationStatus.FAILED,
-                    current_action=action.type,
-                    completed_actions=completed_actions,
-                    total_actions=len(actions),
-                    error=result.message,
-                    requires_human_intervention=False,
-                    results=results,
-                )
+            for action in actions:
+                # Execute current action
+                logger.info(f"Executing step {action.id} ({action.type})...")
+                try:
+                    result = await active_executor.execute(action, context=context)
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Unexpected exception executing {action.id}: {e}", exc_info=True)
+                    result = ExecutionActionResult(
+                        action_id=action.id,
+                        action_type=action.type,
+                        success=False,
+                        message=f"Executor exception: {str(e)}"
+                    )
+                    results.append(result)
 
-            # Record completed action
-            completed_actions.append(action.type)
+                if not result.success:
+                    # Stop subsequent actions immediately
+                    logger.warning(
+                        f"Action {action.id} failed: {result.message}. Halting workflow execution."
+                    )
+                    return AutomationExecution(
+                        execution_id=execution_id,
+                        workflow_name=proposal.name,
+                        status=AutomationStatus.FAILED,
+                        current_action=action.type,
+                        completed_actions=completed_actions,
+                        total_actions=len(actions),
+                        error=result.message,
+                        requires_human_intervention=False,
+                        results=results,
+                    )
 
-        # 4. Completed Execution
-        logger.info(
-            f"Workflow '{proposal.name}' completed successfully ({len(completed_actions)}/{len(actions)} actions)."
-        )
-        return AutomationExecution(
-            execution_id=execution_id,
-            workflow_name=proposal.name,
-            status=AutomationStatus.COMPLETED,
-            current_action=None,
-            completed_actions=completed_actions,
-            total_actions=len(actions),
-            error=None,
-            requires_human_intervention=False,
-            results=results,
-        )
+                # Record completed action
+                completed_actions.append(action.type)
+
+            # 4. Completed Execution
+            logger.info(
+                f"Workflow '{proposal.name}' completed successfully ({len(completed_actions)}/{len(actions)} actions)."
+            )
+            return AutomationExecution(
+                execution_id=execution_id,
+                workflow_name=proposal.name,
+                status=AutomationStatus.COMPLETED,
+                current_action=None,
+                completed_actions=completed_actions,
+                total_actions=len(actions),
+                error=None,
+                requires_human_intervention=False,
+                results=results,
+            )
+        finally:
+            await active_executor.cleanup()
 
 
 # Singleton instance for general use

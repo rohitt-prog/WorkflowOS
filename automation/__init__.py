@@ -16,6 +16,10 @@ from automation.executor import (
     ActionExecutor,
     NoOpExecutor,
 )
+from automation.playwright_executor import (
+    PlaywrightExecutor,
+    PLAYWRIGHT_SUPPORTED_ACTIONS,
+)
 from automation.engine import (
     AutomationEngine,
     automation_engine,
@@ -37,6 +41,8 @@ __all__ = [
     "ExecuteWorkflowRequest",
     "ActionExecutor",
     "NoOpExecutor",
+    "PlaywrightExecutor",
+    "PLAYWRIGHT_SUPPORTED_ACTIONS",
     "AutomationEngine",
     "automation_engine",
     "AutomationService",

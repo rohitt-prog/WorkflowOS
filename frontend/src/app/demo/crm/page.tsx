@@ -374,6 +374,7 @@ export default function DemoCrmPage() {
                   </label>
                   <select
                     id="edit-status"
+                    data-testid="customer-status"
                     value={editStatus}
                     onChange={(e) => setEditStatus(e.target.value as CustomerRecord["status"])}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 cursor-pointer font-sans"
@@ -393,6 +394,7 @@ export default function DemoCrmPage() {
                   </label>
                   <input
                     id="edit-tier"
+                    data-testid="customer-tier"
                     type="text"
                     value={editTier}
                     onChange={(e) => setEditTier(e.target.value)}
@@ -421,6 +423,7 @@ export default function DemoCrmPage() {
                 </label>
                 <textarea
                   id="edit-notes"
+                  data-testid="customer-notes"
                   rows={3}
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}

@@ -32,6 +32,14 @@ class ActionExecutor(ABC):
         """
         pass
 
+    async def start(self) -> None:
+        """Optional hook invoked before beginning a workflow sequence."""
+        pass
+
+    async def cleanup(self) -> None:
+        """Optional hook invoked after a workflow sequence completes or fails."""
+        pass
+
 
 class NoOpExecutor(ActionExecutor):
     """
