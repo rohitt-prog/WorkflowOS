@@ -4,287 +4,339 @@
 
 The **Automation** module translates human-approved [`WorkflowProposal`](../ai/models.py) schemas (produced by Phase 3 AI understanding) into validated, sequential action execution pipelines.
 
-> ⚠️ **Phase 4.3 Notice**:
-> Phase 4.3 adds **real browser execution** via `PlaywrightExecutor`, targeting the controlled local demo applications.
-> **Phase 4.3 does NOT yet connect the frontend approval button to automation.** The approval flow integration belongs to a later phase.
+Phase 4.4 connects the **Frontend AI Workflow Proposal approval flow** to the backend **AutomationEngine** and **PlaywrightExecutor**, enabling end-to-end execution of the complete 5-action demo workflow with browser automation, visual progress tracking, and human intervention handling.
 
 ---
 
-## Architecture
+## Phase 4.4 End-to-End Architecture
 
 ```
-Discovered Workflow (Phase 2)
-           ↓
-AI Workflow Understanding (Phase 3: WorkflowProposal)
-           ↓
-[Human Approval Safety Gate: approved == True]
-           ↓
-AutomationEngine (Phase 4.2)
-   ├── Action Mapping & Validation (SUPPORTED_ACTION_TYPES)
-   ├── Sequential Step Coordinator
-   └── ActionExecutor Interface
-           ↓
-     ┌───────────────────────────┬──────────────────────────┐
-     │ Phase 4.2 Default:        │ Phase 4.3 Active:        │
-     │ NoOpExecutor              │ PlaywrightExecutor       │
-     │ (Validation & Simulation) │ (Live Browser Control)   │
-     └───────────────────────────┴──────────────────────────┘
-           ↓
-     Controlled Demo Applications
-       /demo/email  /demo/crm  /demo/chat
+Frontend UI (Proposal Review Modal)
+        │
+        │ [User clicks: APPROVE & RUN] (approved=True)
+        ▼
+POST /api/automation/execute
+        │
+        ▼
+AutomationService (automation/service.py)
+        │
+        ▼
+AutomationEngine (automation/engine.py)
+   ├── 1. Action Mapping & Validation (SUPPORTED_ACTION_TYPES)
+   ├── 2. Approval Safety Gate (approved == True required)
+   └── 3. Sequential Step Coordinator
+        │
+        ▼
+PlaywrightExecutor (automation/playwright_executor.py)
+        │
+        ├── Action 1: open_email           → /demo/email
+        ├── Action 2: download_attachment  → /demo/email
+        ├── Action 3: search_customer      → /demo/crm
+        ├── Action 4: update_customer      → /demo/crm
+        └── Action 5: send_message         → /demo/chat
+        │
+        ▼
+Execution Result & Progress UI
+   ├── Happy Path: ✅ Workflow completed successfully (all 5 actions green)
+   └── Failure Path: ❌ Action failed + ⚠ Human intervention required (Workflow paused)
 ```
 
 ---
 
-## Core Components
+## Execution Chain & Safety
 
-### 1. `AutomationEngine` ([`automation/engine.py`](engine.py))
-Responsible for:
-1. Receiving a validated [`WorkflowProposal`](../ai/models.py).
-2. Enforcing the **Approval Safety Gate** (`approved == True`).
-3. Converting `WorkflowAction` objects into `AutomationAction` steps while preserving exact ordering.
-4. Generating deterministic execution IDs (`exec_<hex>`).
-5. Sequentially dispatching actions through an `ActionExecutor`.
-6. Halting immediately upon any step failure and preserving completed steps.
-7. Returning an `AutomationExecution` snapshot.
+Strict hierarchy prevents execution bypass:
 
-### 2. Action Mapping & Supported Verbs
-The engine validates that every action belongs to the canonical Phase 4 action verbs:
+1. **API Route** (`POST /api/automation/execute`):
+   - Validates request payload (`workflow` / `actions`, `approved`, `parameters`, `executor_type`).
+   - Delegates execution directly to `automation_service`.
+   - Never calls `PlaywrightExecutor` directly from the route.
 
-| Action Verb | Application Target | Canonical Route | Description |
-|---|---|---|---|
-| `open_email` | `demo_email` | `/demo/email` | Opens customer request email in WorkFlow Mail |
-| `download_attachment` | `demo_email` | `/demo/email` | Downloads `customer_request.pdf` (mock state) |
-| `search_customer` | `demo_crm` | `/demo/crm` | Searches for customer record (e.g. Rahul) |
-| `update_customer` | `demo_crm` | `/demo/crm` | Updates customer notes field |
-| `send_message` | `demo_chat` | `/demo/chat` | Posts notification to `#customer-support` |
+2. **AutomationService** (`automation/service.py`):
+   - Coordinates execution runs, selects the appropriate executor (`PlaywrightExecutor` for live execution or `NoOpExecutor` for headless unit testing).
+   - Records execution history accessible via `GET /api/automation/executions`.
 
-If an unknown action verb is encountered (e.g., `hack_mainframe`), an `UnsupportedActionError` is raised and execution is refused without running any steps.
+3. **AutomationEngine** (`automation/engine.py`):
+   - **Approval Gate**: If `approved != True`, immediately returns `status="pending"` with 0 completed actions. Neither Playwright nor browser is ever launched.
+   - **Action Validation**: Ensures all action verbs belong to `SUPPORTED_ACTION_TYPES`.
+   - **Sequential Execution**: Runs actions one-by-one. Halts immediately upon any action failure. Preserves already completed actions and cleans up all browser resources.
 
-### 3. Approval Safety Gate
-- Execution is strictly conditioned on explicit operator approval (`approved=True`).
-- If `approved=False`, status remains `AutomationStatus.PENDING`, `completed_actions` is empty, and zero actions are executed.
-- Approval cannot be automatically inferred or bypassed.
-- **`PlaywrightExecutor` itself does NOT bypass this gate.** The engine controls all dispatch.
-
-### 4. `ActionExecutor` Abstraction ([`automation/executor.py`](executor.py))
-Defines an asynchronous interface:
-```python
-class ActionExecutor(ABC):
-    @abstractmethod
-    async def execute(self, action: AutomationAction, context: Optional[Dict[str, Any]] = None) -> ExecutionActionResult:
-        pass
-```
-
-- **`NoOpExecutor` (Phase 4.2, still available)**:
-  - Validates action structure and confirms step execution flow.
-  - Returns deterministic success responses with zero side effects.
-  - Does **not** launch a browser or import Playwright.
-  - Supports configurable `fail_actions` for testing error recovery.
-
-- **`PlaywrightExecutor` (Phase 4.3, active)**:
-  - Implements `ActionExecutor` using the Playwright Python async API.
-  - Connects to the controlled demo applications (`/demo/email`, `/demo/crm`, `/demo/chat`).
-  - Interacts with stable `data-testid` selectors established in Phase 4.1.
-  - Never bypasses the AutomationEngine approval gate.
+4. **PlaywrightExecutor** (`automation/playwright_executor.py`):
+   - Launches headless Chromium browser.
+   - Drives user interactions across `/demo/email`, `/demo/crm`, and `/demo/chat` via robust `data-testid` selectors.
+   - Cleans up all browser contexts and pages upon workflow completion or error.
 
 ---
 
-## PlaywrightExecutor (Phase 4.3)
+## API Specification
 
-### File
-[`automation/playwright_executor.py`](playwright_executor.py)
+### Endpoint: `POST /api/automation/execute`
 
-### Supported Browser Actions
+#### Request Payload
+```json
+{
+  "workflow": {
+    "name": "Process Customer Request",
+    "intent": "Automate customer email attachment processing and CRM update",
+    "trigger": {
+      "type": "new_email",
+      "application": "demo_email",
+      "description": "Email received from customer"
+    },
+    "actions": [
+      {
+        "type": "open_email",
+        "application": "demo_email",
+        "description": "Open customer email",
+        "target": "customer_request"
+      },
+      {
+        "type": "download_attachment",
+        "application": "demo_email",
+        "description": "Download email attachment",
+        "target": "attachment"
+      },
+      {
+        "type": "search_customer",
+        "application": "demo_crm",
+        "description": "Search customer in CRM",
+        "target": "Rahul"
+      },
+      {
+        "type": "update_customer",
+        "application": "demo_crm",
+        "description": "Update customer record in CRM",
+        "target": "Rahul"
+      },
+      {
+        "type": "send_message",
+        "application": "demo_chat",
+        "description": "Send notification message to chat",
+        "target": "customer_request"
+      }
+    ],
+    "variables": ["customer_name", "attachment"],
+    "applications": ["demo_email", "demo_crm", "demo_chat"],
+    "requires_approval": true
+  },
+  "approved": true,
+  "session_id": "session_001",
+  "parameters": {
+    "customer_name": "Rahul"
+  },
+  "executor_type": "playwright"
+}
+```
 
-| Action | Demo App | Key Selectors |
+#### Happy Path Response (`status="completed"`)
+```json
+{
+  "status": "completed",
+  "workflow_id": "exec_301325576b79",
+  "workflow_name": "Process Customer Request",
+  "message": "Workflow completed successfully",
+  "requires_human_intervention": false,
+  "human_intervention": null,
+  "actions": [
+    {
+      "action": "open_email",
+      "status": "completed",
+      "message": "Customer email opened and attachment container verified"
+    },
+    {
+      "action": "download_attachment",
+      "status": "completed",
+      "message": "Attachment downloaded and confirmed in demo UI"
+    },
+    {
+      "action": "search_customer",
+      "status": "completed",
+      "message": "Customer Rahul found"
+    },
+    {
+      "action": "update_customer",
+      "status": "completed",
+      "message": "Customer updated successfully in CRM"
+    },
+    {
+      "action": "send_message",
+      "status": "completed",
+      "message": "Notification message sent to chat channel"
+    }
+  ],
+  "completed_actions": [
+    "open_email",
+    "download_attachment",
+    "search_customer",
+    "update_customer",
+    "send_message"
+  ],
+  "total_actions": 5
+}
+```
+
+#### Failure Path Response (`status="failed"`)
+```json
+{
+  "status": "failed",
+  "workflow_id": "exec_833f47d588d0",
+  "workflow_name": "Process Customer Request",
+  "failed_action": "search_customer",
+  "message": "Customer 'Unknown Customer' not found",
+  "requires_human_intervention": true,
+  "human_intervention": {
+    "title": "Workflow paused",
+    "reason": "Customer not found",
+    "action_required": "Please resolve the issue in WorkFlow CRM."
+  },
+  "actions": [
+    {
+      "action": "open_email",
+      "status": "completed",
+      "message": "Customer email opened and attachment container verified"
+    },
+    {
+      "action": "download_attachment",
+      "status": "completed",
+      "message": "Attachment downloaded and confirmed in demo UI"
+    },
+    {
+      "action": "search_customer",
+      "status": "failed",
+      "message": "Customer 'Unknown Customer' not found"
+    }
+  ],
+  "completed_actions": [
+    "open_email",
+    "download_attachment"
+  ],
+  "total_actions": 5
+}
+```
+
+#### Unapproved Response (`approved=false`)
+```json
+{
+  "status": "pending",
+  "workflow_id": "exec_e64a21283e8e",
+  "workflow_name": "Process Customer Request",
+  "message": "Workflow execution pending approval. Human approval is required.",
+  "requires_human_intervention": false,
+  "human_intervention": null,
+  "actions": [],
+  "completed_actions": [],
+  "total_actions": 5
+}
+```
+
+---
+
+## Playwright Selectors Used
+
+All actions interact deterministically with stable `data-testid` attributes:
+
+| Route | Action | Key Selectors |
 |---|---|---|
-| `open_email` | `/demo/email` | `[data-testid="email-item"]`, `[data-testid="open-email"]`, verifies `[data-testid="download-attachment"]` |
-| `download_attachment` | `/demo/email` | `[data-testid="download-attachment"]`, verifies `[data-testid="download-status"]` contains "Attachment downloaded" |
-| `search_customer` | `/demo/crm` | `[data-testid="customer-search"]`, `[data-testid="search-customer"]`, verifies `[data-testid="customer-result"]` |
-| `update_customer` | `/demo/crm` | `[data-testid="customer-notes"]`, `[data-testid="update-customer"]`, verifies `[data-testid="update-status"]` contains "Customer updated" |
-| `send_message` | `/demo/chat` | `[data-testid="message-input"]`, `[data-testid="send-message"]`, verifies `[data-testid="sent-message"]` and `[data-testid="send-status"]` contains "Message sent" |
-
-### Usage
-
-```python
-from automation.playwright_executor import PlaywrightExecutor
-from automation.engine import AutomationEngine
-
-# Inject PlaywrightExecutor into the engine
-engine = AutomationEngine()
-executor = PlaywrightExecutor(base_url="http://localhost:3000", headless=True)
-
-execution = await engine.execute_workflow(
-    proposal=proposal,
-    approved=True,
-    executor=executor,
-)
-```
-
-Using as context manager (handles lifecycle automatically):
-```python
-async with PlaywrightExecutor(base_url="http://localhost:3000", headless=True) as executor:
-    result = await executor.execute(action)
-```
-
-### BASE_URL Configuration
-
-The executor reads `PLAYWRIGHT_BASE_URL` from:
-1. Constructor argument `base_url=...`
-2. `settings.PLAYWRIGHT_BASE_URL` (from `backend/config.py`)
-3. Environment variable `PLAYWRIGHT_BASE_URL`
-4. Default fallback: `http://localhost:3000`
-
-Demo routes are derived automatically:
-```
-{BASE_URL}/demo/email
-{BASE_URL}/demo/crm
-{BASE_URL}/demo/chat
-```
-
-Do **not** hardcode `localhost` throughout the executor — always use the configured `base_url`.
-
-### Headless / Headed Configuration
-
-```bash
-# Headless (default for production/CI)
-PLAYWRIGHT_HEADLESS=true
-
-# Headed (useful for debugging)
-PLAYWRIGHT_HEADLESS=false
-```
-
-Or pass directly:
-```python
-PlaywrightExecutor(headless=False)  # opens visible browser window
-```
-
-### Browser Lifecycle
-
-Each workflow execution follows a clean lifecycle:
-
-```
-start()
-  ↓
-async_playwright().start()
-  ↓
-chromium.launch(headless=...)
-  ↓
-browser.new_context()
-  ↓
-context.new_page()
-  ↓
-execute actions sequentially
-  ↓
-cleanup() — always called in finally block
-  ↓
-page.close() → context.close() → browser.close() → playwright.stop()
-```
-
-**No orphaned browser processes are left after execution** — cleanup is always called even if an action raises an exception.
-
-### Happy Path
-
-```
-/demo/email
-    ↓ open_email (click Open button on Rahul's email)
-    ↓ download_attachment (click Download, verify "Attachment downloaded" status)
-    ↓
-/demo/crm
-    ↓ search_customer (search "Rahul", verify customer-result appears)
-    ↓ update_customer (fill notes, click Update Customer, verify "Customer updated")
-    ↓
-/demo/chat
-    ↓ send_message (type message, click Send, verify "Message sent")
-    ↓
-status = completed
-completed_actions = ["open_email", "download_attachment", "search_customer", "update_customer", "send_message"]
-```
-
-### Failure Behavior
-
-- If any action fails (e.g., customer not found), execution halts immediately.
-- Subsequent actions are **not** executed.
-- `completed_actions` only contains successfully completed actions.
-- `status` is set to `AutomationStatus.FAILED`.
-- Stack traces are **not** exposed in `ExecutionActionResult`; only structured error messages.
-- Browser cleanup is always performed, even after failure.
-
-**Deterministic failure test**: searching for `"Unknown Customer"` triggers `search_customer` failure → `update_customer` and `send_message` are skipped.
-
-### Action Variables / Parameters
-
-Action parameters are resolved from multiple sources (in priority order):
-1. `action.parameters` dict (e.g., `{"customer_name": "Rahul"}`)
-2. `context` dict passed to engine
-3. Fallback: `"Rahul"` for customer name, default notification text for messages
+| `/demo/email` | `open_email` | `[data-testid="email-item"]`, `[data-testid="open-email"]` |
+| `/demo/email` | `download_attachment` | `[data-testid="download-attachment"]`, `[data-testid="download-status"]` |
+| `/demo/crm` | `search_customer` | `[data-testid="customer-search"]`, `[data-testid="search-customer"]`, `[data-testid="customer-result"]`, `[data-testid="not-found-message"]` |
+| `/demo/crm` | `update_customer` | `[data-testid="customer-notes"]`, `[data-testid="update-customer"]`, `[data-testid="update-status"]` |
+| `/demo/chat` | `send_message` | `[data-testid="chat-channel"]`, `[data-testid="message-input"]`, `[data-testid="send-message"]`, `[data-testid="send-status"]` |
 
 ---
 
-## Phase 4.3 Limitations
+## Frontend UI Behavior
 
-The following are **explicitly not implemented** in Phase 4.3 and belong to later phases:
+The Workflow Proposal review modal (`frontend/src/app/page.tsx`) provides:
 
-- Frontend Approve → Execute integration
-- Human intervention UI
-- Pause / Resume workflow
-- Execution dashboard
-- Retries on failure
-- CV / image-based automation fallback
-- Real SaaS integrations (Gmail, Slack, Salesforce)
-- Authentication flows
-- Background workers / parallel execution
-- Automatic workflow triggering
-
----
-
-## Execution Lifecycle States (`AutomationStatus`)
-
-| Status | Meaning |
-|---|---|
-| `pending` | Workflow proposal received but awaiting operator approval (`approved=False`). |
-| `running` | Actions are actively executing sequentially. |
-| `completed` | All actions executed successfully without error. |
-| `failed` | An action failed during execution; subsequent steps were halted. |
-| `waiting_for_human` | Execution paused for operator intervention (Phase 4.6). |
+1. **Parameter Selector**:
+   - `Rahul (Happy Path)`: Searches for known customer; executes all 5 actions to completion.
+   - `Unknown Customer (Fail Demo)`: Searches for non-existent customer; deterministically triggers human intervention failure.
+2. **Action Trigger**:
+   - Button labeled `APPROVE & RUN` (`id="approve-workflow-btn"`).
+   - When clicked, displays active state: `Running Workflow...` with animated spinner.
+3. **Happy Path Progress**:
+   - Shows `✅ Workflow completed successfully`.
+   - Displays real-time checklist:
+     - `✓ Open email`
+     - `✓ Download attachment`
+     - `✓ Search customer`
+     - `✓ Update customer`
+     - `✓ Send message`
+4. **Failure & Human Intervention UI**:
+   - Displays action checklist highlighting point of failure:
+     - `✓ Open email`
+     - `✓ Download attachment`
+     - `❌ Search customer`
+   - Halts prior to executing `update_customer` or `send_message`.
+   - Displays human intervention alert card:
+     ```
+     Workflow paused
+     Reason: Customer not found
+     Action required: Please resolve the issue in WorkFlow CRM.
+     ⚠ Human intervention required
+     ```
 
 ---
 
 ## Testing
 
-### Phase 4.2 (Unit / Engine, no browser required)
+### 1. Phase 4.4 Integration Tests
+```bash
+.venv/bin/python backend/test_phase4_4.py
+```
+Validates:
+- `approved=false` blocks execution and never calls Playwright (status=`pending`)
+- `approved=true` runs full 5-action workflow via Playwright to status=`completed`
+- `Unknown Customer` fails at `search_customer`, stops later actions, returns human intervention details
+- `executor_type='noop'` runs headless for unit testing
+- `GET /api/automation/executions` tracks history
+- Unsupported action verbs are rejected gracefully
+
+### 2. Regression Tests
 ```bash
 .venv/bin/python backend/test_phase4_2.py
-```
-
-### Phase 4.3 (Integration tests, Playwright browser required)
-
-**Prerequisites:**
-1. Frontend running: `cd frontend && npm run dev`
-2. Playwright Chromium installed: `.venv/bin/playwright install chromium`
-3. Python venv active: `.venv`
-
-```bash
 .venv/bin/python backend/test_phase4_3.py
+.venv/bin/python backend/test_phase3.py
 ```
 
-**Tests cover:**
-1. `PlaywrightExecutor` can be constructed
-2. Correct demo base URLs are generated
-3. `open_email` works
-4. `download_attachment` works
-5. `search_customer` works for Rahul
-6. `update_customer` works
-7. `send_message` works
-8. Full 5-action happy-path workflow completes
-9. Unknown action rejected by `AutomationEngine`
-10. Failure stops subsequent actions
-11. Browser resources are cleaned up
-12. `approved=False` prevents Playwright execution
+### 3. Frontend Production Build
+```bash
+cd frontend && npm run build
+```
 
 ---
 
-## Phase 4.3 Statement
+## Manual Demo Steps
 
-> **Phase 4.3 adds browser execution via `PlaywrightExecutor` but does not yet connect the frontend approval button to automation.** Workflow execution is triggered programmatically from tests or direct API calls. The frontend Approve button integration belongs to a later phase.
+1. Start backend:
+   ```bash
+   uvicorn backend.main:app --port 8000 --reload
+   ```
+2. Start frontend:
+   ```bash
+   cd frontend && npm run dev
+   ```
+3. Open `http://localhost:3000` in your browser.
+4. Under **Workflow Candidates (Phase 2 & 3)**, click **Review AI Proposal**.
+5. The AI Workflow Proposal modal will open showing inferred trigger, actions, variables, and apps.
+6. **Happy Path**: Keep `Rahul (Happy Path)` selected, click **APPROVE & RUN**.
+   - Notice state change to `Running Workflow...`.
+   - Playwright automated browser completes all 5 actions.
+   - Result card updates to `✅ Workflow completed successfully` with 5 green checks.
+7. **Failure Demo**: Click **Run Again**, select `Unknown Customer (Fail Demo)`, click **APPROVE & RUN**.
+   - Notice actions 1 and 2 succeed (`open_email`, `download_attachment`).
+   - Action 3 (`search_customer`) fails with `❌ Search customer`.
+   - Steps 4 and 5 do not execute.
+   - Human intervention card appears:
+     - `Workflow paused`
+     - `Reason: Customer not found`
+     - `Action required: Please resolve the issue in WorkFlow CRM.`
+
+---
+
+## Known Limitations
+
+- Supported canonical actions are currently restricted to the 5 demo actions (`open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`).
+- Automated actions target local demo endpoints (`/demo/email`, `/demo/crm`, `/demo/chat`), not external third-party SaaS services.
+- Resuming workflows after human intervention (pause/resume state machine) is scheduled for Phase 4.6.

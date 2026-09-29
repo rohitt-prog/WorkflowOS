@@ -23,21 +23,33 @@ class AutomationService:
         proposal: WorkflowProposal,
         approved: bool = False,
         executor: Optional[ActionExecutor] = None,
+        executor_type: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> AutomationExecution:
         """
         Executes a workflow proposal through the automation engine and records the run.
+        Supports concrete PlaywrightExecutor selection for Phase 4.4 and NoOpExecutor for testing.
         """
+        active_executor = executor
+        if active_executor is None and executor_type:
+            if executor_type.lower() == "playwright":
+                from automation.playwright_executor import PlaywrightExecutor
+                active_executor = PlaywrightExecutor()
+            elif executor_type.lower() == "noop":
+                from automation.executor import NoOpExecutor
+                active_executor = NoOpExecutor()
+
         execution = await self._engine.execute_workflow(
             proposal=proposal,
             approved=approved,
-            executor=executor,
+            executor=active_executor,
             parameters=parameters,
             context=context,
         )
         self._executions[execution.execution_id] = execution
         return execution
+
 
     def get_execution(self, execution_id: str) -> Optional[AutomationExecution]:
         """

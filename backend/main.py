@@ -7,6 +7,8 @@ from backend.database import init_indexes, close_mongo_connection
 from backend.routes.events import router as events_router
 from backend.routes.discovery import router as discovery_router
 from backend.routes.ai import router as ai_router
+from backend.routes.automation import router as automation_router
+
 
 # Configure logging
 logging.basicConfig(
@@ -50,6 +52,8 @@ async def health_check():
 app.include_router(events_router)
 app.include_router(discovery_router)
 app.include_router(ai_router)
+app.include_router(automation_router)
+
 
 if __name__ == "__main__":
     import uvicorn

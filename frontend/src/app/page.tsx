@@ -64,6 +64,49 @@ interface WorkflowProposal {
 
 type ApprovalStatus = "idle" | "approved" | "rejected";
 
+// ── Phase 4.4: Automation Execution types ──
+interface AutomationActionStatus {
+  action: string;
+  status: "completed" | "failed" | "pending";
+  message?: string;
+}
+
+interface HumanIntervention {
+  title: string;
+  reason: string;
+  action_required: string;
+}
+
+interface AutomationExecutionResponse {
+  status: "completed" | "failed" | "pending";
+  workflow_id: string;
+  workflow_name?: string;
+  failed_action?: string;
+  message?: string;
+  requires_human_intervention?: boolean;
+  human_intervention?: HumanIntervention;
+  actions: AutomationActionStatus[];
+  completed_actions: string[];
+  total_actions: number;
+}
+
+const getActionDisplayLabel = (actionType: string): string => {
+  switch (actionType) {
+    case "open_email":
+      return "Open email";
+    case "download_attachment":
+      return "Download attachment";
+    case "search_customer":
+      return "Search customer";
+    case "update_customer":
+      return "Update customer";
+    case "send_message":
+      return "Send message";
+    default:
+      return actionType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+};
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
 
@@ -93,6 +136,12 @@ export default function Dashboard() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("idle");
   const [workflowApprovals, setWorkflowApprovals] = useState<Record<string, "approved" | "rejected">>({});
+
+  // Phase 4.4: Automation Execution state
+  const [isExecuting, setIsExecuting] = useState<boolean>(false);
+  const [executionResult, setExecutionResult] = useState<AutomationExecutionResponse | null>(null);
+  const [executionError, setExecutionError] = useState<string | null>(null);
+  const [testCustomerTarget, setTestCustomerTarget] = useState<string>("Rahul");
 
   useEffect(() => {
     setMounted(true);
@@ -174,6 +223,10 @@ export default function Dashboard() {
       setAiLoading(true);
       setAiError(null);
       setApprovalStatus(workflowApprovals[wf.label] || "idle");
+      setIsExecuting(false);
+      setExecutionResult(null);
+      setExecutionError(null);
+      setTestCustomerTarget("Rahul");
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/ai/workflow/generate`, {
@@ -216,14 +269,72 @@ export default function Dashboard() {
     [workflowApprovals]
   );
 
-  const handleApprove = () => {
-    setApprovalStatus("approved");
-    if (activeReviewWorkflow) {
-      setWorkflowApprovals((prev) => ({
-        ...prev,
-        [activeReviewWorkflow.label]: "approved",
-      }));
+  const handleApproveAndRun = async () => {
+    if (!workflowProposal) return;
+    setIsExecuting(true);
+    setExecutionError(null);
+    setExecutionResult(null);
+
+    // Customize actions with test customer target
+    const updatedActions = workflowProposal.actions.map((act) => {
+      if (act.type === "search_customer" || act.type === "update_customer") {
+        return {
+          ...act,
+          target: testCustomerTarget || "Rahul",
+        };
+      }
+      return act;
+    });
+
+    const proposalToRun = {
+      ...workflowProposal,
+      actions: updatedActions,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/automation/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflow: proposalToRun,
+          approved: true,
+          session_id: activeReviewWorkflow?.session_ids?.[0],
+          parameters: {
+            customer_name: testCustomerTarget || "Rahul",
+          },
+          executor_type: "playwright",
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Server returned error ${res.status}`);
+      }
+
+      const data: AutomationExecutionResponse = await res.json();
+      setExecutionResult(data);
+
+      if (data.status === "completed") {
+        setApprovalStatus("approved");
+        if (activeReviewWorkflow) {
+          setWorkflowApprovals((prev) => ({
+            ...prev,
+            [activeReviewWorkflow.label]: "approved",
+          }));
+        }
+      } else if (data.status === "failed") {
+        setApprovalStatus("approved");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Execution failed";
+      setExecutionError(msg);
+    } finally {
+      setIsExecuting(false);
     }
+  };
+
+  const handleApprove = () => {
+    handleApproveAndRun();
   };
 
   const handleReject = () => {
@@ -1193,24 +1304,153 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* Approval State Banners */}
-                  {approvalStatus === "approved" && (
-                    <div className="bg-emerald-950/60 border border-emerald-500/60 rounded-xl p-4 flex items-center gap-3 shadow-lg shadow-emerald-950/30 animate-fadeIn">
-                      <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-base font-bold shrink-0">
-                        ✓
-                      </div>
+                  {/* Target Customer Test Switcher */}
+                  <div className="bg-zinc-950/70 rounded-xl p-3.5 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-semibold block">
+                        Target Customer Parameter
+                      </span>
+                      <span className="text-xs text-zinc-400">
+                        Choose test customer to verify Happy Path or Human Intervention
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTestCustomerTarget("Rahul")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer ${
+                          testCustomerTarget === "Rahul"
+                            ? "bg-cyan-600 text-white border border-cyan-400 shadow-md shadow-cyan-950"
+                            : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700"
+                        }`}
+                      >
+                        Rahul (Happy Path)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTestCustomerTarget("Unknown Customer")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer ${
+                          testCustomerTarget === "Unknown Customer"
+                            ? "bg-amber-600 text-white border border-amber-400 shadow-md shadow-amber-950"
+                            : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700"
+                        }`}
+                      >
+                        Unknown Customer (Fail Demo)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4. Execution State & Progress (Phase 4.4) */}
+                  {isExecuting && (
+                    <div className="bg-indigo-950/50 border border-indigo-500/60 rounded-xl p-4 flex items-center gap-3 animate-pulse shadow-lg shadow-indigo-950/30">
+                      <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin shrink-0" />
                       <div>
-                        <p className="text-sm font-bold text-emerald-200">
-                          Workflow approved and ready for automation.
-                        </p>
-                        <p className="text-xs text-emerald-400/80 mt-0.5">
-                          Phase 3 human review complete. Browser and application automation will execute in Phase 4.
+                        <p className="text-sm font-bold text-white">Running Workflow...</p>
+                        <p className="text-xs text-indigo-300 mt-0.5">
+                          Automating browser across /demo/email, /demo/crm, and /demo/chat...
                         </p>
                       </div>
                     </div>
                   )}
 
-                  {approvalStatus === "rejected" && (
+                  {executionError && (
+                    <div className="bg-rose-950/60 border border-rose-600 rounded-xl p-3 text-xs text-rose-200 animate-fadeIn">
+                      <p className="font-bold">Execution Error</p>
+                      <p className="mt-0.5">{executionError}</p>
+                    </div>
+                  )}
+
+                  {executionResult && executionResult.status === "completed" && (
+                    <div className="bg-emerald-950/60 border border-emerald-500/60 rounded-xl p-4 shadow-lg shadow-emerald-950/30 animate-fadeIn space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-lg font-bold shrink-0">
+                          ✓
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-emerald-200">
+                            ✅ Workflow completed successfully
+                          </p>
+                          <p className="text-xs text-emerald-400/80 mt-0.5">
+                            Run ID: <code className="font-mono text-emerald-300">{executionResult.workflow_id}</code> • All {executionResult.completed_actions.length} actions verified in browser
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action checklist */}
+                      <div className="pt-2 border-t border-emerald-900/60 space-y-1.5 font-mono text-xs">
+                        {executionResult.actions.map((act, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between text-emerald-300 bg-emerald-950/40 px-3 py-1.5 rounded border border-emerald-800/40"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className="text-emerald-400 font-bold">✓</span>
+                              <span className="font-sans font-medium text-emerald-100">
+                                {getActionDisplayLabel(act.action)}
+                              </span>
+                            </span>
+                            <span className="text-[11px] text-emerald-400/80">{act.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {executionResult && executionResult.status === "failed" && (
+                    <div className="bg-rose-950/40 border border-rose-500/60 rounded-xl p-4 shadow-lg shadow-rose-950/30 animate-fadeIn space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-base font-bold shrink-0 mt-0.5">
+                          ✕
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-rose-200">
+                            {executionResult.human_intervention?.title || "Workflow paused"}
+                          </p>
+                          <div className="mt-1 space-y-1 text-xs text-rose-300/90 font-sans">
+                            <p>
+                              <span className="font-semibold text-rose-200">Reason:</span>{" "}
+                              {executionResult.human_intervention?.reason || executionResult.message || "Customer not found"}
+                            </p>
+                            <p>
+                              <span className="font-semibold text-rose-200">Action required:</span>{" "}
+                              {executionResult.human_intervention?.action_required || "Please resolve the issue in WorkFlow CRM."}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action checklist with failure point */}
+                      <div className="space-y-1.5 font-mono text-xs pt-2 border-t border-rose-900/60">
+                        {executionResult.actions.map((act, idx) => (
+                          <div
+                            key={idx}
+                            className={`flex items-center justify-between px-3 py-1.5 rounded border ${
+                              act.status === "completed"
+                                ? "bg-emerald-950/30 text-emerald-300 border-emerald-800/40"
+                                : "bg-rose-950/60 text-rose-200 border-rose-700/60"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className={act.status === "completed" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                                {act.status === "completed" ? "✓" : "❌"}
+                              </span>
+                              <span className="font-sans font-medium text-white">
+                                {getActionDisplayLabel(act.action)}
+                              </span>
+                            </span>
+                            <span className="text-[11px] opacity-80">{act.message || act.status}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-950/50 border border-amber-600/60 text-amber-200 text-xs font-medium">
+                        <span className="text-base">⚠</span>
+                        <span>Human intervention required</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {approvalStatus === "rejected" && !executionResult && (
                     <div className="bg-zinc-950/80 border border-rose-800/60 rounded-xl p-4 flex items-center gap-3 animate-fadeIn">
                       <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-base font-bold shrink-0">
                         ✕
@@ -1230,44 +1470,62 @@ export default function Dashboard() {
             {/* Modal Footer / Approval Controls */}
             {!aiLoading && !aiError && workflowProposal && (
               <div className="pt-4 border-t border-zinc-800 flex items-center justify-between gap-4 shrink-0">
-                {approvalStatus === "idle" ? (
-                  <>
-                    <div className="flex items-center gap-1.5 text-xs text-amber-400/90 font-medium">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
+                  {isExecuting ? (
+                    <span className="text-indigo-400 font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                      Automating in browser...
+                    </span>
+                  ) : executionResult ? (
+                    <span className={executionResult.status === "completed" ? "text-emerald-400" : "text-amber-400"}>
+                      {executionResult.status === "completed" ? "Execution completed" : "Workflow paused: intervention needed"}
+                    </span>
+                  ) : (
+                    <span className="text-amber-400/90 flex items-center gap-1.5">
                       <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                       </svg>
-                      <span>Human review required before automation (Phase 3)</span>
-                    </div>
-                    <div className="flex items-center gap-2.5">
-                      <button
-                        id="reject-workflow-btn"
-                        onClick={handleReject}
-                        className="px-4 py-2 bg-zinc-800 hover:bg-rose-950/60 hover:text-rose-200 hover:border-rose-700/60 border border-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        id="approve-workflow-btn"
-                        onClick={handleApprove}
-                        className="px-5 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 border border-emerald-500/50 text-white rounded-lg text-xs font-semibold shadow-lg shadow-emerald-950/50 hover:shadow-emerald-500/20 transition active:scale-95 cursor-pointer"
-                      >
-                        Approve Workflow
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="w-full flex items-center justify-between">
-                    <span className="text-xs text-zinc-500">Human decision recorded in session state</span>
+                      Human approval required before execution
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2.5">
+                  {!isExecuting && !executionResult && approvalStatus === "idle" && (
+                    <button
+                      id="reject-workflow-btn"
+                      onClick={handleReject}
+                      className="px-4 py-2 bg-zinc-800 hover:bg-rose-950/60 hover:text-rose-200 hover:border-rose-700/60 border border-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer"
+                    >
+                      Reject
+                    </button>
+                  )}
+                  <button
+                    id="approve-workflow-btn"
+                    onClick={handleApproveAndRun}
+                    disabled={isExecuting}
+                    className={`px-5 py-2 text-white rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-2 shadow-lg ${
+                      isExecuting
+                        ? "bg-zinc-700 opacity-80 cursor-not-allowed"
+                        : "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 border border-emerald-500/50 shadow-emerald-950/50 hover:shadow-emerald-500/20"
+                    }`}
+                  >
+                    {isExecuting && (
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    )}
+                    <span>{isExecuting ? "Running Workflow..." : executionResult ? "Run Again" : "APPROVE & RUN"}</span>
+                  </button>
+                  {(!isExecuting && (executionResult || approvalStatus !== "idle")) && (
                     <button
                       onClick={() => setReviewModalOpen(false)}
-                      className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition cursor-pointer"
+                      className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition cursor-pointer"
                     >
                       Close
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
+
           </div>
         </div>
       )}

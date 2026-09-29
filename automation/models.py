@@ -112,15 +112,53 @@ class ExecuteWorkflowRequest(BaseModel):
     Request payload to trigger workflow execution.
     Requires explicit approved=True to pass the approval safety gate.
     """
-    workflow: WorkflowProposal = Field(
-        ...,
+    workflow: Optional[WorkflowProposal] = Field(
+        default=None,
         description="Validated WorkflowProposal produced by Phase 3"
+    )
+    proposal: Optional[WorkflowProposal] = Field(
+        default=None,
+        description="Alternative alias for workflow proposal"
+    )
+    actions: Optional[List[WorkflowAction]] = Field(
+        default=None,
+        description="Optional list of actions if proposal is not provided"
     )
     approved: bool = Field(
         default=False,
         description="Explicit human approval flag. Execution is refused if False."
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Optional originating session ID"
+    )
     parameters: Optional[Dict[str, Any]] = Field(
         default_factory=dict,
         description="Optional runtime execution parameters or variable overrides"
     )
+    context: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Optional runtime context"
+    )
+    executor_type: Optional[str] = Field(
+        default="playwright",
+        description="Executor to use: 'playwright' (default for Phase 4.4) or 'noop' (unit testing)"
+    )
+
+
+class ExecuteWorkflowResponse(BaseModel):
+    """
+    Structured response returned after workflow execution.
+    Matches Phase 4.4 specification for completed and failed workflows.
+    """
+    status: str = Field(..., description="Status: 'completed', 'failed', or 'pending'")
+    workflow_id: str = Field(..., description="Unique execution ID")
+    workflow_name: Optional[str] = Field(default=None, description="Name of the workflow")
+    failed_action: Optional[str] = Field(default=None, description="Action type that failed, if any")
+    message: Optional[str] = Field(default=None, description="Status or error message")
+    requires_human_intervention: bool = Field(default=False, description="Flag indicating human action required")
+    human_intervention: Optional[Dict[str, Any]] = Field(default=None, description="Guidance for human intervention")
+    actions: List[Dict[str, Any]] = Field(default_factory=list, description="Ordered action execution statuses")
+    completed_actions: List[str] = Field(default_factory=list, description="Names of completed actions")
+    total_actions: int = Field(default=0, description="Total number of actions in the workflow")
+
