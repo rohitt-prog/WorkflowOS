@@ -64,10 +64,21 @@ interface WorkflowProposal {
 
 type ApprovalStatus = "idle" | "approved" | "rejected";
 
-// ── Phase 4.4: Automation Execution types ──
+// ── Phase 4.4 & 4.5: Automation Execution types ──
 interface AutomationActionStatus {
   action: string;
   status: "completed" | "failed" | "pending";
+  message?: string;
+  application?: string;
+}
+
+interface ActionDetail {
+  action: string;
+  action_id?: string;
+  description?: string;
+  application: string;
+  target?: string;
+  status: "completed" | "failed" | "skipped" | "pending" | "running";
   message?: string;
 }
 
@@ -88,6 +99,27 @@ interface AutomationExecutionResponse {
   actions: AutomationActionStatus[];
   completed_actions: string[];
   total_actions: number;
+  execution_time_seconds?: number;
+  applications?: string[];
+  started_at?: string;
+  completed_at?: string;
+  all_actions?: ActionDetail[];
+}
+
+interface AutomationExecutionRecord {
+  execution_id: string;
+  workflow_name: string;
+  status: "completed" | "failed" | "pending" | "running";
+  current_action?: string | null;
+  completed_actions: string[];
+  total_actions: number;
+  error?: string | null;
+  requires_human_intervention?: boolean;
+  started_at?: string;
+  completed_at?: string;
+  execution_time_seconds?: number;
+  applications?: string[];
+  actions_detail?: ActionDetail[];
 }
 
 const getActionDisplayLabel = (actionType: string): string => {
@@ -104,6 +136,21 @@ const getActionDisplayLabel = (actionType: string): string => {
       return "Send message";
     default:
       return actionType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+};
+
+const getApplicationDisplayName = (appName?: string): string => {
+  if (!appName) return "WorkFlow App";
+  switch (appName) {
+    case "demo_email":
+      return "WorkFlow Mail";
+    case "demo_crm":
+      return "WorkFlow CRM";
+    case "demo_chat":
+    case "demo_messaging":
+      return "WorkFlow Chat";
+    default:
+      return appName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
 };
 
@@ -142,6 +189,12 @@ export default function Dashboard() {
   const [executionResult, setExecutionResult] = useState<AutomationExecutionResponse | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [testCustomerTarget, setTestCustomerTarget] = useState<string>("Rahul");
+
+  // Phase 4.5: Execution History & Details state
+  const [executionHistory, setExecutionHistory] = useState<AutomationExecutionRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [selectedExecutionDetail, setSelectedExecutionDetail] = useState<AutomationExecutionRecord | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     setMounted(true);
@@ -325,11 +378,13 @@ export default function Dashboard() {
       } else if (data.status === "failed") {
         setApprovalStatus("approved");
       }
+      fetchExecutionHistory();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Execution failed";
       setExecutionError(msg);
     } finally {
       setIsExecuting(false);
+      fetchExecutionHistory();
     }
   };
 
@@ -347,11 +402,29 @@ export default function Dashboard() {
     }
   };
 
+  // Phase 4.5: Fetch Execution History from GET /api/automation/executions
+  const fetchExecutionHistory = useCallback(async () => {
+    try {
+      setHistoryLoading(true);
+      const res = await fetch(`${API_BASE_URL}/api/automation/executions`);
+      if (res.ok) {
+        const data = await res.json();
+        const list: AutomationExecutionRecord[] = data.executions || [];
+        setExecutionHistory([...list].reverse());
+      }
+    } catch (err) {
+      console.error("Failed to fetch execution history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     fetchData();
     fetchDiscovery();
-  }, [fetchData, fetchDiscovery]);
+    fetchExecutionHistory();
+  }, [fetchData, fetchDiscovery, fetchExecutionHistory]);
 
   // Polling interval if autoRefresh is enabled (every 5 seconds)
   useEffect(() => {
@@ -359,9 +432,10 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       fetchData(false);
       fetchDiscovery();
+      fetchExecutionHistory();
     }, 5000);
     return () => clearInterval(interval);
-  }, [autoRefresh, fetchData, fetchDiscovery]);
+  }, [autoRefresh, fetchData, fetchDiscovery, fetchExecutionHistory]);
 
   // Helper to extract customer identifier from event metadata
   const getCustomer = (metadata?: EventMetadata): string | null => {
@@ -631,28 +705,26 @@ export default function Dashboard() {
             <p className="text-[11px] text-zinc-500 mt-1">Distinct observational verbs</p>
           </div>
 
-          {/* Backend Connection Card */}
+          {/* Phase 4.5: Executed Automations Card */}
           <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-4.5 shadow-sm relative overflow-hidden group hover:border-zinc-700 transition">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/10 transition"></div>
             <div className="flex items-center justify-between text-zinc-400 mb-1">
-              <span className="text-xs font-medium uppercase tracking-wider">Engine Status</span>
-              <span className="text-[10px] font-mono text-zinc-500">{API_BASE_URL}</span>
+              <span className="text-xs font-medium uppercase tracking-wider">Automations</span>
+              <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
-            <div className="flex items-center gap-2 mt-1">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  backendStatus === "connected"
-                    ? "bg-emerald-400 shadow-sm shadow-emerald-500/50"
-                    : backendStatus === "checking"
-                    ? "bg-yellow-400"
-                    : "bg-rose-500 shadow-sm shadow-rose-500/50"
-                }`}
-              />
-              <span className="text-base font-semibold text-white capitalize">
-                {backendStatus === "connected" ? "FastAPI Online" : backendStatus}
-              </span>
+            <div className="text-2xl font-bold font-mono text-white mt-1">
+              {historyLoading ? (
+                <div className="h-8 w-12 bg-zinc-800 rounded animate-pulse"></div>
+              ) : (
+                executionHistory.length
+              )}
             </div>
-            <p className="text-[11px] text-zinc-500 mt-1">
-              {lastRefreshed ? `Polled ${getRelativeTimeString(lastRefreshed)}` : "Connecting..."}
+            <p className="text-[11px] text-zinc-500 mt-1 truncate">
+              {executionHistory.filter((e) => e.status === "completed").length} completed •{" "}
+              {executionHistory.filter((e) => e.status === "failed").length} stopped
             </p>
           </div>
         </section>
@@ -875,6 +947,170 @@ export default function Dashboard() {
             </button>
           </div>
         )}
+
+        {/* ──────────────────────────────────────────────────────────────
+            Phase 4.5: AUTOMATION EXECUTION HISTORY SECTION
+        ────────────────────────────────────────────────────────────── */}
+        <section className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl overflow-hidden shadow-sm">
+          {/* Header */}
+          <div className="px-5 py-3.5 border-b border-zinc-800/80 flex items-center justify-between bg-zinc-900/30">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-white">Execution History</h2>
+                  <span className="px-2 py-0.5 text-[10px] font-mono bg-cyan-950/60 border border-cyan-800/60 text-cyan-300 rounded-full font-medium">
+                    {executionHistory.length} Recorded
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Audit trail and real-time execution telemetry from AutomationService &amp; PlaywrightExecutor
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchExecutionHistory}
+                disabled={historyLoading}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 border border-zinc-700/70 rounded-lg transition active:scale-95 cursor-pointer disabled:opacity-60"
+                title="Refresh execution history from GET /api/automation/executions"
+              >
+                <svg
+                  className={`w-3 h-3 ${historyLoading ? "animate-spin text-cyan-400" : "text-zinc-400"}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          {/* History body */}
+          {executionHistory.length === 0 ? (
+            <div className="p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-zinc-800/60 border border-zinc-700/60 text-zinc-400 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-zinc-300">No automation executions recorded yet</p>
+              <p className="text-xs text-zinc-500 mt-1 max-w-md mx-auto">
+                Approve and run any discovered workflow candidate above to execute browser actions and record telemetry here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-800/60">
+              {executionHistory.map((ex) => (
+                <div
+                  key={ex.execution_id}
+                  className="p-4 hover:bg-zinc-800/30 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
+                >
+                  {/* Left: Workflow Name, Execution ID, Timestamp, Failure reason */}
+                  <div className="space-y-1.5 min-w-0">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="font-semibold text-white text-sm">
+                        {ex.workflow_name || "Automation Workflow"}
+                      </span>
+                      {/* Status Badge */}
+                      {ex.status === "completed" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/70 border border-emerald-500/60 text-emerald-300">
+                          <span>✓</span>
+                          <span>Automation completed</span>
+                        </span>
+                      )}
+                      {ex.status === "failed" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-950/70 border border-rose-500/60 text-rose-300">
+                          <span>⚠</span>
+                          <span>Automation stopped</span>
+                        </span>
+                      )}
+                      {ex.status === "running" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-950/70 border border-cyan-500/60 text-cyan-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+                          <span>Automation running</span>
+                        </span>
+                      )}
+                      {ex.status === "pending" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950/70 border border-amber-500/60 text-amber-300">
+                          <span>○</span>
+                          <span>Pending approval</span>
+                        </span>
+                      )}
+                      <code className="text-[11px] font-mono bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 border border-zinc-700/60">
+                        {ex.execution_id}
+                      </code>
+                    </div>
+
+                    {/* Metadata & Subtitle */}
+                    <div className="flex items-center gap-3 text-xs text-zinc-400 flex-wrap">
+                      <span>
+                        <strong className="text-zinc-200">{ex.completed_actions.length} / {ex.total_actions}</strong> actions completed
+                      </span>
+                      {ex.execution_time_seconds !== undefined && ex.execution_time_seconds !== null && (
+                        <span>
+                          • Duration: <strong className="text-zinc-200">{ex.execution_time_seconds}s</strong>
+                        </span>
+                      )}
+                      {ex.started_at && (
+                        <span>
+                          • {new Date(ex.started_at).toLocaleTimeString()} ({new Date(ex.started_at).toLocaleDateString()})
+                        </span>
+                      )}
+                      {ex.applications && ex.applications.length > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <span>• Apps:</span>
+                          {ex.applications.map((app, i) => (
+                            <span key={i} className="px-1.5 py-0.2 rounded bg-zinc-800 text-[10px] text-zinc-300 border border-zinc-700/50">
+                              {getApplicationDisplayName(app)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Failure reason if present */}
+                    {ex.status === "failed" && (ex.error || ex.current_action) && (
+                      <div className="mt-1 text-xs text-rose-300/90 flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-rose-200">Reason:</span>
+                        <span>{ex.error?.includes("Customer") && ex.error?.includes("not found") ? "Customer not found" : (ex.error || `Failed on step ${ex.current_action}`)}</span>
+                        {ex.requires_human_intervention && (
+                          <span className="ml-1 text-[10px] font-semibold bg-amber-950/60 border border-amber-600/50 text-amber-300 px-1.5 py-0.5 rounded">
+                            Human intervention required
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: Inspect Button */}
+                  <div className="shrink-0 flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedExecutionDetail(ex);
+                        setDetailModalOpen(true);
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      <span>Inspect Details</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Table Controls (Search, Filters, Auto-refresh toggle) */}
         <section className="bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -1341,14 +1577,43 @@ export default function Dashboard() {
                   </div>
 
                   {/* 4. Execution State & Progress (Phase 4.4) */}
+                  {/* 4. Execution State & Progress (Phase 4.4 & 4.5) */}
                   {isExecuting && (
-                    <div className="bg-indigo-950/50 border border-indigo-500/60 rounded-xl p-4 flex items-center gap-3 animate-pulse shadow-lg shadow-indigo-950/30">
-                      <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin shrink-0" />
-                      <div>
-                        <p className="text-sm font-bold text-white">Running Workflow...</p>
-                        <p className="text-xs text-indigo-300 mt-0.5">
-                          Automating browser across /demo/email, /demo/crm, and /demo/chat...
-                        </p>
+                    <div className="bg-cyan-950/40 border border-cyan-500/60 rounded-xl p-4 shadow-lg shadow-cyan-950/30 animate-pulse space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-sm font-bold shrink-0">
+                          ●
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-900/80 border border-cyan-500 text-cyan-200 uppercase">
+                              ● Automation running
+                            </span>
+                          </div>
+                          <p className="text-xs text-cyan-300/80 mt-1">
+                            Executing browser actions across /demo/email, /demo/crm, and /demo/chat...
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action States during execution */}
+                      <div className="pt-2 border-t border-cyan-900/60 space-y-1.5 font-mono text-xs">
+                        {workflowProposal.actions.map((act, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between text-zinc-300 bg-zinc-900/60 px-3 py-1.5 rounded border border-zinc-800"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span className="text-cyan-400 font-bold">{idx === 0 ? "●" : "○"}</span>
+                              <span className="font-sans font-medium text-zinc-200">
+                                {getActionDisplayLabel(act.type)}
+                              </span>
+                            </span>
+                            <span className="text-[11px] text-zinc-400">
+                              {idx === 0 ? "running" : "pending"}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -1362,34 +1627,64 @@ export default function Dashboard() {
 
                   {executionResult && executionResult.status === "completed" && (
                     <div className="bg-emerald-950/60 border border-emerald-500/60 rounded-xl p-4 shadow-lg shadow-emerald-950/30 animate-fadeIn space-y-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-lg font-bold shrink-0">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-lg font-bold shrink-0 mt-0.5">
                           ✓
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-emerald-200">
-                            ✅ Workflow completed successfully
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-900/80 border border-emerald-500 text-emerald-200 uppercase">
+                              ✓ Automation completed
+                            </span>
+                          </div>
+                          <p className="text-sm font-bold text-emerald-100 mt-1">
+                            Workflow completed successfully
                           </p>
-                          <p className="text-xs text-emerald-400/80 mt-0.5">
-                            Run ID: <code className="font-mono text-emerald-300">{executionResult.workflow_id}</code> • All {executionResult.completed_actions.length} actions verified in browser
-                          </p>
+                          <div className="text-xs text-emerald-300/80 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                            <span>
+                              <strong>{executionResult.completed_actions.length} / {executionResult.total_actions}</strong> actions completed
+                            </span>
+                            {executionResult.execution_time_seconds !== undefined && executionResult.execution_time_seconds !== null && (
+                              <span>
+                                • Execution time: <strong>{executionResult.execution_time_seconds}s</strong>
+                              </span>
+                            )}
+                            {executionResult.applications && (
+                              <span>
+                                • Applications involved: <strong>{executionResult.applications.length}</strong>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
                       {/* Action checklist */}
                       <div className="pt-2 border-t border-emerald-900/60 space-y-1.5 font-mono text-xs">
-                        {executionResult.actions.map((act, idx) => (
+                        {(executionResult.all_actions && executionResult.all_actions.length > 0
+                          ? executionResult.all_actions
+                          : executionResult.actions.map((act) => ({
+                              action: act.action,
+                              application: act.application || "demo_app",
+                              status: act.status,
+                              message: act.message,
+                            }))
+                        ).map((act, idx) => (
                           <div
                             key={idx}
-                            className="flex items-center justify-between text-emerald-300 bg-emerald-950/40 px-3 py-1.5 rounded border border-emerald-800/40"
+                            className="flex items-center justify-between text-emerald-300 bg-emerald-950/40 px-3 py-2 rounded border border-emerald-800/40"
                           >
-                            <span className="flex items-center gap-2">
-                              <span className="text-emerald-400 font-bold">✓</span>
-                              <span className="font-sans font-medium text-emerald-100">
-                                {getActionDisplayLabel(act.action)}
-                              </span>
+                            <span className="flex items-center gap-2.5">
+                              <span className="text-emerald-400 font-bold text-sm">✓</span>
+                              <div>
+                                <span className="font-sans font-medium text-emerald-100 block">
+                                  {getActionDisplayLabel(act.action)}
+                                </span>
+                                <span className="font-sans text-[11px] text-emerald-400/80 block">
+                                  {getApplicationDisplayName(act.application)}
+                                </span>
+                              </div>
                             </span>
-                            <span className="text-[11px] text-emerald-400/80">{act.message}</span>
+                            <span className="text-[11px] text-emerald-300/80">{act.message || "completed"}</span>
                           </div>
                         ))}
                       </div>
@@ -1400,52 +1695,101 @@ export default function Dashboard() {
                     <div className="bg-rose-950/40 border border-rose-500/60 rounded-xl p-4 shadow-lg shadow-rose-950/30 animate-fadeIn space-y-3">
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-base font-bold shrink-0 mt-0.5">
-                          ✕
+                          ⚠
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-rose-200">
-                            {executionResult.human_intervention?.title || "Workflow paused"}
-                          </p>
-                          <div className="mt-1 space-y-1 text-xs text-rose-300/90 font-sans">
-                            <p>
-                              <span className="font-semibold text-rose-200">Reason:</span>{" "}
-                              {executionResult.human_intervention?.reason || executionResult.message || "Customer not found"}
-                            </p>
-                            <p>
-                              <span className="font-semibold text-rose-200">Action required:</span>{" "}
-                              {executionResult.human_intervention?.action_required || "Please resolve the issue in WorkFlow CRM."}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Action checklist with failure point */}
-                      <div className="space-y-1.5 font-mono text-xs pt-2 border-t border-rose-900/60">
-                        {executionResult.actions.map((act, idx) => (
-                          <div
-                            key={idx}
-                            className={`flex items-center justify-between px-3 py-1.5 rounded border ${
-                              act.status === "completed"
-                                ? "bg-emerald-950/30 text-emerald-300 border-emerald-800/40"
-                                : "bg-rose-950/60 text-rose-200 border-rose-700/60"
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <span className={act.status === "completed" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
-                                {act.status === "completed" ? "✓" : "❌"}
-                              </span>
-                              <span className="font-sans font-medium text-white">
-                                {getActionDisplayLabel(act.action)}
-                              </span>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-900/80 border border-rose-500 text-rose-200 uppercase">
+                              ⚠ Automation stopped
                             </span>
-                            <span className="text-[11px] opacity-80">{act.message || act.status}</span>
                           </div>
-                        ))}
+                          <p className="text-sm font-bold text-rose-100 mt-1">
+                            Workflow failed
+                          </p>
+                          <div className="text-xs text-rose-300/80 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                            <span>
+                              <strong>{executionResult.completed_actions.length} / {executionResult.total_actions}</strong> actions completed
+                            </span>
+                            {executionResult.failed_action && (
+                              <span>
+                                • Failed action: <strong>{getActionDisplayLabel(executionResult.failed_action)}</strong>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Failure explanation & Human intervention */}
+                          <div className="mt-2.5 p-3 rounded-lg bg-rose-900/30 border border-rose-800/50 space-y-1.5 text-xs font-sans">
+                            <p className="font-bold text-rose-200 text-sm">
+                              {executionResult.human_intervention?.title || "Workflow paused"}
+                            </p>
+                            <p>
+                              <span className="font-semibold text-rose-300">Reason:</span>{" "}
+                              <span className="text-rose-100">
+                                {executionResult.human_intervention?.reason || executionResult.message || "Customer not found"}
+                              </span>
+                            </p>
+                            <p>
+                              <span className="font-semibold text-rose-300">Action required:</span>{" "}
+                              <span className="text-rose-100">
+                                {executionResult.human_intervention?.action_required || "Please resolve the issue in WorkFlow CRM."}
+                              </span>
+                            </p>
+                            <div className="flex items-center gap-1.5 text-amber-300 font-semibold pt-1">
+                              <span>⚠</span>
+                              <span>Human intervention required</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-950/50 border border-amber-600/60 text-amber-200 text-xs font-medium">
-                        <span className="text-base">⚠</span>
-                        <span>Human intervention required</span>
+                      {/* Action checklist showing completed, failed, and NOT EXECUTED */}
+                      <div className="space-y-1.5 font-mono text-xs pt-2 border-t border-rose-900/60">
+                        {(executionResult.all_actions && executionResult.all_actions.length > 0
+                          ? executionResult.all_actions
+                          : workflowProposal.actions.map((act) => {
+                              const isComp = executionResult.completed_actions.includes(act.type);
+                              const isFail = act.type === executionResult.failed_action;
+                              return {
+                                action: act.type,
+                                application: act.application,
+                                status: isComp ? "completed" : isFail ? "failed" : "skipped",
+                                message: isComp ? "completed" : isFail ? (executionResult.message || "Failed") : "NOT EXECUTED",
+                              };
+                            })
+                        ).map((act, idx) => {
+                          const isComp = act.status === "completed";
+                          const isFail = act.status === "failed";
+
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex items-center justify-between px-3 py-2 rounded border ${
+                                isComp
+                                  ? "bg-emerald-950/30 text-emerald-300 border-emerald-800/40"
+                                  : isFail
+                                  ? "bg-rose-950/60 text-rose-200 border-rose-700/60"
+                                  : "bg-zinc-900/40 text-zinc-500 border-zinc-800/50"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <span className={`font-bold text-sm ${isComp ? "text-emerald-400" : isFail ? "text-rose-400" : "text-zinc-600"}`}>
+                                  {isComp ? "✓" : isFail ? "✗" : "○"}
+                                </span>
+                                <div>
+                                  <span className={`font-sans font-medium block ${isComp ? "text-emerald-100" : isFail ? "text-rose-100" : "text-zinc-400"}`}>
+                                    {getActionDisplayLabel(act.action)}
+                                  </span>
+                                  <span className="font-sans text-[11px] opacity-75 block">
+                                    {getApplicationDisplayName(act.application)}
+                                  </span>
+                                </div>
+                              </span>
+                              <span className={`text-[11px] font-semibold ${isComp ? "text-emerald-400" : isFail ? "text-rose-300" : "text-zinc-500"}`}>
+                                {isComp ? "✓ completed" : isFail ? "✗ failed" : "NOT EXECUTED"}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1472,13 +1816,13 @@ export default function Dashboard() {
               <div className="pt-4 border-t border-zinc-800 flex items-center justify-between gap-4 shrink-0">
                 <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
                   {isExecuting ? (
-                    <span className="text-indigo-400 font-semibold flex items-center gap-1.5">
+                    <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                      Automating in browser...
+                      ● Automation running
                     </span>
                   ) : executionResult ? (
-                    <span className={executionResult.status === "completed" ? "text-emerald-400" : "text-amber-400"}>
-                      {executionResult.status === "completed" ? "Execution completed" : "Workflow paused: intervention needed"}
+                    <span className={`font-semibold flex items-center gap-1.5 ${executionResult.status === "completed" ? "text-emerald-400" : "text-rose-400"}`}>
+                      {executionResult.status === "completed" ? "✓ Automation completed" : "⚠ Automation stopped"}
                     </span>
                   ) : (
                     <span className="text-amber-400/90 flex items-center gap-1.5">
@@ -1526,6 +1870,196 @@ export default function Dashboard() {
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* Phase 4.5: Execution Details Modal */}
+      {detailModalOpen && selectedExecutionDetail && (
+        <div
+          className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
+          onClick={() => setDetailModalOpen(false)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative max-h-[90vh] flex flex-col space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                <h3 className="text-base font-bold text-white">Execution Details</h3>
+                <code className="text-xs font-mono bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded border border-zinc-700">
+                  {selectedExecutionDetail.execution_id}
+                </code>
+              </div>
+              <button
+                onClick={() => setDetailModalOpen(false)}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto pr-1 space-y-4 flex-1">
+              {/* Workflow Name */}
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Workflow</p>
+                <h4 className="text-base font-bold text-white">{selectedExecutionDetail.workflow_name}</h4>
+              </div>
+
+              {/* Status Banner */}
+              {selectedExecutionDetail.status === "completed" && (
+                <div className="bg-emerald-950/60 border border-emerald-500/60 rounded-xl p-3.5 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-lg font-bold shrink-0">
+                    ✓
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-200">✓ Automation completed</p>
+                    <p className="text-xs text-emerald-300/80 mt-0.5">
+                      Workflow completed successfully • {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions} actions verified
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {selectedExecutionDetail.status === "failed" && (
+                <div className="bg-rose-950/50 border border-rose-500/60 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center text-base font-bold shrink-0">
+                      ⚠
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-rose-200">⚠ Automation stopped</p>
+                      <p className="text-xs text-rose-300/80 mt-0.5">
+                        Workflow paused • {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions} actions completed
+                      </p>
+                    </div>
+                  </div>
+                  {(selectedExecutionDetail.error || selectedExecutionDetail.current_action) && (
+                    <div className="pt-2 border-t border-rose-900/60 text-xs text-rose-200 space-y-1 font-sans">
+                      <p>
+                        <span className="font-semibold text-rose-100">Reason:</span>{" "}
+                        {selectedExecutionDetail.error?.includes("Customer") && selectedExecutionDetail.error?.includes("not found") ? "Customer not found" : (selectedExecutionDetail.error || `Action failed: ${selectedExecutionDetail.current_action}`)}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-rose-100">Action required:</span> Please resolve the issue in WorkFlow CRM.
+                      </p>
+                      <div className="flex items-center gap-1.5 text-amber-300 font-semibold pt-1">
+                        <span>⚠</span>
+                        <span>Human intervention required</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-2.5">
+                  <span className="text-zinc-400 block text-[10px] uppercase">Status</span>
+                  <span className="font-semibold text-white capitalize">{selectedExecutionDetail.status}</span>
+                </div>
+                <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-2.5">
+                  <span className="text-zinc-400 block text-[10px] uppercase">Completed</span>
+                  <span className="font-semibold text-white">
+                    {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions}
+                  </span>
+                </div>
+                <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-2.5">
+                  <span className="text-zinc-400 block text-[10px] uppercase">Duration</span>
+                  <span className="font-semibold text-white">
+                    {selectedExecutionDetail.execution_time_seconds !== undefined && selectedExecutionDetail.execution_time_seconds !== null ? `${selectedExecutionDetail.execution_time_seconds}s` : "< 1s"}
+                  </span>
+                </div>
+                <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-2.5">
+                  <span className="text-zinc-400 block text-[10px] uppercase">Apps</span>
+                  <span className="font-semibold text-white">
+                    {selectedExecutionDetail.applications?.length || 3}
+                  </span>
+                </div>
+              </div>
+
+              {/* Actions List with Application Names */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                  Actions ({selectedExecutionDetail.total_actions})
+                </p>
+                <div className="space-y-2">
+                  {(selectedExecutionDetail.actions_detail && selectedExecutionDetail.actions_detail.length > 0
+                    ? selectedExecutionDetail.actions_detail
+                    : selectedExecutionDetail.completed_actions.map(act => ({
+                        action: act,
+                        application: "demo_app",
+                        status: "completed" as const,
+                        description: getActionDisplayLabel(act),
+                        message: "Completed"
+                      }))
+                  ).map((act, idx) => {
+                    const isCompleted = act.status === "completed";
+                    const isFailed = act.status === "failed";
+                    const isSkipped = act.status === "skipped";
+                    const isRunning = act.status === "running";
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-start justify-between p-3 rounded-lg border text-xs transition ${
+                          isCompleted
+                            ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-200"
+                            : isFailed
+                            ? "bg-rose-950/40 border-rose-700/60 text-rose-200"
+                            : "bg-zinc-800/30 border-zinc-700/40 text-zinc-400"
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <span className={`text-sm font-bold mt-0.5 ${
+                            isCompleted ? "text-emerald-400" : isFailed ? "text-rose-400" : isRunning ? "text-cyan-400 animate-pulse" : "text-zinc-500"
+                          }`}>
+                            {isCompleted ? "✓" : isFailed ? "✗" : isRunning ? "●" : "○"}
+                          </span>
+                          <div>
+                            <p className={`font-semibold ${isCompleted ? "text-white" : isFailed ? "text-rose-100" : "text-zinc-300"}`}>
+                              {getActionDisplayLabel(act.action)}
+                            </p>
+                            <p className="text-[11px] text-zinc-400 mt-0.5">
+                              {getApplicationDisplayName(act.application)}
+                            </p>
+                            {act.message && (
+                              <p className={`text-[11px] mt-1 ${isFailed ? "text-rose-300 font-mono" : "text-zinc-500"}`}>
+                                {act.message}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="shrink-0">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                            isCompleted
+                              ? "bg-emerald-950 text-emerald-300 border border-emerald-700/50"
+                              : isFailed
+                              ? "bg-rose-950 text-rose-300 border border-rose-700/50"
+                              : "bg-zinc-800 text-zinc-400 border border-zinc-700/50"
+                          }`}>
+                            {isCompleted ? "completed" : isFailed ? "failed" : isSkipped ? "skipped" : isRunning ? "running" : "pending"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-zinc-800 flex justify-end shrink-0">
+              <button
+                onClick={() => setDetailModalOpen(false)}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

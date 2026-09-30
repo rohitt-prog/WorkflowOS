@@ -80,6 +80,7 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
             "action": r.action_type,
             "status": "completed" if r.success else "failed",
             "message": r.message,
+            "application": next((d.get("application", "") for d in execution.actions_detail if d.get("action") == r.action_type), ""),
         }
         for r in execution.results
     ]
@@ -94,6 +95,11 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
             actions=actions_list,
             completed_actions=execution.completed_actions,
             total_actions=execution.total_actions,
+            execution_time_seconds=execution.execution_time_seconds,
+            applications=execution.applications,
+            started_at=execution.started_at,
+            completed_at=execution.completed_at,
+            all_actions=execution.actions_detail,
         )
 
     elif execution.status == AutomationStatus.FAILED:
@@ -126,6 +132,11 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
             actions=actions_list,
             completed_actions=execution.completed_actions,
             total_actions=execution.total_actions,
+            execution_time_seconds=execution.execution_time_seconds,
+            applications=execution.applications,
+            started_at=execution.started_at,
+            completed_at=execution.completed_at,
+            all_actions=execution.actions_detail,
         )
 
     else:
@@ -138,6 +149,11 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
             actions=actions_list,
             completed_actions=execution.completed_actions,
             total_actions=execution.total_actions,
+            execution_time_seconds=execution.execution_time_seconds,
+            applications=execution.applications,
+            started_at=execution.started_at,
+            completed_at=execution.completed_at,
+            all_actions=execution.actions_detail,
         )
 
 
@@ -149,3 +165,19 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
 async def list_executions_endpoint():
     """GET /api/automation/executions"""
     return {"executions": automation_service.list_executions()}
+
+
+@router.get(
+    "/executions/{execution_id}",
+    summary="Get Specific Workflow Execution",
+    description="Returns recorded details of a specific execution run.",
+)
+async def get_execution_endpoint(execution_id: str):
+    """GET /api/automation/executions/{execution_id}"""
+    execution = automation_service.get_execution(execution_id)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Execution with ID '{execution_id}' not found.",
+        )
+    return execution

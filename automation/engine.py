@@ -1,5 +1,7 @@
 import logging
 import uuid
+import time
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Set
 
 from ai.models import WorkflowProposal, WorkflowAction
@@ -127,8 +129,48 @@ class AutomationEngine:
         :param context: Optional runtime context.
         :return: AutomationExecution tracking the execution state and results.
         """
+        start_time = time.perf_counter()
+        started_at = datetime.now(timezone.utc).isoformat()
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
         total_actions = len(proposal.actions)
+        applications = list(dict.fromkeys(
+            proposal.applications or [act.application for act in proposal.actions if act.application]
+        ))
+
+        def build_actions_detail(
+            all_actions: List[AutomationAction],
+            completed: List[str],
+            action_results: List[ExecutionActionResult],
+            failed_action_id: Optional[str] = None,
+            is_pending: bool = False
+        ) -> List[Dict[str, Any]]:
+            details = []
+            for act in all_actions:
+                if is_pending:
+                    act_status = "pending"
+                    msg = "Pending human approval"
+                elif act.type in completed:
+                    act_status = "completed"
+                    res = next((r for r in action_results if r.action_id == act.id), None)
+                    msg = res.message if res else "Completed successfully"
+                elif act.id == failed_action_id or (failed_action_id and act.type == failed_action_id):
+                    act_status = "failed"
+                    res = next((r for r in action_results if r.action_id == act.id), None)
+                    msg = res.message if res else "Action execution failed"
+                else:
+                    act_status = "skipped"
+                    msg = "Not executed (halted after prior action failure)"
+
+                details.append({
+                    "action": act.type,
+                    "action_id": act.id,
+                    "description": act.description,
+                    "application": act.application,
+                    "target": act.target,
+                    "status": act_status,
+                    "message": msg,
+                })
+            return details
 
         logger.info(
             f"Initiating automation engine for workflow: '{proposal.name}' "
@@ -143,6 +185,7 @@ class AutomationEngine:
             )
         except UnsupportedActionError as uae:
             logger.error(f"Workflow '{proposal.name}' action validation failed: {uae}")
+            now_iso = datetime.now(timezone.utc).isoformat()
             return AutomationExecution(
                 execution_id=execution_id,
                 workflow_name=proposal.name,
@@ -153,6 +196,11 @@ class AutomationEngine:
                 error=str(uae),
                 requires_human_intervention=False,
                 results=[],
+                started_at=started_at,
+                completed_at=now_iso,
+                execution_time_seconds=round(time.perf_counter() - start_time, 3),
+                applications=applications,
+                actions_detail=[],
             )
 
         # 2. Approval Safety Gate
@@ -162,6 +210,7 @@ class AutomationEngine:
             logger.info(
                 f"Workflow '{proposal.name}' is unapproved. Refusing execution (status=pending)."
             )
+            actions_detail = build_actions_detail(actions, [], [], is_pending=True)
             return AutomationExecution(
                 execution_id=execution_id,
                 workflow_name=proposal.name,
@@ -172,6 +221,11 @@ class AutomationEngine:
                 error=None,
                 requires_human_intervention=False,
                 results=[],
+                started_at=started_at,
+                completed_at=started_at,
+                execution_time_seconds=0.0,
+                applications=applications,
+                actions_detail=actions_detail,
             )
 
         # 3. Approved Execution
@@ -208,6 +262,14 @@ class AutomationEngine:
                     logger.warning(
                         f"Action {action.id} failed: {result.message}. Halting workflow execution."
                     )
+                    elapsed = round(time.perf_counter() - start_time, 3)
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    actions_detail = build_actions_detail(
+                        actions,
+                        completed_actions,
+                        results,
+                        failed_action_id=action.id
+                    )
                     return AutomationExecution(
                         execution_id=execution_id,
                         workflow_name=proposal.name,
@@ -218,6 +280,11 @@ class AutomationEngine:
                         error=result.message,
                         requires_human_intervention=False,
                         results=results,
+                        started_at=started_at,
+                        completed_at=now_iso,
+                        execution_time_seconds=elapsed,
+                        applications=applications,
+                        actions_detail=actions_detail,
                     )
 
                 # Record completed action
@@ -227,6 +294,9 @@ class AutomationEngine:
             logger.info(
                 f"Workflow '{proposal.name}' completed successfully ({len(completed_actions)}/{len(actions)} actions)."
             )
+            elapsed = round(time.perf_counter() - start_time, 3)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            actions_detail = build_actions_detail(actions, completed_actions, results)
             return AutomationExecution(
                 execution_id=execution_id,
                 workflow_name=proposal.name,
@@ -237,6 +307,11 @@ class AutomationEngine:
                 error=None,
                 requires_human_intervention=False,
                 results=results,
+                started_at=started_at,
+                completed_at=now_iso,
+                execution_time_seconds=elapsed,
+                applications=applications,
+                actions_detail=actions_detail,
             )
         finally:
             await active_executor.cleanup()

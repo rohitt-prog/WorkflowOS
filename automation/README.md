@@ -279,24 +279,113 @@ The Workflow Proposal review modal (`frontend/src/app/page.tsx`) provides:
 
 ---
 
+## Phase 4.5 Execution Observability & Frontend Polish
+
+Phase 4.5 improves execution observability and frontend demo polish without introducing new automation mechanisms. It exposes and visualizes the execution state produced by the existing `AutomationService`, `AutomationEngine`, and `PlaywrightExecutor`.
+
+### 1. Execution Observability & Action States
+
+Phase 4.5 tracks and surfaces the exact action lifecycle states across all execution modes:
+- `pending`: Action is queued and has not yet started execution.
+- `running`: Action is actively being executed.
+- `completed`: Action executed successfully (`✓`).
+- `failed`: Action encountered an error and halted execution (`✗`).
+- `skipped`: Subsequent action was not executed due to an upstream failure (`○ NOT EXECUTED`).
+
+Visual representation during execution and inspection:
+```
+✓ Open email                (WorkFlow Mail - completed)
+✓ Download attachment       (WorkFlow Mail - completed)
+✗ Search customer           (WorkFlow CRM - failed)
+○ Update customer           (WorkFlow CRM - skipped / not executed)
+○ Send message              (WorkFlow Chat - skipped / not executed)
+```
+
+No execution events or metrics are fabricated. If an action fails at step 3, downstream steps 4 and 5 are strictly reported as `skipped` / `not executed`.
+
+### 2. Execution Summary
+
+After execution completes, the UI presents an enriched execution summary:
+
+#### Success State:
+- **Status Badge**: `✓ Automation completed`
+- **Actions Count**: `X / Y actions completed` (e.g. `5 / 5 actions completed`)
+- **Execution Time**: Real measured duration in seconds (e.g. `2.02s` via `time.perf_counter()`)
+- **Applications Involved**: Count and badges of distinct applications involved (e.g. `3 applications: WorkFlow Mail, WorkFlow CRM, WorkFlow Chat`)
+
+#### Failure State:
+- **Status Badge**: `⚠ Automation stopped`
+- **Actions Count**: `X / Y actions completed` (e.g. `2 / 5 actions completed`)
+- **Failed Action**: Target action name (e.g. `search_customer`)
+- **Reason**: Precise failure message (e.g. `Customer not found`)
+- **Human Intervention Notice**:
+  ```
+  Workflow paused
+  Reason: Customer not found
+  Action required: Please resolve the issue in WorkFlow CRM.
+  ⚠ Human intervention required
+  ```
+
+### 3. Execution History Section
+
+Located directly on the main dashboard (`/`), the **Execution History** table automatically pulls records from `GET /api/automation/executions`:
+- **Workflow Name**: Proposal or execution name.
+- **Status Badge**: Standardized status badges (`✓ Automation completed`, `⚠ Automation stopped`, `● Automation running`, `○ Pending approval`).
+- **Completed/Total Actions**: Progress ratio and percentage progress bar.
+- **Timestamp**: Formatted execution start time.
+- **Duration**: Actual measured execution duration.
+- **Applications**: Badges for applications touched during the run.
+- **Failure Reason**: Direct explanation if failed.
+- **Inspect**: "Inspect Details" action button opening the execution modal.
+
+### 4. Execution Details Inspection Modal
+
+Clicking "Inspect Details" on any execution history row opens a modal displaying:
+- **Workflow Title & Status Banner**: Current execution status and message.
+- **Metadata Grid**: Execution ID, start/completion timestamps, duration, and application count.
+- **Step-by-Step Action Timeline**:
+  - Sequence number and status icon (`✓`, `✗`, `○`).
+  - Human-friendly action title and raw action verb.
+  - Target application badge.
+  - Status pill (`completed`, `failed`, `skipped`, `pending`).
+  - Action-specific execution message or failure reason.
+
+### 5. Backend Extensions in Phase 4.5
+
+All Phase 4.5 extensions are strictly additive and backward-compatible with Phase 4.2–4.4:
+- **`automation/models.py`**:
+  - `ActionDetail`: Structured per-action status record (`action`, `application`, `status`, `message`, `target`).
+  - `AutomationExecution` & `ExecuteWorkflowResponse`: Added `started_at`, `completed_at`, `execution_time_seconds`, `applications`, `actions_detail`, and `all_actions`.
+- **`automation/engine.py`**:
+  - Calculates actual execution duration via `time.perf_counter()`.
+  - Records ISO 8601 timestamps and unique application names.
+  - Populates granular action states for completed, failed, and skipped steps.
+- **`automation/service.py`**:
+  - Passes simulation parameters to `NoOpExecutor` for controlled failure unit tests.
+- **`backend/routes/automation.py`**:
+  - Added `GET /api/automation/executions/{execution_id}` endpoint.
+  - Returns timing, application list, and full action details in `POST /api/automation/execute`.
+
+---
+
 ## Testing
 
-### 1. Phase 4.4 Integration Tests
+### 1. Phase 4.5 Observability Tests
 ```bash
-.venv/bin/python backend/test_phase4_4.py
+.venv/bin/python backend/test_phase4_5.py
 ```
 Validates:
-- `approved=false` blocks execution and never calls Playwright (status=`pending`)
-- `approved=true` runs full 5-action workflow via Playwright to status=`completed`
-- `Unknown Customer` fails at `search_customer`, stops later actions, returns human intervention details
-- `executor_type='noop'` runs headless for unit testing
-- `GET /api/automation/executions` tracks history
-- Unsupported action verbs are rejected gracefully
+- Completed execution representation, action details, and timing metadata
+- Failed execution representation, human intervention requirement, and skipped action states
+- Unapproved execution pending state representation
+- `GET /api/automation/executions` history listing endpoint
+- `GET /api/automation/executions/{execution_id}` detail endpoint
 
-### 2. Regression Tests
+### 2. Full Regression Suite
 ```bash
 .venv/bin/python backend/test_phase4_2.py
 .venv/bin/python backend/test_phase4_3.py
+.venv/bin/python backend/test_phase4_4.py
 .venv/bin/python backend/test_phase3.py
 ```
 
@@ -309,29 +398,43 @@ cd frontend && npm run build
 
 ## Manual Demo Steps
 
-1. Start backend:
+1. **Start Backend**:
    ```bash
    uvicorn backend.main:app --port 8000 --reload
    ```
-2. Start frontend:
+2. **Start Frontend**:
    ```bash
    cd frontend && npm run dev
    ```
 3. Open `http://localhost:3000` in your browser.
-4. Under **Workflow Candidates (Phase 2 & 3)**, click **Review AI Proposal**.
-5. The AI Workflow Proposal modal will open showing inferred trigger, actions, variables, and apps.
-6. **Happy Path**: Keep `Rahul (Happy Path)` selected, click **APPROVE & RUN**.
-   - Notice state change to `Running Workflow...`.
-   - Playwright automated browser completes all 5 actions.
-   - Result card updates to `✅ Workflow completed successfully` with 5 green checks.
-7. **Failure Demo**: Click **Run Again**, select `Unknown Customer (Fail Demo)`, click **APPROVE & RUN**.
-   - Notice actions 1 and 2 succeed (`open_email`, `download_attachment`).
-   - Action 3 (`search_customer`) fails with `❌ Search customer`.
-   - Steps 4 and 5 do not execute.
-   - Human intervention card appears:
-     - `Workflow paused`
-     - `Reason: Customer not found`
-     - `Action required: Please resolve the issue in WorkFlow CRM.`
+4. **Happy Path Execution**:
+   - Under **Workflow Candidates (Phase 2 & 3)**, click **Review AI Proposal**.
+   - Keep `Rahul (Happy Path)` selected.
+   - Click **APPROVE & RUN**.
+   - Observe status change to `● Automation running` with pending/running action items.
+   - Upon completion, observe `✓ Automation completed`, `5 / 5 actions completed`, execution time, and application list.
+   - Observe all 5 action items marked with green checkmarks (`✓`).
+5. **Execution History Inspection**:
+   - Scroll down to the **Execution History (Phase 4.5)** section on the main dashboard.
+   - Verify the newly completed execution appears with `✓ Automation completed`, duration, and application badges.
+   - Click **Inspect Details** to open the inspection modal.
+   - Verify the action timeline displays all 5 steps with application names and `completed` status pills.
+6. **Failure & Observability Demo**:
+   - Return to the proposal modal (or click **Run Again**).
+   - Select `Unknown Customer (Fail Demo)` and click **APPROVE & RUN**.
+   - Observe execution halt at Step 3 (`search_customer`).
+   - Status badge shows `⚠ Automation stopped`.
+   - Steps 1 & 2 show `✓ completed`.
+   - Step 3 shows `✗ failed` with reason: `Customer not found`.
+   - Steps 4 & 5 show `○ NOT EXECUTED` (`skipped`).
+   - Human intervention alert displays:
+     ```
+     Workflow paused
+     Reason: Customer not found
+     Action required: Please resolve the issue in WorkFlow CRM.
+     ⚠ Human intervention required
+     ```
+   - In **Execution History**, verify the run is recorded with `⚠ Automation stopped`, `2 / 5 actions`, and inspect its timeline in the details modal.
 
 ---
 
@@ -340,3 +443,4 @@ cd frontend && npm run build
 - Supported canonical actions are currently restricted to the 5 demo actions (`open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`).
 - Automated actions target local demo endpoints (`/demo/email`, `/demo/crm`, `/demo/chat`), not external third-party SaaS services.
 - Resuming workflows after human intervention (pause/resume state machine) is scheduled for Phase 4.6.
+- Execution history is currently stored in-memory during the application lifecycle for hackathon simplicity; it resets on server restart.

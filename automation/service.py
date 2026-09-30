@@ -38,7 +38,8 @@ class AutomationService:
                 active_executor = PlaywrightExecutor()
             elif executor_type.lower() == "noop":
                 from automation.executor import NoOpExecutor
-                active_executor = NoOpExecutor()
+                fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
+                active_executor = NoOpExecutor(fail_actions=fail_actions)
 
         execution = await self._engine.execute_workflow(
             proposal=proposal,

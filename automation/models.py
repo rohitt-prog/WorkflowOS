@@ -105,6 +105,26 @@ class AutomationExecution(BaseModel):
         default_factory=list,
         description="Ordered list of individual action execution results"
     )
+    started_at: Optional[str] = Field(
+        default=None,
+        description="ISO timestamp when execution started"
+    )
+    completed_at: Optional[str] = Field(
+        default=None,
+        description="ISO timestamp when execution finished"
+    )
+    execution_time_seconds: Optional[float] = Field(
+        default=None,
+        description="Measured execution duration in seconds"
+    )
+    applications: List[str] = Field(
+        default_factory=list,
+        description="Unique applications involved in the workflow"
+    )
+    actions_detail: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered details of all workflow actions with states (completed, failed, skipped, pending)"
+    )
 
 
 class ExecuteWorkflowRequest(BaseModel):
@@ -149,7 +169,8 @@ class ExecuteWorkflowRequest(BaseModel):
 class ExecuteWorkflowResponse(BaseModel):
     """
     Structured response returned after workflow execution.
-    Matches Phase 4.4 specification for completed and failed workflows.
+    Matches Phase 4.4 specification for completed and failed workflows,
+    enriched with Phase 4.5 execution observability and timing metadata.
     """
     status: str = Field(..., description="Status: 'completed', 'failed', or 'pending'")
     workflow_id: str = Field(..., description="Unique execution ID")
@@ -161,4 +182,12 @@ class ExecuteWorkflowResponse(BaseModel):
     actions: List[Dict[str, Any]] = Field(default_factory=list, description="Ordered action execution statuses")
     completed_actions: List[str] = Field(default_factory=list, description="Names of completed actions")
     total_actions: int = Field(default=0, description="Total number of actions in the workflow")
+    execution_time_seconds: Optional[float] = Field(default=None, description="Measured execution duration in seconds")
+    applications: List[str] = Field(default_factory=list, description="Unique applications involved in the workflow")
+    started_at: Optional[str] = Field(default=None, description="Execution start timestamp")
+    completed_at: Optional[str] = Field(default=None, description="Execution completion timestamp")
+    all_actions: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Comprehensive list of all actions in the workflow with their execution states"
+    )
 
