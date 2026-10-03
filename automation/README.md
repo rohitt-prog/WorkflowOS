@@ -613,3 +613,147 @@ cd frontend && npm run build
 - Supported canonical actions are currently restricted to the 5 demo actions (`open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`).
 - Automated actions target local demo endpoints (`/demo/email`, `/demo/crm`, `/demo/chat`), not external third-party SaaS services. Real external integrations belong to Phase 7.
 - Execution history is stored in-memory during the application lifecycle for demo simplicity; persistent DB storage can be connected via existing database adapters.
+
+---
+
+## Phase 6 — Generalized Workflow Engine
+
+Phase 6 upgrades the automation module with a fully declarative workflow engine that supports complex branching, retry policies, variable interpolation, and a proper execution state machine — while remaining 100% backward compatible with Phase 4 `WorkflowProposal` schemas.
+
+### New Models (`automation/models.py`)
+
+| Model | Purpose |
+|-------|---------|
+| `WorkflowStep` | A single declarative step with `id`, `type`, `application`, `parameters`, `condition`, `retry`, `output_mapping` |
+| `WorkflowDefinition` | Full workflow with `id`, `name`, `trigger`, `inputs`, `steps`, `requires_approval`, `tags` |
+| `StepCondition` | Conditional execution: `variable`, `operator`, `value` |
+| `RetryPolicy` | `max_attempts`, `delay_seconds` |
+| `WorkflowInputDefinition` | Named typed input parameter |
+| `StepExecutionResult` | Per-step output, timing, retries, skip reason |
+
+### Engine Functions (`automation/engine.py`)
+
+| Function | Description |
+|----------|-------------|
+| `resolve_template_value(val, ctx)` | Resolve `{{inputs.x}}`, `{{steps.id.output.y}}`, `{{variables.z}}` |
+| `evaluate_step_condition(cond, ctx)` | Evaluate skip/branch conditions at runtime |
+| `execute_declarative_workflow(wf, req)` | Run a `WorkflowDefinition` end-to-end |
+| `_run_declarative_steps(steps, ctx, exec)` | Step loop with conditions, retries, output mapping |
+| `resume_declarative_workflow(exec, req)` | Resume a paused declarative execution |
+| `proposal_to_workflow_definition(proposal)` | Convert legacy `WorkflowProposal` → `WorkflowDefinition` |
+
+### Variable Interpolation Syntax
+
+Templates in `parameters` fields use `{{...}}`:
+
+```python
+# Input parameter
+"{{inputs.customer_name}}"
+
+# Output from a previous step
+"{{steps.lookup_crm.output.customer_id}}"
+# Also accessible as:
+"{{steps.lookup_crm.output.data.customer_id}}"
+
+# Named variable set during execution
+"{{variables.my_var}}"
+```
+
+### Condition Operators
+
+| Operator | Description |
+|----------|-------------|
+| `==` / `!=` | Equality check |
+| `>` / `<` / `>=` / `<=` | Numeric comparison |
+| `contains` | Substring or list membership |
+| `in` | Value in list |
+| `is_empty` / `is_not_empty` | Falsy / truthy check |
+| `exists` | Key exists in context |
+
+### Step Branching
+
+```python
+WorkflowStep(
+    id="check",
+    type="condition",
+    condition=StepCondition(variable="inputs.flag", operator="==", value=True),
+    on_true="step_a",   # jump to step_a if condition is True
+    on_false="step_b",  # jump to step_b if condition is False
+)
+```
+
+### Retry Policy
+
+```python
+WorkflowStep(
+    id="fragile_step",
+    type="search_customer",
+    retry=RetryPolicy(max_attempts=3, delay_seconds=1),
+)
+```
+
+### Execution State Machine
+
+```
+pending ──► running ──► completed
+                    ╲
+                     ╲──► paused  ──► (resume) ──► running ──► completed
+                      ╲             ╲──► (cancel) ──► cancelled
+                       ╲──► failed  (terminal unless pause_on_failure)
+                        ╲──► cancelled (terminal)
+```
+
+### Service Registry (`automation/service.py`)
+
+```python
+from automation.service import automation_service
+
+# List all registered templates
+templates = automation_service.list_workflows()
+
+# Register a new workflow
+automation_service.register_workflow(my_definition)
+
+# Run by workflow ID
+result = await automation_service.run_declarative_workflow("wf_id", request)
+
+# Unified runner (handles both legacy and declarative)
+result = await automation_service.run_workflow(request)
+```
+
+### Phase 6 REST Endpoints
+
+```
+GET  /api/automation/workflows               → list templates
+POST /api/automation/workflows               → register workflow
+GET  /api/automation/workflows/{id}          → get template
+POST /api/automation/execute                 → run (legacy or declarative)
+GET  /api/automation/executions              → list history
+GET  /api/automation/executions/{id}         → get detail
+POST /api/automation/executions/{id}/resume  → resume paused
+POST /api/automation/executions/{id}/cancel  → cancel
+```
+
+### Backward Compatibility
+
+All Phase 4 `WorkflowProposal` execution paths continue to work unchanged. The `POST /api/automation/execute` endpoint auto-detects the request shape:
+- If `workflow_definition` key is present → declarative engine
+- If `workflow` (proposal) key is present → legacy `proposal_to_workflow_definition` conversion
+
+### Phase 6 Test Coverage (`backend/test_phase6.py`)
+
+| Test | Description |
+|------|-------------|
+| `test_01` | Workflow template registration and retrieval |
+| `test_02` | Built-in template listing |
+| `test_03` | Unapproved declarative workflow safely refused |
+| `test_04` | Variable interpolation in step parameters |
+| `test_05` | Output mapping from step result to context |
+| `test_06` | Conditional branching (`on_true` / `on_false`) |
+| `test_07` | Retry policy recovers from transient failure |
+| `test_08` | `continue_on_failure` tolerance mode |
+| `test_09` | Pause on failure → resume completes successfully |
+| `test_10` | Backward compat: `WorkflowProposal` → declarative conversion |
+| `test_11` | REST API: list + get workflow templates |
+| `test_12` | REST API: execute declarative workflow (unapproved → approved) |
+| `test_13` | REST API: cancel execution |

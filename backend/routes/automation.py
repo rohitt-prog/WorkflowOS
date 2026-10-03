@@ -9,6 +9,7 @@ from automation.models import (
     AutomationStatus,
     ExecuteWorkflowRequest,
     ExecuteWorkflowResponse,
+    WorkflowDefinition,
 )
 from automation.engine import InvalidStateTransitionError
 from automation.service import automation_service
@@ -22,6 +23,7 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
     """
     Shared helper: map an AutomationExecution to an ExecuteWorkflowResponse.
     Handles all statuses: pending, paused, cancelled, failed, completed.
+    Enriched with Phase 6 declarative telemetry and step execution logs.
     """
     actions_list: List[Dict[str, Any]] = [
         {
@@ -37,27 +39,35 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
         for r in execution.results
     ]
 
+    base_kwargs = {
+        "workflow_id": execution.execution_id,
+        "workflow_name": execution.workflow_name,
+        "workflow_definition_id": execution.workflow_id,
+        "variables": execution.variables or {},
+        "step_results": [r.model_dump() for r in execution.step_results],
+        "execution_logs": execution.execution_logs or [],
+        "actions": actions_list,
+        "completed_actions": execution.completed_actions,
+        "total_actions": execution.total_actions,
+        "execution_time_seconds": execution.execution_time_seconds,
+        "applications": execution.applications,
+        "started_at": execution.started_at,
+        "completed_at": execution.completed_at,
+        "all_actions": execution.actions_detail,
+        "resume_count": execution.resume_count,
+    }
+
     # ── PENDING (unapproved) ──────────────────────────────────────────────
     if execution.status == AutomationStatus.PENDING:
         return ExecuteWorkflowResponse(
             status="pending",
-            workflow_id=execution.execution_id,
-            workflow_name=execution.workflow_name,
             message="Workflow execution pending approval. Human approval is required.",
             requires_human_intervention=False,
             resume_available=False,
-            resume_count=execution.resume_count,
-            actions=actions_list,
-            completed_actions=execution.completed_actions,
-            total_actions=execution.total_actions,
-            execution_time_seconds=execution.execution_time_seconds,
-            applications=execution.applications,
-            started_at=execution.started_at,
-            completed_at=execution.completed_at,
-            all_actions=execution.actions_detail,
+            **base_kwargs,
         )
 
-    # ── PAUSED (Phase 4.6: action failed, awaiting human intervention) ────
+    # ── PAUSED (action failed, awaiting human intervention) ───────────────
     elif execution.status == AutomationStatus.PAUSED:
         failed_action = execution.failed_action or execution.current_action
         reason_msg = execution.failure_reason or execution.error or "Action execution failed"
@@ -76,47 +86,27 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
 
         return ExecuteWorkflowResponse(
             status="paused",
-            workflow_id=execution.execution_id,
-            workflow_name=execution.workflow_name,
             failed_action=failed_action,
             failure_reason=reason_msg,
             message=f"Workflow paused after '{failed_action}' failed. Human intervention required.",
             requires_human_intervention=True,
             human_intervention=human_intervention_info,
             resume_available=execution.resume_available,
-            resume_count=execution.resume_count,
             paused_at=execution.paused_at,
             resumed_at=execution.resumed_at,
-            actions=actions_list,
-            completed_actions=execution.completed_actions,
-            total_actions=execution.total_actions,
-            execution_time_seconds=execution.execution_time_seconds,
-            applications=execution.applications,
-            started_at=execution.started_at,
-            completed_at=execution.completed_at,
-            all_actions=execution.actions_detail,
+            **base_kwargs,
         )
 
-    # ── CANCELLED (Phase 4.6) ─────────────────────────────────────────────
+    # ── CANCELLED ─────────────────────────────────────────────────────────
     elif execution.status == AutomationStatus.CANCELLED:
         return ExecuteWorkflowResponse(
             status="cancelled",
-            workflow_id=execution.execution_id,
-            workflow_name=execution.workflow_name,
             message="Workflow execution was cancelled by user.",
             requires_human_intervention=False,
             resume_available=False,
-            resume_count=execution.resume_count,
             paused_at=execution.paused_at,
             cancelled_at=execution.cancelled_at,
-            actions=actions_list,
-            completed_actions=execution.completed_actions,
-            total_actions=execution.total_actions,
-            execution_time_seconds=execution.execution_time_seconds,
-            applications=execution.applications,
-            started_at=execution.started_at,
-            completed_at=execution.completed_at,
-            all_actions=execution.actions_detail,
+            **base_kwargs,
         )
 
     # ── FAILED (terminal, not resumable — validation failures etc.) ───────
@@ -134,8 +124,6 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
 
         return ExecuteWorkflowResponse(
             status="failed",
-            workflow_id=execution.execution_id,
-            workflow_name=execution.workflow_name,
             failed_action=execution.current_action,
             failure_reason=reason_text,
             message=execution.error or "Workflow execution failed",
@@ -146,37 +134,63 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
                 "action_required": action_req,
             },
             resume_available=False,
-            resume_count=execution.resume_count,
-            actions=actions_list,
-            completed_actions=execution.completed_actions,
-            total_actions=execution.total_actions,
-            execution_time_seconds=execution.execution_time_seconds,
-            applications=execution.applications,
-            started_at=execution.started_at,
-            completed_at=execution.completed_at,
-            all_actions=execution.actions_detail,
+            **base_kwargs,
         )
 
     # ── COMPLETED ─────────────────────────────────────────────────────────
     else:
         return ExecuteWorkflowResponse(
             status="completed",
-            workflow_id=execution.execution_id,
-            workflow_name=execution.workflow_name,
             message="Workflow completed successfully",
             requires_human_intervention=False,
             resume_available=False,
-            resume_count=execution.resume_count,
             resumed_at=execution.resumed_at,
-            actions=actions_list,
-            completed_actions=execution.completed_actions,
-            total_actions=execution.total_actions,
-            execution_time_seconds=execution.execution_time_seconds,
-            applications=execution.applications,
-            started_at=execution.started_at,
-            completed_at=execution.completed_at,
-            all_actions=execution.actions_detail,
+            **base_kwargs,
         )
+
+
+# ---------------------------------------------------------------------------
+# Declarative Workflow Template Management Endpoints (Phase 6)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/workflows",
+    response_model=List[WorkflowDefinition],
+    summary="List Declarative Workflows",
+    description="Returns all registered declarative workflow definitions and templates."
+)
+async def list_workflows_endpoint():
+    """GET /api/automation/workflows"""
+    return automation_service.list_workflows()
+
+
+@router.post(
+    "/workflows",
+    response_model=WorkflowDefinition,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create or Register Declarative Workflow",
+    description="Registers a new declarative workflow definition."
+)
+async def register_workflow_endpoint(workflow: WorkflowDefinition):
+    """POST /api/automation/workflows"""
+    return automation_service.register_workflow(workflow)
+
+
+@router.get(
+    "/workflows/{workflow_id}",
+    response_model=WorkflowDefinition,
+    summary="Get Declarative Workflow",
+    description="Retrieves a specific declarative workflow definition by ID."
+)
+async def get_workflow_endpoint(workflow_id: str):
+    """GET /api/automation/workflows/{workflow_id}"""
+    wf = automation_service.get_workflow(workflow_id)
+    if not wf:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow definition '{workflow_id}' not found."
+        )
+    return wf
 
 
 @router.post(
@@ -184,22 +198,37 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
     response_model=ExecuteWorkflowResponse,
     summary="Execute Workflow Automation",
     description=(
-        "Executes a validated WorkflowProposal across controlled demo apps using PlaywrightExecutor. "
+        "Executes either a declarative WorkflowDefinition (Phase 6) or a legacy WorkflowProposal (Phase 3/4). "
         "Strictly gated by human approval (approved=True required). "
-        "Phase 4.6: on action failure, execution transitions to PAUSED with resume_available=True "
-        "instead of FAILED. Use POST /executions/{id}/resume to continue or "
-        "POST /executions/{id}/cancel to abort."
+        "On action failure: execution transitions to PAUSED with resume_available=True."
     ),
 )
 async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
     """
     POST /api/automation/execute
 
-    Executes a complete 5-action demo workflow end-to-end via PlaywrightExecutor.
+    Executes a complete workflow end-to-end via PlaywrightExecutor or NoOpExecutor.
     If approved is not True, execution is blocked and a pending approval response is returned.
-    On failure: returns status=paused with resume_available=True (Phase 4.6).
     """
-    # 1. Resolve WorkflowProposal
+    context = dict(request.context or {})
+    if request.session_id and "session_id" not in context:
+        context["session_id"] = request.session_id
+
+    executor_type = request.executor_type or "playwright"
+
+    # Branch 1: Declarative WorkflowDefinition (Phase 6)
+    if request.workflow_definition:
+        execution = await automation_service.run_workflow(
+            workflow_definition=request.workflow_definition,
+            approved=request.approved,
+            executor_type=executor_type,
+            inputs=request.inputs,
+            parameters=request.parameters,
+            context=context,
+        )
+        return _build_response(execution)
+
+    # Branch 2: Legacy WorkflowProposal (Phase 3/4)
     proposal = request.workflow or request.proposal
     if not proposal and request.actions:
         proposal = WorkflowProposal(
@@ -219,18 +248,10 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
     if not proposal:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A 'workflow', 'proposal', or list of 'actions' is required for execution.",
+            detail="A 'workflow_definition', 'workflow', 'proposal', or list of 'actions' is required for execution.",
         )
 
-    # 2. Build runtime context
-    context = dict(request.context or {})
-    if request.session_id and "session_id" not in context:
-        context["session_id"] = request.session_id
-
-    # 3. Execution Chain: Route → AutomationService → AutomationEngine → Executor
-    executor_type = request.executor_type or "playwright"
-
-    execution: AutomationExecution = await automation_service.run_workflow(
+    execution = await automation_service.run_workflow(
         proposal=proposal,
         approved=request.approved,
         executor_type=executor_type,

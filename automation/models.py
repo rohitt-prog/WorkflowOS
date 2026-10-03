@@ -92,17 +92,134 @@ class ExecutionActionResult(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase 6: Declarative Workflow Specification Models
+# ---------------------------------------------------------------------------
+
+class StepCondition(BaseModel):
+    """
+    Defines a conditional expression for a workflow step.
+    Evaluated dynamically against inputs, variables, or outputs of prior steps.
+    """
+    field: str = Field(..., description="Context path to evaluate (e.g. 'inputs.amount', 'variables.found')")
+    operator: str = Field(
+        default="==",
+        description="Comparison operator: '==', '!=', '>', '<', '>=', '<=', 'contains', 'in', 'is_empty', 'is_not_empty', 'exists'"
+    )
+    value: Optional[Any] = Field(default=None, description="Expected value to compare against")
+
+
+class RetryPolicy(BaseModel):
+    """
+    Retry configuration for transient failures on a workflow step.
+    """
+    max_retries: int = Field(default=0, ge=0, description="Max retry attempts after failure")
+    backoff_seconds: float = Field(default=1.0, ge=0.0, description="Delay between retry attempts")
+    retry_on_errors: List[str] = Field(
+        default_factory=list,
+        description="Optional list of error substrings that qualify for retry"
+    )
+
+
+class WorkflowInputDefinition(BaseModel):
+    """
+    Declares an expected input parameter for a declarative workflow.
+    """
+    name: str = Field(..., description="Variable identifier for the input")
+    type: str = Field(default="string", description="Parameter type: 'string', 'number', 'boolean', 'object', 'array'")
+    default: Optional[Any] = Field(default=None, description="Default value if not provided")
+    required: bool = Field(default=False, description="Whether the input is mandatory")
+    description: Optional[str] = Field(default=None, description="Explanation of what this input represents")
+
+
+class WorkflowTriggerConfig(BaseModel):
+    """
+    Configurable trigger definition for declarative workflows.
+    """
+    type: str = Field(default="manual", description="Trigger mechanism: 'manual', 'event', 'webhook', 'schedule'")
+    application: Optional[str] = Field(default=None, description="Target application slug if event-driven")
+    event_type: Optional[str] = Field(default=None, description="Triggering event type if event-driven")
+    description: Optional[str] = Field(default=None, description="Human description of trigger condition")
+    conditions: List[StepCondition] = Field(default_factory=list, description="Optional filtering conditions")
+
+
+class WorkflowStep(BaseModel):
+    """
+    A declarative workflow step with support for parameter templating,
+    branching conditions, output mapping, and retry policies.
+    """
+    id: str = Field(..., description="Unique deterministic step ID (e.g. 'step_search_cust')")
+    name: Optional[str] = Field(default=None, description="Friendly display label for step")
+    type: str = Field(..., description="Action verb (e.g. 'search_customer', 'send_message') or control verb")
+    application: str = Field(default="workflow_system", description="Target application name")
+    description: Optional[str] = Field(default=None, description="Human explanation of step action")
+    target: Optional[str] = Field(default=None, description="Target entity, recipient, or locator")
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parameters with {{variable}} templating support"
+    )
+    condition: Optional[StepCondition] = Field(default=None, description="Condition guard for step execution")
+    on_true: Optional[str] = Field(default=None, description="Next step ID if condition evaluates True")
+    on_false: Optional[str] = Field(default=None, description="Next step ID if condition evaluates False")
+    retry_policy: Optional[RetryPolicy] = Field(default=None, description="Retry configuration on error")
+    timeout_seconds: Optional[float] = Field(default=None, description="Per-step timeout limit")
+    continue_on_failure: bool = Field(
+        default=False,
+        description="If True, step failure logs a warning and continues without halting"
+    )
+    output_mapping: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Map step output fields into workflow variables (e.g. {'customer_id': 'data.id'})"
+    )
+
+
+class WorkflowDefinition(BaseModel):
+    """
+    Phase 6 Declarative Workflow Specification.
+    Supports structured inputs, variables, triggers, conditional branching, and step policies.
+    """
+    id: str = Field(..., description="Unique workflow definition ID")
+    name: str = Field(..., description="Human-readable workflow title")
+    description: Optional[str] = Field(default=None, description="Detailed explanation of workflow")
+    version: str = Field(default="1.0.0", description="Semantic version string")
+    trigger: WorkflowTriggerConfig = Field(default_factory=WorkflowTriggerConfig, description="Trigger settings")
+    inputs: List[WorkflowInputDefinition] = Field(default_factory=list, description="Input definitions")
+    variables: Dict[str, Any] = Field(default_factory=dict, description="Initial default workflow variables")
+    steps: List[WorkflowStep] = Field(default_factory=list, description="Ordered workflow steps")
+    requires_approval: bool = Field(default=True, description="Safety gate: whether execution requires approval")
+    created_at: Optional[str] = Field(default=None, description="Creation timestamp")
+    updated_at: Optional[str] = Field(default=None, description="Last update timestamp")
+
+
+class StepExecutionResult(BaseModel):
+    """
+    Detailed runtime telemetry, outputs, and log entries for a single executed step.
+    """
+    step_id: str = Field(..., description="ID of the workflow step")
+    action_type: str = Field(..., description="Action verb executed")
+    application: str = Field(..., description="Application context")
+    status: str = Field(..., description="Status: 'completed', 'failed', 'skipped', 'running'")
+    attempts: int = Field(default=1, description="Number of attempts executed")
+    started_at: Optional[str] = Field(default=None, description="ISO timestamp of step start")
+    completed_at: Optional[str] = Field(default=None, description="ISO timestamp of step end")
+    inputs: Dict[str, Any] = Field(default_factory=dict, description="Resolved input parameters")
+    outputs: Dict[str, Any] = Field(default_factory=dict, description="Produced output data")
+    logs: List[str] = Field(default_factory=list, description="Structured log messages for step")
+    error: Optional[str] = Field(default=None, description="Error message if step failed")
+
+
 class AutomationExecution(BaseModel):
     """
-    Complete state and result of an automation workflow execution.
+    Complete state, telemetry, and result of an automation workflow execution.
 
-    Phase 4.6 adds human-in-the-loop fields:
+    Phase 4.6 & 6:
     - failed_action / failure_reason: what went wrong
     - resume_available: whether resume is currently allowed
     - resume_count: how many times the execution has been resumed
     - paused_at / resumed_at / cancelled_at: lifecycle timestamps
-    - all_actions: full action list (alias for actions_detail, Phase 4.5 compat)
-    - _serialized_actions: serialized AutomationAction dicts for resume support
+    - all_actions: full action list with states
+    - serialized_actions: serialized AutomationAction dicts for legacy resume support
+    - Phase 6 additions: workflow_id, inputs, variables, step_results, execution_logs, serialized_workflow
     """
     execution_id: str = Field(
         ...,
@@ -180,6 +297,31 @@ class AutomationExecution(BaseModel):
         default_factory=dict,
         description="Runtime context dictionary"
     )
+    # ── Phase 6 additions ────────────────────────────────────────────────
+    workflow_id: Optional[str] = Field(
+        default=None,
+        description="ID of the executed WorkflowDefinition if applicable"
+    )
+    inputs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Resolved input arguments passed to the workflow"
+    )
+    variables: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Workflow runtime variables state"
+    )
+    step_results: List[StepExecutionResult] = Field(
+        default_factory=list,
+        description="Detailed per-step execution results and outputs"
+    )
+    execution_logs: List[str] = Field(
+        default_factory=list,
+        description="Workflow-level execution event log"
+    )
+    serialized_workflow: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Serialized WorkflowDefinition for pause/resume"
+    )
     # ─────────────────────────────────────────────────────────────────────
 
     results: List[ExecutionActionResult] = Field(
@@ -206,7 +348,6 @@ class AutomationExecution(BaseModel):
         default_factory=list,
         description="Ordered details of all workflow actions with states (Phase 4.5)"
     )
-    # Phase 4.5 alias — same data as actions_detail kept for backward compat
     all_actions: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Alias for actions_detail; comprehensive action list with states"
@@ -217,6 +358,7 @@ class ExecuteWorkflowRequest(BaseModel):
     """
     Request payload to trigger workflow execution.
     Requires explicit approved=True to pass the approval safety gate.
+    Supports both legacy Phase 3/4 proposals and Phase 6 declarative workflows.
     """
     workflow: Optional[WorkflowProposal] = Field(
         default=None,
@@ -229,6 +371,15 @@ class ExecuteWorkflowRequest(BaseModel):
     actions: Optional[List[WorkflowAction]] = Field(
         default=None,
         description="Optional list of actions if proposal is not provided"
+    )
+    # Phase 6: Declarative workflow specification
+    workflow_definition: Optional[WorkflowDefinition] = Field(
+        default=None,
+        description="Phase 6 Declarative WorkflowDefinition"
+    )
+    inputs: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Phase 6 input values matching workflow inputs"
     )
     approved: bool = Field(
         default=False,
@@ -255,7 +406,7 @@ class ExecuteWorkflowRequest(BaseModel):
 class ExecuteWorkflowResponse(BaseModel):
     """
     Structured response returned after workflow execution.
-    Enriched with Phase 4.5 observability and Phase 4.6 human-in-the-loop fields.
+    Enriched with Phase 4.5 observability, Phase 4.6 recovery, and Phase 6 declarative telemetry.
     """
     status: str = Field(..., description="Status: 'completed', 'failed', 'pending', 'paused', 'cancelled'")
     workflow_id: str = Field(..., description="Unique execution ID")
@@ -283,4 +434,9 @@ class ExecuteWorkflowResponse(BaseModel):
         default_factory=list,
         description="Comprehensive list of all actions in the workflow with their execution states"
     )
+    # Phase 6
+    workflow_definition_id: Optional[str] = Field(default=None, description="Workflow definition ID if applicable")
+    variables: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Final workflow variables state")
+    step_results: List[Dict[str, Any]] = Field(default_factory=list, description="Detailed per-step results and logs")
+    execution_logs: List[str] = Field(default_factory=list, description="Workflow-level execution logs")
 

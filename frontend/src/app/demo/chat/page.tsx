@@ -40,7 +40,6 @@ export default function DemoChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState<string>("");
   const [selectedChannel, setSelectedChannel] = useState<string>("#customer-support");
-  const [lastSentMessage, setLastSentMessage] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState<boolean>(false);
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -58,7 +57,6 @@ export default function DemoChatPage() {
     };
 
     setMessages((prev) => [...prev, newMessage]);
-    setLastSentMessage(text);
     setInputText("");
     setSendSuccess(true);
   };

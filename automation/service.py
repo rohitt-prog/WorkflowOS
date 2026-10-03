@@ -3,7 +3,17 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
 from ai.models import WorkflowProposal
-from automation.models import AutomationExecution, AutomationStatus, is_valid_transition
+from automation.models import (
+    AutomationExecution,
+    AutomationStatus,
+    WorkflowDefinition,
+    WorkflowStep,
+    WorkflowInputDefinition,
+    WorkflowTriggerConfig,
+    StepCondition,
+    RetryPolicy,
+    is_valid_transition,
+)
 from automation.engine import automation_engine, AutomationEngine, InvalidStateTransitionError
 from automation.executor import ActionExecutor
 
@@ -12,30 +22,193 @@ logger = logging.getLogger(__name__)
 
 class AutomationService:
     """
-    Internal service layer managing workflow automation executions and history.
+    Internal service layer managing workflow automation executions, definitions, and history.
 
-    Phase 4.6 adds:
-    - resume_execution(): validate PAUSED state, find failed action index, delegate to engine
-    - cancel_execution(): validate PAUSED state, transition to CANCELLED, record timestamp
+    Phase 6 adds:
+    - Declarative workflow registration and execution
+    - Template registry with built-in declarative workflows
+    - Seamless resume for declarative and legacy workflows
     """
 
     def __init__(self, engine: Optional[AutomationEngine] = None):
         self._engine = engine or automation_engine
         self._executions: Dict[str, AutomationExecution] = {}
+        self._workflows: Dict[str, WorkflowDefinition] = {}
+        self._init_built_in_workflows()
 
-    async def run_workflow(
+    def _init_built_in_workflows(self):
+        """Seed default declarative workflow templates for Phase 6."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        template1 = WorkflowDefinition(
+            id="wf_customer_support_pipeline",
+            name="Customer Email & Support Pipeline",
+            description="Extracts support inquiry, searches CRM, updates record, and sends customer acknowledgement.",
+            version="1.0.0",
+            trigger=WorkflowTriggerConfig(
+                type="event",
+                application="demo_email",
+                event_type="open_email",
+                description="Triggers when a customer support email is opened"
+            ),
+            inputs=[
+                WorkflowInputDefinition(
+                    name="customer_name",
+                    type="string",
+                    default="Rahul Sharma",
+                    required=True,
+                    description="Full name of customer"
+                ),
+                WorkflowInputDefinition(
+                    name="inquiry_type",
+                    type="string",
+                    default="support_request",
+                    required=False,
+                    description="Category of inquiry"
+                ),
+            ],
+            variables={
+                "status": "initial",
+                "priority": "normal",
+            },
+            steps=[
+                WorkflowStep(
+                    id="step_open_email",
+                    name="Open Customer Email",
+                    type="open_email",
+                    application="demo_email",
+                    description="Open incoming customer email thread",
+                    target="customer_request",
+                    parameters={"subject": "Inquiry: {{inputs.inquiry_type}}"},
+                    output_mapping={"email_opened": "data.status"},
+                ),
+                WorkflowStep(
+                    id="step_download_attachment",
+                    name="Download Attachment",
+                    type="download_attachment",
+                    application="demo_email",
+                    description="Download inquiry attachment if available",
+                    target="invoice_pdf",
+                    parameters={},
+                    retry_policy=RetryPolicy(max_retries=1, backoff_seconds=0.5),
+                    continue_on_failure=True,
+                ),
+                WorkflowStep(
+                    id="step_search_crm",
+                    name="Search CRM for Customer",
+                    type="search_customer",
+                    application="demo_crm",
+                    description="Locate customer account in CRM",
+                    target="{{inputs.customer_name}}",
+                    parameters={"query": "{{inputs.customer_name}}"},
+                    output_mapping={"crm_found": "data.success"},
+                ),
+                WorkflowStep(
+                    id="step_update_crm",
+                    name="Update CRM Record",
+                    type="update_customer",
+                    application="demo_crm",
+                    description="Update customer interaction timestamp and notes",
+                    target="{{inputs.customer_name}}",
+                    parameters={"status": "In Progress", "customer": "{{inputs.customer_name}}"},
+                ),
+                WorkflowStep(
+                    id="step_notify_chat",
+                    name="Send Chat Notification",
+                    type="send_message",
+                    application="demo_chat",
+                    description="Notify team and customer that inquiry is in progress",
+                    target="support_channel",
+                    parameters={"recipient": "{{inputs.customer_name}}", "message": "Inquiry received and CRM updated."},
+                ),
+            ],
+            requires_approval=True,
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+        self._workflows[template1.id] = template1
+
+    def register_workflow(self, workflow: WorkflowDefinition) -> WorkflowDefinition:
+        """Saves or updates a declarative workflow definition."""
+        workflow.updated_at = datetime.now(timezone.utc).isoformat()
+        if not workflow.created_at:
+            workflow.created_at = workflow.updated_at
+        self._workflows[workflow.id] = workflow
+        return workflow
+
+    def get_workflow(self, workflow_id: str) -> Optional[WorkflowDefinition]:
+        """Retrieves a registered workflow definition by ID."""
+        return self._workflows.get(workflow_id)
+
+    def list_workflows(self) -> List[WorkflowDefinition]:
+        """Returns all registered declarative workflow definitions."""
+        return list(self._workflows.values())
+
+    async def run_declarative_workflow(
         self,
-        proposal: WorkflowProposal,
+        workflow: WorkflowDefinition,
         approved: bool = False,
         executor: Optional[ActionExecutor] = None,
         executor_type: Optional[str] = None,
+        inputs: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> AutomationExecution:
         """
-        Executes a workflow proposal through the automation engine and records the run.
-        Supports concrete PlaywrightExecutor selection for Phase 4.4 and NoOpExecutor for testing.
+        Executes a Phase 6 declarative WorkflowDefinition through the automation engine.
         """
+        active_executor = executor
+        if active_executor is None and executor_type:
+            if executor_type.lower() == "playwright":
+                from automation.playwright_executor import PlaywrightExecutor
+                active_executor = PlaywrightExecutor()
+            elif executor_type.lower() == "noop":
+                from automation.executor import NoOpExecutor
+                fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
+                active_executor = NoOpExecutor(fail_actions=fail_actions)
+
+        execution = await self._engine.execute_declarative_workflow(
+            workflow=workflow,
+            approved=approved,
+            executor=active_executor,
+            inputs=inputs,
+            parameters=parameters,
+            context=context,
+        )
+        execution = execution.model_copy(update={
+            "executor_type": executor_type or "playwright",
+            "context": context or {},
+        })
+        self._executions[execution.execution_id] = execution
+        return execution
+
+    async def run_workflow(
+        self,
+        proposal: Optional[WorkflowProposal] = None,
+        workflow_definition: Optional[WorkflowDefinition] = None,
+        approved: bool = False,
+        executor: Optional[ActionExecutor] = None,
+        executor_type: Optional[str] = None,
+        inputs: Optional[Dict[str, Any]] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> AutomationExecution:
+        """
+        Unified entrypoint: executes either a declarative WorkflowDefinition or a legacy WorkflowProposal.
+        """
+        if workflow_definition:
+            return await self.run_declarative_workflow(
+                workflow=workflow_definition,
+                approved=approved,
+                executor=executor,
+                executor_type=executor_type,
+                inputs=inputs,
+                parameters=parameters,
+                context=context,
+            )
+
+        if not proposal:
+            raise ValueError("Either 'workflow_definition' or 'proposal' must be provided.")
+
         active_executor = executor
         if active_executor is None and executor_type:
             if executor_type.lower() == "playwright":
@@ -123,13 +296,22 @@ class AutomationService:
                 fail_actions = merged_context.get("fail_actions")
                 active_executor = NoOpExecutor(fail_actions=fail_actions)
 
-        updated = await self._engine.execute_from_index(
-            execution=execution,
-            start_index=start_index,
-            executor=active_executor,
-            context=merged_context,
-            parameters=parameters,
-        )
+        if execution.serialized_workflow:
+            updated = await self._engine.resume_declarative_workflow(
+                execution=execution,
+                resume_step_id=failed_action_type,
+                executor=active_executor,
+                parameters=parameters,
+                context=merged_context,
+            )
+        else:
+            updated = await self._engine.execute_from_index(
+                execution=execution,
+                start_index=start_index,
+                executor=active_executor,
+                context=merged_context,
+                parameters=parameters,
+            )
 
         updated = updated.model_copy(update={
             "executor_type": resolved_type,
