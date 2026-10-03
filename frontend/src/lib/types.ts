@@ -192,3 +192,41 @@ export interface WorkflowDefinition {
 }
 
 export type ViewId = "dashboard" | "activity" | "discovery" | "builder" | "executions" | "settings";
+
+// Phase 7.1 Integration Foundation types
+export interface IntegrationActionParam {
+  name: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  description?: string;
+  allowed_values?: unknown[];
+}
+
+export interface IntegrationActionDef {
+  name: string;
+  display_name: string;
+  description: string;
+  parameters: IntegrationActionParam[];
+  required_scopes: string[];
+  is_safe: boolean;
+  is_mutating?: boolean;
+  is_destructive: boolean;
+  allow_direct_execution?: boolean;
+}
+
+export interface IntegrationSummaryItem {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  icon?: string | null;
+  is_mock: boolean;
+  disclaimer?: string | null;
+  status: "connected" | "disconnected" | "error";
+  is_connected: boolean;
+  connected_at?: string | null;
+  last_error?: string | null;
+  actions: IntegrationActionDef[];
+}

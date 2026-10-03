@@ -79,6 +79,13 @@ class NoOpExecutor(ActionExecutor):
                 timestamp=now_iso,
             )
 
+        # Route integration actions through IntegrationExecutor
+        from integrations.registry import integration_registry
+        app_id = action.application.split(":", 1)[1].strip() if action.application.startswith("integration:") else action.application.strip()
+        if integration_registry.get(app_id):
+            from integrations.executor import IntegrationExecutor
+            return await IntegrationExecutor(integration_registry).execute(action, context=context)
+
         return ExecutionActionResult(
             action_id=action.id,
             action_type=action.type,

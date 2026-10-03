@@ -8,6 +8,7 @@ from backend.routes.events import router as events_router
 from backend.routes.discovery import router as discovery_router
 from backend.routes.ai import router as ai_router
 from backend.routes.automation import router as automation_router
+from backend.routes.integrations import router as integrations_router
 
 
 # Configure logging
@@ -53,6 +54,7 @@ app.include_router(events_router)
 app.include_router(discovery_router)
 app.include_router(ai_router)
 app.include_router(automation_router)
+app.include_router(integrations_router)
 
 
 if __name__ == "__main__":

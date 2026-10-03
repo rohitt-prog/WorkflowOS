@@ -165,6 +165,9 @@ class AutomationService:
                 from automation.executor import NoOpExecutor
                 fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
                 active_executor = NoOpExecutor(fail_actions=fail_actions)
+            elif executor_type.lower() == "integration":
+                from integrations.executor import IntegrationExecutor
+                active_executor = IntegrationExecutor()
 
         execution = await self._engine.execute_declarative_workflow(
             workflow=workflow,
@@ -218,6 +221,9 @@ class AutomationService:
                 from automation.executor import NoOpExecutor
                 fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
                 active_executor = NoOpExecutor(fail_actions=fail_actions)
+            elif executor_type.lower() == "integration":
+                from integrations.executor import IntegrationExecutor
+                active_executor = IntegrationExecutor()
 
         execution = await self._engine.execute_workflow(
             proposal=proposal,
@@ -295,6 +301,9 @@ class AutomationService:
                 from automation.executor import NoOpExecutor
                 fail_actions = merged_context.get("fail_actions")
                 active_executor = NoOpExecutor(fail_actions=fail_actions)
+            elif resolved_type.lower() == "integration":
+                from integrations.executor import IntegrationExecutor
+                active_executor = IntegrationExecutor()
 
         if execution.serialized_workflow:
             updated = await self._engine.resume_declarative_workflow(

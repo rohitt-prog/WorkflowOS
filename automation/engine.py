@@ -233,7 +233,19 @@ class AutomationEngine:
         for idx, act in enumerate(workflow_actions, start=1):
             action_type = act.type.strip().lower()
 
-            if action_type not in SUPPORTED_ACTION_TYPES:
+            from integrations.registry import integration_registry
+            app_id = act.application.split(":", 1)[1].strip() if act.application.startswith("integration:") else act.application.strip()
+            adapter = integration_registry.get(app_id)
+
+            if adapter:
+                if action_type not in adapter.declared_action_names:
+                    err_msg = (
+                        f"Action step {idx} '{act.type}' is not supported by integration '{app_id}'. "
+                        f"Declared actions are: {adapter.declared_action_names}"
+                    )
+                    logger.error(err_msg)
+                    raise UnsupportedActionError(err_msg)
+            elif action_type not in SUPPORTED_ACTION_TYPES:
                 supported_list = sorted(list(SUPPORTED_ACTION_TYPES))
                 err_msg = (
                     f"Action step {idx} '{act.type}' is not supported for automation. "
@@ -705,9 +717,60 @@ class AutomationEngine:
                 applications=applications,
             )
 
-        # 2. Action Type Validation
+        # 2. Action Type & Parameter Schema Validation
+        from integrations.registry import integration_registry
         for idx, step in enumerate(workflow.steps, start=1):
-            if step.type not in SUPPORTED_ACTION_TYPES and step.type not in ("condition", "wait", "transform", "log"):
+            app_id = step.application.split(":", 1)[1].strip() if step.application.startswith("integration:") else step.application.strip()
+            adapter = integration_registry.get(app_id)
+            if adapter:
+                if step.type not in adapter.declared_action_names:
+                    err_msg = (
+                        f"Workflow step {idx} '{step.type}' is not supported by integration '{app_id}'. "
+                        f"Declared actions are: {adapter.declared_action_names}"
+                    )
+                    logger.error(err_msg)
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    return AutomationExecution(
+                        execution_id=execution_id,
+                        workflow_id=workflow.id,
+                        workflow_name=workflow.name,
+                        status=AutomationStatus.FAILED,
+                        error=err_msg,
+                        total_actions=len(workflow.steps),
+                        inputs=merged_inputs,
+                        variables=dict(workflow.variables),
+                        execution_logs=[err_msg],
+                        started_at=started_at,
+                        completed_at=now_iso,
+                        execution_time_seconds=0.0,
+                        applications=applications,
+                    )
+                # Static input validation if not template-guarded
+                has_templates = any(
+                    isinstance(v, str) and "{{" in v for v in (step.parameters or {}).values()
+                )
+                if not has_templates:
+                    is_valid, val_err = adapter.validate_action_inputs(step.type, step.parameters or {})
+                    if not is_valid:
+                        err_msg = f"Workflow step {idx} '{step.type}' parameter validation failed: {val_err}"
+                        logger.error(err_msg)
+                        now_iso = datetime.now(timezone.utc).isoformat()
+                        return AutomationExecution(
+                            execution_id=execution_id,
+                            workflow_id=workflow.id,
+                            workflow_name=workflow.name,
+                            status=AutomationStatus.FAILED,
+                            error=err_msg,
+                            total_actions=len(workflow.steps),
+                            inputs=merged_inputs,
+                            variables=dict(workflow.variables),
+                            execution_logs=[err_msg],
+                            started_at=started_at,
+                            completed_at=now_iso,
+                            execution_time_seconds=0.0,
+                            applications=applications,
+                        )
+            elif step.type not in SUPPORTED_ACTION_TYPES and step.type not in ("condition", "wait", "transform", "log"):
                 err_msg = (
                     f"Workflow step {idx} '{step.type}' is not supported for automation. "
                     f"Supported actions are: {sorted(list(SUPPORTED_ACTION_TYPES))}"
