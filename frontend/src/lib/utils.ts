@@ -29,11 +29,19 @@ export const getApplicationDisplayName = (appName?: string): string => {
 
 export const getAppBadgeClass = (app: string): string => {
   const lower = app.toLowerCase();
-  if (lower.includes("email") || lower.includes("mail")) return "bg-purple-950/60 text-purple-300 border-purple-800/60";
-  if (lower.includes("crm")) return "bg-sky-950/60 text-sky-300 border-sky-800/60";
-  if (lower.includes("browser") || lower.includes("web")) return "bg-amber-950/60 text-amber-300 border-amber-800/60";
-  if (lower.includes("chat") || lower.includes("message")) return "bg-emerald-950/60 text-emerald-300 border-emerald-800/60";
-  return "bg-zinc-800/80 text-zinc-300 border-zinc-700/60";
+  if (lower.includes("email") || lower.includes("mail")) {
+    return "bg-purple-50 text-purple-700 border-purple-200/80";
+  }
+  if (lower.includes("crm")) {
+    return "bg-sky-50 text-sky-700 border-sky-200/80";
+  }
+  if (lower.includes("browser") || lower.includes("web")) {
+    return "bg-amber-50 text-amber-700 border-amber-200/80";
+  }
+  if (lower.includes("chat") || lower.includes("message")) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200/80";
+  }
+  return "bg-slate-100 text-slate-700 border-slate-200";
 };
 
 export const formatEventStep = (step: string): string =>
@@ -48,12 +56,21 @@ export const getRelativeTime = (date: Date): string => {
   return `${Math.floor(diff / 86400)}d ago`;
 };
 
-export const formatTimestamp = (isoString: string, mounted: boolean = true): { full: string; relative: string } => {
+export const formatTimestamp = (
+  isoString: string,
+  mounted: boolean = true
+): { full: string; relative: string } => {
   if (!mounted) return { full: isoString, relative: "" };
   try {
     const date = new Date(isoString);
     return {
-      full: date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      full: date.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
       relative: getRelativeTime(date),
     };
   } catch {
@@ -61,21 +78,49 @@ export const formatTimestamp = (isoString: string, mounted: boolean = true): { f
   }
 };
 
-export const statusBadgeConfig = (status: string): { label: string; className: string; dot?: string } => {
+export const statusBadgeConfig = (
+  status: string
+): { label: string; className: string; dot?: string } => {
   switch (status) {
     case "completed":
-      return { label: "Completed", className: "bg-emerald-950/70 border-emerald-500/60 text-emerald-300" };
+      return {
+        label: "Completed",
+        className: "bg-emerald-50 border-emerald-200 text-emerald-700 font-medium",
+        dot: "bg-emerald-600",
+      };
     case "paused":
-      return { label: "Paused", className: "bg-amber-950/70 border-amber-500/60 text-amber-300", dot: "bg-amber-400" };
+      return {
+        label: "Paused",
+        className: "bg-amber-50 border-amber-200 text-amber-700 font-medium",
+        dot: "bg-amber-500",
+      };
     case "running":
-      return { label: "Running", className: "bg-cyan-950/70 border-cyan-500/60 text-cyan-300", dot: "bg-cyan-400 animate-ping" };
+      return {
+        label: "Running",
+        className: "bg-blue-50 border-blue-200 text-blue-700 font-medium",
+        dot: "bg-blue-600 animate-ping",
+      };
     case "failed":
-      return { label: "Failed", className: "bg-rose-950/70 border-rose-500/60 text-rose-300" };
+      return {
+        label: "Failed",
+        className: "bg-rose-50 border-rose-200 text-rose-700 font-medium",
+        dot: "bg-rose-600",
+      };
     case "cancelled":
-      return { label: "Cancelled", className: "bg-zinc-800 border-zinc-600 text-zinc-300" };
+      return {
+        label: "Cancelled",
+        className: "bg-slate-100 border-slate-200 text-slate-600 font-medium",
+      };
     case "pending":
-      return { label: "Pending", className: "bg-amber-950/70 border-amber-500/60 text-amber-300" };
+      return {
+        label: "Pending",
+        className: "bg-amber-50 border-amber-200 text-amber-700 font-medium",
+        dot: "bg-amber-500",
+      };
     default:
-      return { label: status, className: "bg-zinc-800 border-zinc-700 text-zinc-300" };
+      return {
+        label: status,
+        className: "bg-slate-100 border-slate-200 text-slate-700 font-medium",
+      };
   }
 };

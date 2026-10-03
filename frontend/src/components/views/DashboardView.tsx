@@ -2,7 +2,7 @@
 
 import React from "react";
 import { ActivityEvent, AutomationExecutionRecord, DiscoveryResult } from "@/lib/types";
-import { formatEventStep, statusBadgeConfig, getApplicationDisplayName } from "@/lib/utils";
+import { formatEventStep, statusBadgeConfig, getApplicationDisplayName, getAppBadgeClass, formatTimestamp } from "@/lib/utils";
 
 interface DashboardViewProps {
   events: ActivityEvent[];
@@ -10,71 +10,137 @@ interface DashboardViewProps {
   discovery: DiscoveryResult | null;
   loading: boolean;
   historyLoading: boolean;
-  onNavigate: (view: "activity" | "discovery" | "executions") => void;
+  onNavigate: (view: "activity" | "discovery" | "executions" | "builder") => void;
 }
 
 function MetricCard({
-  label, value, sub, accent, icon, loading,
+  label,
+  value,
+  sub,
+  icon,
+  iconBg,
+  iconColor,
+  loading,
 }: {
   label: string;
   value: string | number;
   sub?: string;
-  accent: string;
   icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
   loading?: boolean;
 }) {
   return (
-    <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-5 relative overflow-hidden group hover:border-zinc-700 transition">
-      <div className={`absolute top-0 right-0 w-24 h-24 ${accent} rounded-full blur-2xl opacity-60 pointer-events-none`} />
-      <div className="flex items-center justify-between text-zinc-400 mb-2">
-        <span className="text-xs font-semibold uppercase tracking-wider">{label}</span>
-        <span className="text-zinc-500">{icon}</span>
+    <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs hover:shadow-xs transition flex flex-col justify-between group">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[#64748B]">
+          {label}
+        </span>
+        <div className={`w-8 h-8 rounded-lg ${iconBg} ${iconColor} flex items-center justify-center shrink-0`}>
+          {icon}
+        </div>
       </div>
-      <div className="text-3xl font-bold font-mono text-white">
-        {loading ? <div className="h-8 w-14 bg-zinc-800 rounded animate-pulse" /> : value}
+      <div>
+        <div className="text-2xl sm:text-3xl font-bold font-mono text-[#0F172A] tracking-tight">
+          {loading ? (
+            <div className="h-8 w-16 bg-[#F1F5F9] rounded animate-pulse" />
+          ) : (
+            value
+          )}
+        </div>
+        {sub && (
+          <p className="text-[11px] text-[#64748B] mt-1.5 truncate">
+            {sub}
+          </p>
+        )}
       </div>
-      {sub && <p className="text-[11px] text-zinc-500 mt-1 truncate">{sub}</p>}
     </div>
   );
 }
 
 export default function DashboardView({
-  events, executions, discovery, loading, historyLoading, onNavigate,
+  events,
+  executions,
+  discovery,
+  loading,
+  historyLoading,
+  onNavigate,
 }: DashboardViewProps) {
   const completed = executions.filter((e) => e.status === "completed").length;
   const failed = executions.filter((e) => e.status === "failed" || e.status === "paused").length;
-  const uniqueApps = new Set(events.map((e) => e.application)).size;
-  const successRate = executions.length > 0
-    ? Math.round((completed / executions.length) * 100)
-    : null;
+  const uniqueApps = Array.from(new Set(events.map((e) => e.application)));
+  const successRate =
+    executions.length > 0
+      ? Math.round((completed / executions.length) * 100)
+      : null;
 
-  const recentEvents = events.slice(0, 8);
+  const recentEvents = events.slice(0, 7);
   const recentExecutions = executions.slice(0, 5);
 
+  // Derive real application distribution from events
+  const appCounts: Record<string, number> = {};
+  events.forEach((ev) => {
+    appCounts[ev.application] = (appCounts[ev.application] || 0) + 1;
+  });
+  const topApps = Object.entries(appCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+
   return (
-    <div className="space-y-6 p-6">
-      {/* KPI Row */}
+    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+      {/* Workspace Header & Quick Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs">
+        <div>
+          <h2 className="text-lg font-bold text-[#0F172A] tracking-tight">
+            Workspace Overview
+          </h2>
+          <p className="text-xs text-[#64748B] mt-0.5">
+            Observational desktop telemetry, discovered patterns, and autonomous workflow executions.
+          </p>
+        </div>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => onNavigate("discovery")}
+            className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#0F172A] shadow-2xs transition active:scale-97 cursor-pointer"
+          >
+            Review Discovered ({discovery?.workflows.length ?? 0})
+          </button>
+          <button
+            onClick={() => onNavigate("builder")}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            <span>Create Workflow</span>
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Cards Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Events Captured"
           value={events.length}
-          sub="From /api/events · MongoDB"
-          accent="bg-cyan-500/5"
+          sub="Live ingested events"
+          iconBg="bg-blue-50"
+          iconColor="text-[#2563EB]"
           loading={loading}
           icon={
-            <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           }
         />
         <MetricCard
-          label="Active Apps"
-          value={uniqueApps}
-          sub={loading ? "" : `${new Set(events.map((e) => e.event_type)).size} event types`}
-          accent="bg-purple-500/5"
+          label="Active Applications"
+          value={uniqueApps.length}
+          sub={loading ? "" : `${new Set(events.map((e) => e.event_type)).size} event types active`}
+          iconBg="bg-purple-50"
+          iconColor="text-purple-600"
           loading={loading}
           icon={
-            <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
             </svg>
           }
@@ -82,138 +148,243 @@ export default function DashboardView({
         <MetricCard
           label="Workflows Found"
           value={discovery?.workflows.length ?? 0}
-          sub={discovery?.detected ? "Patterns detected across sessions" : "No patterns yet"}
-          accent="bg-indigo-500/5"
+          sub={discovery?.detected ? "Repeated sequences detected" : "Scanning for patterns"}
+          iconBg="bg-emerald-50"
+          iconColor="text-[#16A34A]"
           loading={false}
           icon={
-            <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
           }
         />
         <MetricCard
           label="Success Rate"
           value={successRate !== null ? `${successRate}%` : "—"}
-          sub={executions.length > 0 ? `${completed} of ${executions.length} executions` : "No executions yet"}
-          accent="bg-emerald-500/5"
+          sub={executions.length > 0 ? `${completed} of ${executions.length} automated runs` : "No executions logged"}
+          iconBg="bg-sky-50"
+          iconColor="text-sky-600"
           loading={historyLoading}
           icon={
-            <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           }
         />
       </div>
 
-      {/* Two column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Recent Activity Feed */}
-        <section className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-800/60 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+      {/* Discovery Insight Banner if patterns exist */}
+      {discovery?.detected && discovery.workflows.length > 0 && (
+        <section className="bg-white border border-[#BFDBFE] rounded-xl p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs relative overflow-hidden">
+          <div className="flex items-center gap-3.5">
+            <div className="w-9 h-9 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center shrink-0 text-[#2563EB]">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              Recent Activity
-            </h2>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-[#0F172A]">
+                  {discovery.workflows.length} Automated Workflow Pattern{discovery.workflows.length > 1 ? "s" : ""} Discovered
+                </span>
+                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Ready to Automate
+                </span>
+              </div>
+              <p className="text-xs text-[#64748B] mt-0.5">
+                Observed {discovery.workflows[0]?.occurrences || 3} repeated sessions in &quot;{discovery.workflows[0]?.label || "Pattern"}&quot;. AI can validate and generate proposal.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate("discovery")}
+            className="shrink-0 px-4 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
+          >
+            Review & Automate
+          </button>
+        </section>
+      )}
+
+      {/* Application Telemetry Distribution */}
+      {topApps.length > 0 && (
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748B]">
+              Application Activity Distribution
+            </h3>
+            <span className="text-xs text-[#64748B]">
+              {events.length} total events
+            </span>
+          </div>
+          {/* Proportion bar */}
+          <div className="h-2 w-full bg-[#F1F5F9] rounded-full overflow-hidden flex">
+            {topApps.map(([app, count], idx) => {
+              const pct = (count / events.length) * 100;
+              const colors = ["bg-[#2563EB]", "bg-purple-500", "bg-emerald-500", "bg-amber-500"];
+              return (
+                <div
+                  key={app}
+                  style={{ width: `${pct}%` }}
+                  className={`h-full ${colors[idx % colors.length]}`}
+                  title={`${app}: ${count} (${pct.toFixed(0)}%)`}
+                />
+              );
+            })}
+          </div>
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-4 mt-3">
+            {topApps.map(([app, count], idx) => {
+              const colors = ["bg-[#2563EB]", "bg-purple-500", "bg-emerald-500", "bg-amber-500"];
+              const pct = ((count / events.length) * 100).toFixed(0);
+              return (
+                <div key={app} className="flex items-center gap-1.5 text-xs text-[#475569]">
+                  <span className={`w-2 h-2 rounded-full ${colors[idx % colors.length]}`} />
+                  <span className="font-medium text-[#0F172A]">{getApplicationDisplayName(app)}</span>
+                  <span className="text-[#94A3B8]">({count} · {pct}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Two Column Grid: Activity Feed & Executions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Activity Section */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-2xs flex flex-col">
+          <div className="px-5 py-3.5 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#2563EB]" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#0F172A]">
+                Recent Desktop Activity
+              </h3>
+            </div>
             <button
               onClick={() => onNavigate("activity")}
-              className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+              className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition cursor-pointer"
             >
               View all →
             </button>
           </div>
-          <div className="divide-y divide-zinc-800/50">
+
+          <div className="divide-y divide-[#E2E8F0] overflow-y-auto flex-1">
             {loading ? (
               <div className="p-5 space-y-3">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className="flex gap-3 animate-pulse">
-                    <div className="h-4 w-20 bg-zinc-800 rounded" />
-                    <div className="h-4 w-24 bg-zinc-800 rounded" />
-                    <div className="h-4 flex-1 bg-zinc-800 rounded" />
+                  <div key={i} className="flex items-center gap-3 animate-pulse">
+                    <div className="h-4 w-20 bg-[#F1F5F9] rounded" />
+                    <div className="h-4 w-28 bg-[#F1F5F9] rounded" />
+                    <div className="h-4 flex-1 bg-[#F1F5F9] rounded" />
                   </div>
                 ))}
               </div>
             ) : recentEvents.length === 0 ? (
-              <div className="py-10 text-center">
-                <p className="text-sm text-zinc-500">No events captured yet.</p>
-                <p className="text-xs text-zinc-600 mt-1">Run the desktop agent or seed test data.</p>
+              <div className="py-12 text-center px-4">
+                <div className="w-10 h-10 rounded-full bg-[#F1F5F9] text-[#94A3B8] flex items-center justify-center mx-auto mb-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <p className="text-xs font-medium text-[#0F172A]">No activity events captured yet</p>
+                <p className="text-[11px] text-[#64748B] mt-1">Run `python -m agent run` or seed demo events.</p>
               </div>
             ) : (
-              recentEvents.map((ev) => (
-                <div key={ev.id} className="px-5 py-3 hover:bg-zinc-800/30 transition flex items-center gap-3">
-                  <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-cyan-500" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="font-mono text-cyan-300 font-medium">{formatEventStep(ev.event_type)}</span>
-                      <span className="text-zinc-600">·</span>
-                      <span className="text-zinc-400 truncate">{ev.application}</span>
+              recentEvents.map((ev) => {
+                const ts = formatTimestamp(ev.timestamp);
+                const badgeClass = getAppBadgeClass(ev.application);
+                return (
+                  <div
+                    key={ev.id}
+                    className="px-5 py-3 hover:bg-[#F8FAFC] transition flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded border shrink-0 ${badgeClass}`}>
+                        {getApplicationDisplayName(ev.application)}
+                      </span>
+                      <span className="font-mono text-[#0F172A] font-semibold truncate">
+                        {formatEventStep(ev.event_type)}
+                      </span>
+                      {ev.target && (
+                        <span className="text-[#64748B] truncate hidden sm:inline">
+                          · {ev.target}
+                        </span>
+                      )}
                     </div>
-                    {ev.target && (
-                      <p className="text-[11px] text-zinc-600 truncate mt-0.5">{ev.target}</p>
-                    )}
+                    <span className="text-[11px] text-[#94A3B8] font-mono shrink-0">
+                      {ts.relative || ts.full}
+                    </span>
                   </div>
-                  <span className="text-[10px] text-zinc-600 font-mono shrink-0">
-                    {new Date(ev.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
 
-        {/* Recent Executions */}
-        <section className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-800/60 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              Recent Executions
+        {/* Recent Executions Section */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-2xs flex flex-col">
+          <div className="px-5 py-3.5 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#16A34A]" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#0F172A]">
+                Recent Automated Executions
+              </h3>
               {executions.length > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-950/60 border border-indigo-800/50 text-indigo-400 rounded-full">
+                <span className="text-[10px] font-mono font-medium px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-full">
                   {completed}/{executions.length}
                 </span>
               )}
-            </h2>
+            </div>
             <button
               onClick={() => onNavigate("executions")}
-              className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+              className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition cursor-pointer"
             >
               View all →
             </button>
           </div>
-          <div className="divide-y divide-zinc-800/50">
+
+          <div className="divide-y divide-[#E2E8F0] overflow-y-auto flex-1">
             {historyLoading ? (
               <div className="p-5 space-y-3">
                 {[...Array(3)].map((_, i) => (
-                  <div key={i} className="flex gap-3 animate-pulse">
-                    <div className="h-5 w-5 bg-zinc-800 rounded-full" />
-                    <div className="flex-1 space-y-1.5">
-                      <div className="h-4 w-40 bg-zinc-800 rounded" />
-                      <div className="h-3 w-24 bg-zinc-800 rounded" />
-                    </div>
-                    <div className="h-5 w-16 bg-zinc-800 rounded-full" />
+                  <div key={i} className="flex items-center gap-3 animate-pulse">
+                    <div className="h-5 w-16 bg-[#F1F5F9] rounded-full" />
+                    <div className="h-4 flex-1 bg-[#F1F5F9] rounded" />
+                    <div className="h-4 w-12 bg-[#F1F5F9] rounded" />
                   </div>
                 ))}
               </div>
             ) : recentExecutions.length === 0 ? (
-              <div className="py-10 text-center">
-                <p className="text-sm text-zinc-500">No executions yet.</p>
-                <p className="text-xs text-zinc-600 mt-1">Approve a workflow to run automation.</p>
+              <div className="py-12 text-center px-4">
+                <div className="w-10 h-10 rounded-full bg-[#F1F5F9] text-[#94A3B8] flex items-center justify-center mx-auto mb-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+                <p className="text-xs font-medium text-[#0F172A]">No automation runs executed yet</p>
+                <p className="text-[11px] text-[#64748B] mt-1">Approve a proposal or build a declarative workflow.</p>
+                <button
+                  onClick={() => onNavigate("discovery")}
+                  className="mt-3 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] text-[#0F172A] hover:bg-[#F8FAFC] shadow-2xs transition cursor-pointer"
+                >
+                  Review Discovered Workflows
+                </button>
               </div>
             ) : (
               recentExecutions.map((ex) => {
                 const cfg = statusBadgeConfig(ex.status);
+                const progress =
+                  ex.total_actions > 0
+                    ? Math.round((ex.completed_actions.length / ex.total_actions) * 100)
+                    : 0;
                 return (
-                  <div key={ex.execution_id} className="px-5 py-3 hover:bg-zinc-800/30 transition">
+                  <div key={ex.execution_id} className="p-4 hover:bg-[#F8FAFC] transition">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-white truncate">
+                        <p className="text-xs font-semibold text-[#0F172A] truncate">
                           {ex.workflow_name || "Automation Workflow"}
                         </p>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">
-                          {ex.completed_actions.length}/{ex.total_actions} steps
+                        <p className="text-[11px] text-[#64748B] mt-0.5">
+                          {ex.completed_actions.length}/{ex.total_actions} actions
                           {ex.execution_time_seconds != null && ` · ${ex.execution_time_seconds}s`}
                           {ex.applications && ex.applications.length > 0 && ` · ${ex.applications.map(getApplicationDisplayName).join(", ")}`}
                         </p>
@@ -222,16 +393,20 @@ export default function DashboardView({
                         {cfg.label}
                       </span>
                     </div>
-                    {/* Progress bar */}
-                    <div className="mt-2 h-1 bg-zinc-800 rounded-full overflow-hidden">
+
+                    {/* Progress Bar */}
+                    <div className="mt-2.5 h-1.5 bg-[#F1F5F9] rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all ${
-                          ex.status === "completed" ? "bg-emerald-500"
-                          : ex.status === "failed" ? "bg-rose-500"
-                          : ex.status === "paused" ? "bg-amber-500"
-                          : "bg-indigo-500"
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          ex.status === "completed"
+                            ? "bg-[#16A34A]"
+                            : ex.status === "failed"
+                            ? "bg-[#DC2626]"
+                            : ex.status === "paused"
+                            ? "bg-[#F59E0B]"
+                            : "bg-[#2563EB]"
                         }`}
-                        style={{ width: `${ex.total_actions > 0 ? (ex.completed_actions.length / ex.total_actions) * 100 : 0}%` }}
+                        style={{ width: `${progress}%` }}
                       />
                     </div>
                   </div>
@@ -242,50 +417,23 @@ export default function DashboardView({
         </section>
       </div>
 
-      {/* Discovery Summary Banner */}
-      {discovery?.detected && discovery.workflows.length > 0 && (
-        <section className="bg-indigo-950/30 border border-indigo-700/40 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-indigo-900/60 border border-indigo-700/50 flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-indigo-200">
-                {discovery.workflows.length} workflow pattern{discovery.workflows.length > 1 ? "s" : ""} discovered
-              </p>
-              <p className="text-xs text-indigo-400/70 mt-0.5">
-                AI can analyse these patterns and propose automation
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => onNavigate("discovery")}
-            className="shrink-0 px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 cursor-pointer"
-          >
-            Review Patterns
-          </button>
-        </section>
-      )}
-
-      {/* System health / stats row */}
-      <section className="grid grid-cols-3 gap-4 text-center">
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-xl py-4">
-          <div className="text-xl font-bold font-mono text-white">{failed}</div>
-          <div className="text-[11px] text-zinc-500 mt-1">Failed / Paused</div>
+      {/* Telemetry Summary Cards */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs text-center">
+          <div className="text-xl font-bold font-mono text-[#0F172A]">{failed}</div>
+          <div className="text-[11px] font-medium text-[#64748B] mt-1">Failed / Paused Executions</div>
         </div>
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-xl py-4">
-          <div className="text-xl font-bold font-mono text-white">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs text-center">
+          <div className="text-xl font-bold font-mono text-[#0F172A]">
             {executions.reduce((s, e) => s + (e.execution_time_seconds ?? 0), 0).toFixed(1)}s
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1">Total Exec Time</div>
+          <div className="text-[11px] font-medium text-[#64748B] mt-1">Total Automation Runtime</div>
         </div>
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-xl py-4">
-          <div className="text-xl font-bold font-mono text-white">
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs text-center">
+          <div className="text-xl font-bold font-mono text-[#0F172A]">
             {executions.reduce((s, e) => s + e.completed_actions.length, 0)}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1">Actions Completed</div>
+          <div className="text-[11px] font-medium text-[#64748B] mt-1">Total Actions Completed</div>
         </div>
       </section>
     </div>

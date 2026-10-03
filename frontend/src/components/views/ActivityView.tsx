@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { ActivityEvent } from "@/lib/types";
-import { getAppBadgeClass, formatTimestamp } from "@/lib/utils";
+import { getAppBadgeClass, formatTimestamp, formatEventStep, getApplicationDisplayName } from "@/lib/utils";
 
 interface ActivityViewProps {
   events: ActivityEvent[];
@@ -14,7 +14,10 @@ export default function ActivityView({ events, loading }: ActivityViewProps) {
   const [appFilter, setAppFilter] = useState("ALL");
   const [selectedEvent, setSelectedEvent] = useState<ActivityEvent | null>(null);
 
-  const uniqueApps = useMemo(() => Array.from(new Set(events.map((e) => e.application))), [events]);
+  const uniqueApps = useMemo(
+    () => Array.from(new Set(events.map((e) => e.application))),
+    [events]
+  );
 
   const filteredEvents = useMemo(() => {
     return events.filter((ev) => {
@@ -32,128 +35,167 @@ export default function ActivityView({ events, loading }: ActivityViewProps) {
   }, [events, appFilter, searchTerm]);
 
   const getCustomer = (ev: ActivityEvent) =>
-    ev.metadata?.customer || ev.metadata?.customer_name || ev.metadata?.client || ev.metadata?.name || null;
+    ev.metadata?.customer ||
+    ev.metadata?.customer_name ||
+    ev.metadata?.client ||
+    ev.metadata?.name ||
+    null;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-[#F7F9FC]">
       {/* Controls Bar */}
-      <div className="px-6 py-3 border-b border-zinc-800/60 bg-zinc-900/40 flex flex-wrap items-center gap-3">
-        {/* Search */}
-        <div className="relative flex-1 min-w-48 max-w-sm">
-          <svg className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search app, event, target, session…"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-8 pr-7 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs"
-            >✕</button>
-          )}
+      <div className="px-6 py-3.5 border-b border-[#E2E8F0] bg-white flex flex-wrap items-center justify-between gap-3 shadow-2xs shrink-0">
+        <div className="flex items-center gap-3 flex-1 min-w-64 max-w-lg">
+          {/* Search Box */}
+          <div className="relative flex-1">
+            <svg
+              className="w-3.5 h-3.5 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search app, action, target, session ID…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg pl-9 pr-8 py-1.5 text-xs text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#2563EB] focus:bg-white transition"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#0F172A] text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* App Filter Dropdown */}
+          <select
+            value={appFilter}
+            onChange={(e) => setAppFilter(e.target.value)}
+            className="bg-[#F8FAFC] border border-[#E2E8F0] text-[#0F172A] text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#2563EB] focus:bg-white cursor-pointer"
+          >
+            <option value="ALL">All Applications ({uniqueApps.length})</option>
+            {uniqueApps.map((app) => (
+              <option key={app} value={app}>
+                {getApplicationDisplayName(app)}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* App filter */}
-        <select
-          value={appFilter}
-          onChange={(e) => setAppFilter(e.target.value)}
-          className="bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
-        >
-          <option value="ALL">All Applications</option>
-          {uniqueApps.map((app) => <option key={app} value={app}>{app}</option>)}
-        </select>
-
-        {/* Count */}
-        <span className="text-[11px] text-zinc-500 font-mono ml-auto">
-          {filteredEvents.length} / {events.length} events
-        </span>
+        {/* Counter */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#64748B] font-mono">
+            Showing <strong className="text-[#0F172A]">{filteredEvents.length}</strong> of {events.length} events
+          </span>
+          {(searchTerm || appFilter !== "ALL") && (
+            <button
+              onClick={() => {
+                setSearchTerm("");
+                setAppFilter("ALL");
+              }}
+              className="text-xs text-[#2563EB] hover:underline cursor-pointer ml-1"
+            >
+              Reset
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Main content: table + detail panel */}
+      {/* Main Content Area: Table + Side Detail Drawer */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Table */}
-        <div className={`flex-1 overflow-auto ${selectedEvent ? "border-r border-zinc-800/60" : ""}`}>
+        {/* Event Table View */}
+        <div className="flex-1 overflow-auto bg-white">
           {loading ? (
             <div className="p-6 space-y-3">
               {[...Array(8)].map((_, i) => (
-                <div key={i} className="flex gap-4 animate-pulse">
-                  <div className="h-4 w-28 bg-zinc-800 rounded" />
-                  <div className="h-4 w-24 bg-zinc-800 rounded" />
-                  <div className="h-4 w-32 bg-zinc-800 rounded" />
-                  <div className="h-4 w-36 bg-zinc-800 rounded" />
+                <div key={i} className="flex items-center gap-4 animate-pulse">
+                  <div className="h-4 w-28 bg-[#F1F5F9] rounded" />
+                  <div className="h-4 w-24 bg-[#F1F5F9] rounded" />
+                  <div className="h-4 w-40 bg-[#F1F5F9] rounded" />
+                  <div className="h-4 flex-1 bg-[#F1F5F9] rounded" />
                 </div>
               ))}
             </div>
           ) : filteredEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center px-6">
-              <div className="w-12 h-12 rounded-xl bg-zinc-800/60 border border-zinc-700/50 flex items-center justify-center mb-3 text-zinc-500">
+            <div className="flex flex-col items-center justify-center h-80 text-center px-4">
+              <div className="w-12 h-12 rounded-xl bg-[#F1F5F9] text-[#94A3B8] flex items-center justify-center mb-3">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <p className="text-sm font-medium text-zinc-300">
-                {events.length === 0 ? "No activity events yet" : "No matching events"}
-              </p>
-              <p className="text-xs text-zinc-500 mt-1 max-w-xs">
+              <h3 className="text-sm font-semibold text-[#0F172A]">
+                {events.length === 0 ? "No activity events captured yet" : "No matching events found"}
+              </h3>
+              <p className="text-xs text-[#64748B] max-w-sm mt-1">
                 {events.length === 0
-                  ? "Start the desktop agent or run: python backend/test_event.py --all"
-                  : "Try adjusting search or app filter."}
+                  ? "Start the macOS desktop activity agent with `python -m agent run` or trigger actions in demo apps."
+                  : "Try clearing search filters or changing the selected application dropdown."}
               </p>
             </div>
           ) : (
-            <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-zinc-950 border-b border-zinc-800/80 text-zinc-500 font-medium">
-                  <th className="py-2.5 px-4 whitespace-nowrap">Time</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Application</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Event Type</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Target</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap">Customer</th>
-                  <th className="py-2.5 px-4 whitespace-nowrap text-right">Session</th>
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-[#F8FAFC] text-[#64748B] font-semibold border-b border-[#E2E8F0] sticky top-0 z-10">
+                <tr>
+                  <th className="py-3 px-4 whitespace-nowrap">Timestamp</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Application</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Event Type</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Target</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Customer</th>
+                  <th className="py-3 px-4 whitespace-nowrap text-right">Session</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/50">
+              <tbody className="divide-y divide-[#E2E8F0]">
                 {filteredEvents.map((ev) => {
                   const t = formatTimestamp(ev.timestamp);
                   const customer = getCustomer(ev);
                   const isSelected = selectedEvent?.id === ev.id;
+                  const badgeClass = getAppBadgeClass(ev.application);
                   return (
                     <tr
                       key={ev.id}
                       onClick={() => setSelectedEvent(isSelected ? null : ev)}
                       className={`cursor-pointer transition group ${
-                        isSelected ? "bg-indigo-950/40 border-l-2 border-indigo-500" : "hover:bg-zinc-800/25"
+                        isSelected
+                          ? "bg-[#EFF6FF] border-l-3 border-[#2563EB]"
+                          : "hover:bg-[#F8FAFC]"
                       }`}
                     >
-                      <td className="py-2.5 px-4 whitespace-nowrap">
-                        <div className="font-mono text-zinc-300">{t.full}</div>
-                        {t.relative && <div className="text-[10px] text-zinc-600">{t.relative}</div>}
+                      <td className="py-2.5 px-4 font-mono text-[#64748B] whitespace-nowrap">
+                        <span title={t.full}>{t.relative || t.full}</span>
                       </td>
                       <td className="py-2.5 px-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono border ${getAppBadgeClass(ev.application)}`}>
-                          {ev.application}
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded border ${badgeClass}`}>
+                          {getApplicationDisplayName(ev.application)}
                         </span>
                       </td>
                       <td className="py-2.5 px-4 whitespace-nowrap">
-                        <span className="font-mono font-medium text-cyan-300 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-800/40">
-                          {ev.event_type}
+                        <span className="font-mono text-[#0F172A] font-semibold">
+                          {formatEventStep(ev.event_type)}
                         </span>
                       </td>
-                      <td className="py-2.5 px-4 max-w-[180px] truncate text-zinc-300 font-mono">
-                        {ev.target ? <span title={ev.target}>{ev.target}</span> : <span className="text-zinc-700">—</span>}
+                      <td className="py-2.5 px-4 max-w-xs truncate text-[#475569]">
+                        {ev.target || <span className="text-[#94A3B8]">—</span>}
                       </td>
-                      <td className="py-2.5 px-4 whitespace-nowrap text-zinc-400">
-                        {customer || <span className="text-zinc-700">—</span>}
+                      <td className="py-2.5 px-4 whitespace-nowrap text-[#475569]">
+                        {customer ? (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                            {customer}
+                          </span>
+                        ) : (
+                          <span className="text-[#94A3B8]">—</span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-4 whitespace-nowrap text-right">
-                        <code className="text-[10px] font-mono text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                          {ev.session_id.slice(0, 12)}…
-                        </code>
+                      <td className="py-2.5 px-4 font-mono text-[#94A3B8] text-right whitespace-nowrap">
+                        <span title={ev.session_id}>
+                          {ev.session_id ? `${ev.session_id.slice(0, 10)}…` : "—"}
+                        </span>
                       </td>
                     </tr>
                   );
@@ -163,57 +205,74 @@ export default function ActivityView({ events, loading }: ActivityViewProps) {
           )}
         </div>
 
-        {/* Detail panel */}
+        {/* Selected Event Detail Drawer */}
         {selectedEvent && (
-          <div className="w-72 shrink-0 overflow-y-auto bg-zinc-950/80 border-l border-zinc-800/60 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-white">Event Detail</h3>
+          <aside className="w-96 border-l border-[#E2E8F0] bg-white flex flex-col h-full shadow-lg z-20 shrink-0 animate-fadeIn">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
+                  Event Details
+                </span>
+                <h4 className="text-sm font-bold text-[#0F172A]">
+                  {formatEventStep(selectedEvent.event_type)}
+                </h4>
+              </div>
               <button
                 onClick={() => setSelectedEvent(null)}
-                className="text-zinc-500 hover:text-zinc-300 transition text-lg leading-none cursor-pointer"
-              >×</button>
+                className="text-[#94A3B8] hover:text-[#0F172A] p-1 rounded hover:bg-[#E2E8F0] transition cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
-            <div className="space-y-4 text-xs">
+
+            {/* Drawer Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
               <div>
-                <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Event Type</p>
-                <span className="font-mono font-medium text-cyan-300 bg-cyan-950/30 px-2 py-0.5 rounded border border-cyan-800/40">
-                  {selectedEvent.event_type}
+                <span className="text-[#64748B] block mb-1 font-medium">Application</span>
+                <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded border ${getAppBadgeClass(selectedEvent.application)}`}>
+                  {getApplicationDisplayName(selectedEvent.application)} ({selectedEvent.application})
                 </span>
               </div>
+
               <div>
-                <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Application</p>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded font-mono border ${getAppBadgeClass(selectedEvent.application)}`}>
-                  {selectedEvent.application}
-                </span>
+                <span className="text-[#64748B] block mb-1 font-medium">Timestamp</span>
+                <div className="font-mono text-[#0F172A] bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2">
+                  {selectedEvent.timestamp}
+                </div>
               </div>
-              <div>
-                <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Timestamp</p>
-                <p className="text-zinc-300 font-mono">{new Date(selectedEvent.timestamp).toLocaleString()}</p>
-              </div>
+
               {selectedEvent.target && (
                 <div>
-                  <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Target</p>
-                  <p className="text-zinc-300 font-mono break-all">{selectedEvent.target}</p>
+                  <span className="text-[#64748B] block mb-1 font-medium">Target Element / Resource</span>
+                  <div className="font-mono text-[#0F172A] bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2 break-all">
+                    {selectedEvent.target}
+                  </div>
                 </div>
               )}
+
               <div>
-                <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Session ID</p>
-                <p className="text-zinc-400 font-mono break-all">{selectedEvent.session_id}</p>
-              </div>
-              <div>
-                <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Event ID</p>
-                <p className="text-zinc-600 font-mono break-all">{selectedEvent.id}</p>
-              </div>
-              {selectedEvent.metadata && Object.keys(selectedEvent.metadata).length > 0 && (
-                <div>
-                  <p className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mb-1">Metadata</p>
-                  <pre className="text-zinc-400 font-mono text-[10px] bg-zinc-900 border border-zinc-800 rounded p-2.5 overflow-x-auto whitespace-pre-wrap break-all">
-                    {JSON.stringify(selectedEvent.metadata, null, 2)}
-                  </pre>
+                <span className="text-[#64748B] block mb-1 font-medium">Session ID</span>
+                <div className="font-mono text-[#0F172A] bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2 text-[11px] break-all">
+                  {selectedEvent.session_id}
                 </div>
-              )}
+              </div>
+
+              <div>
+                <span className="text-[#64748B] block mb-1 font-medium">Raw Metadata</span>
+                <pre className="font-mono text-[11px] text-[#0F172A] bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2.5 overflow-x-auto">
+                  {JSON.stringify(selectedEvent.metadata || {}, null, 2)}
+                </pre>
+              </div>
+
+              <div>
+                <span className="text-[#64748B] block mb-1 font-medium">Full Event Object</span>
+                <pre className="font-mono text-[11px] text-[#475569] bg-[#F8FAFC] border border-[#E2E8F0] rounded p-2.5 overflow-x-auto max-h-48">
+                  {JSON.stringify(selectedEvent, null, 2)}
+                </pre>
+              </div>
             </div>
-          </div>
+          </aside>
         )}
       </div>
     </div>

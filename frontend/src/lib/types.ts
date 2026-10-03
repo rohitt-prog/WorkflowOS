@@ -49,6 +49,7 @@ export interface WorkflowAction {
 export interface WorkflowProposal {
   name: string;
   intent: string;
+  description?: string;
   trigger: WorkflowTrigger;
   actions: WorkflowAction[];
   variables: string[];
@@ -68,6 +69,7 @@ export interface AutomationActionStatus {
 export interface ActionDetail {
   action: string;
   action_id?: string;
+  action_type?: string;
   description?: string;
   application: string;
   target?: string;
@@ -131,14 +133,19 @@ export interface AutomationExecutionRecord {
 
 // Phase 6 declarative workflow types
 export interface StepCondition {
-  variable: string;
+  field?: string;
+  variable?: string;
   operator: string;
   value?: unknown;
 }
 
 export interface RetryPolicy {
-  max_attempts: number;
+  max_retries?: number;
+  max_attempts?: number;
+  backoff_seconds?: number;
   delay_seconds?: number;
+  backoff?: string;
+  retry_on_errors?: string[];
 }
 
 export interface WorkflowStep {
@@ -146,12 +153,25 @@ export interface WorkflowStep {
   name: string;
   type: string;
   application?: string;
+  description?: string;
+  target?: string;
   parameters?: Record<string, unknown>;
   condition?: StepCondition;
   on_true?: string | null;
   on_false?: string | null;
   retry?: RetryPolicy;
+  retry_policy?: RetryPolicy;
+  timeout_seconds?: number;
+  continue_on_failure?: boolean;
   output_mapping?: Record<string, string>;
+}
+
+export interface WorkflowInput {
+  name: string;
+  type?: string;
+  required?: boolean;
+  default?: unknown;
+  description?: string;
 }
 
 export interface WorkflowDefinition {
@@ -164,7 +184,8 @@ export interface WorkflowDefinition {
     application?: string;
     event?: string;
   };
-  inputs?: Array<{ name: string; type?: string; required?: boolean; default?: unknown }>;
+  inputs?: WorkflowInput[];
+  variables?: Record<string, unknown>;
   steps: WorkflowStep[];
   requires_approval?: boolean;
   tags?: string[];
