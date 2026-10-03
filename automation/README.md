@@ -368,25 +368,187 @@ All Phase 4.5 extensions are strictly additive and backward-compatible with Phas
 
 ---
 
+## Phase 4.6: Human-in-the-Loop Execution, Pause, Resume, and Cancel
+
+### 1. Overview & Architecture
+
+Phase 4.6 elevates WorkFlowOS execution from run-to-completion automation into an interactive **Human-in-the-Loop (HITL)** operational system. When an action encounters an issue (such as an unknown customer in CRM), the execution transitions into a **PAUSED** state rather than terminating irrecoverably.
+
+A human operator can review the issue, correct parameters (e.g., selecting or creating the valid customer), and **resume** execution from the failed action. Already completed actions are preserved and never re-executed. Alternatively, the operator can **cancel** the execution.
+
+```
+       [ Proposal Approved ]
+                 │
+                 ▼
+         ┌───────────────┐
+         │    PENDING    │
+         └───────┬───────┘
+                 │ (execute)
+                 ▼
+         ┌───────────────┐  action failure  ┌───────────────┐
+         │    RUNNING    ├─────────────────►│    PAUSED     │
+         └──┬────────────┘                  └───────┬───────┘
+            │          ▲                            │
+            │          │         resume()           │  cancel()
+            │          └────────────────────────────┤
+            │                                       │
+            │ (all actions succeed)                 ▼
+            ▼                               ┌───────────────┐
+    ┌───────────────┐                       │   CANCELLED   │
+    │   COMPLETED   │                       └───────────────┘
+    └───────────────┘
+```
+
+### 2. State Machine & Transitions
+
+The execution lifecycle strictly adheres to `AutomationStatus`:
+
+| From State | Allowed Target States | Trigger / Mechanism |
+|---|---|---|
+| `PENDING` | `RUNNING`, `CANCELLED` | Execution begins or proposal cancelled prior to start |
+| `RUNNING` | `COMPLETED`, `PAUSED`, `FAILED` | Actions finish (`COMPLETED`), action fails (`PAUSED`), unrecoverable engine failure (`FAILED`) |
+| `PAUSED` | `RUNNING`, `CANCELLED` | Operator calls `resume` (`RUNNING`) or operator calls `cancel` (`CANCELLED`) |
+| `COMPLETED` | *(Terminal)* | Execution finished successfully |
+| `FAILED` | *(Terminal)* | Irrecoverable system failure |
+| `CANCELLED` | *(Terminal)* | Execution cancelled by operator |
+
+Any invalid transition attempt (e.g., resuming a `CANCELLED` or `COMPLETED` execution) is rejected with `InvalidStateTransitionError` / `409 Conflict`.
+
+### 3. Pause Behavior on Action Failure
+
+When an action within `AutomationEngine` fails:
+1. Status transitions from `RUNNING` → `PAUSED`.
+2. `resume_available` is set to `True`.
+3. `requires_human_intervention` is set to `True`.
+4. `failed_action` stores the name of the failing action (`search_customer`).
+5. `failure_reason` records the failure error message.
+6. `paused_at` records the ISO 8601 timestamp.
+7. Subsequent actions retain `pending` status (NOT marked `skipped`), clearly signaling they await human resumption.
+8. Execution state (completed actions, results, action index) is preserved.
+
+### 4. Resume Semantics & Flow
+
+When an operator triggers `POST /api/automation/executions/{execution_id}/resume`:
+1. Validates that the execution exists (`404 Not Found` if missing).
+2. Validates that current status is `PAUSED` and `resume_available=True` (`409 Conflict` otherwise).
+3. Increments `resume_count` by 1 and records `resumed_at` timestamp.
+4. Identifies the failed action index (e.g. step index 2 for `search_customer`).
+5. Updates context/parameters if supplied in the resume request (e.g. updated customer name/target).
+6. Transitions status `PAUSED` → `RUNNING`.
+7. Calls `AutomationEngine.execute_from_index(start_index=failed_index)`:
+   - **Does NOT re-run completed actions** (Step 1 `open_email` and Step 2 `download_attachment` remain intact).
+   - **Retries the failed action** with updated context.
+   - If retry succeeds, proceeds through remaining pending actions (`update_customer`, `send_message`).
+   - If retry fails again, cleanly transitions back to `PAUSED` for further intervention.
+   - If all actions succeed, transitions to `COMPLETED`.
+
+### 5. Cancel Semantics
+
+When an operator triggers `POST /api/automation/executions/{execution_id}/cancel`:
+1. Validates that the execution exists (`404 Not Found` if missing).
+2. Validates that current status is `PAUSED` or `PENDING` (`409 Conflict` if already completed/cancelled).
+3. Transitions status to `CANCELLED`.
+4. Sets `resume_available = False` and `requires_human_intervention = False`.
+5. Records `cancelled_at` ISO 8601 timestamp.
+6. Subsequent resume attempts are permanently blocked with `409 Conflict`.
+
+### 6. API Endpoints
+
+#### Endpoint: `POST /api/automation/executions/{execution_id}/resume`
+Resumes a paused execution from its failed action.
+
+**Request Payload:**
+```json
+{
+  "executor_type": "noop",
+  "parameters": {
+    "customer": "Rahul",
+    "simulate_failure": false
+  },
+  "context": {
+    "customer_id": "cust_123"
+  }
+}
+```
+
+**Response (Success `200 OK`):**
+```json
+{
+  "execution_id": "exec-abc123xyz",
+  "status": "completed",
+  "actions_completed": 5,
+  "total_actions": 5,
+  "failed_action": null,
+  "failure_reason": null,
+  "resume_available": false,
+  "resume_count": 1,
+  "resumed_at": "2026-10-03T07:45:00.000Z",
+  "paused_at": "2026-10-03T07:40:00.000Z",
+  "cancelled_at": null,
+  "all_actions": ["open_email", "download_attachment", "search_customer", "update_customer", "send_message"],
+  "actions_detail": [
+    { "action": "open_email", "status": "completed", "message": "Email opened" },
+    { "action": "download_attachment", "status": "completed", "message": "Attachment downloaded" },
+    { "action": "search_customer", "status": "completed", "message": "Customer found" },
+    { "action": "update_customer", "status": "completed", "message": "Customer updated" },
+    { "action": "send_message", "status": "completed", "message": "Message sent" }
+  ]
+}
+```
+
+**Errors:**
+- `404 Not Found`: Execution ID not recognized.
+- `409 Conflict`: Execution not in `PAUSED` state or already cancelled/completed.
+
+---
+
+#### Endpoint: `POST /api/automation/executions/{execution_id}/cancel`
+Cancels a paused or pending execution.
+
+**Response (`200 OK`):**
+```json
+{
+  "execution_id": "exec-abc123xyz",
+  "status": "cancelled",
+  "resume_available": false,
+  "requires_human_intervention": false,
+  "cancelled_at": "2026-10-03T07:46:00.000Z"
+}
+```
+
+**Errors:**
+- `404 Not Found`: Execution ID not recognized.
+- `409 Conflict`: Execution not cancellable (e.g. already finished or cancelled).
+
+---
+
 ## Testing
 
-### 1. Phase 4.5 Observability Tests
+### 1. Phase 4.6 HITL & State Machine Tests
 ```bash
-.venv/bin/python backend/test_phase4_5.py
+.venv/bin/python backend/test_phase4_6.py
 ```
 Validates:
-- Completed execution representation, action details, and timing metadata
-- Failed execution representation, human intervention requirement, and skipped action states
-- Unapproved execution pending state representation
-- `GET /api/automation/executions` history listing endpoint
-- `GET /api/automation/executions/{execution_id}` detail endpoint
+- Execution enters `PAUSED` on action failure with `resume_available=True`
+- Subsequent actions remain in `pending` state awaiting resume
+- Resuming executes the failed action and continues downstream actions
+- Resuming does not re-run already completed actions
+- Context and parameters are passed to resumed action
+- `resume_count` increments and `resumed_at` is tracked
+- Repeated pause and resume cycles
+- Cancel transitions `PAUSED` → `CANCELLED` and sets `cancelled_at`
+- Cancelling makes resume unavailable and rejects future resume with `409 Conflict`
+- Invalid transitions are rejected
+- Execution history preserves lifecycle metadata across pauses and resumes
+- Observability and API routes correctly expose all Phase 4.6 telemetry
 
 ### 2. Full Regression Suite
 ```bash
 .venv/bin/python backend/test_phase4_2.py
 .venv/bin/python backend/test_phase4_3.py
 .venv/bin/python backend/test_phase4_4.py
-.venv/bin/python backend/test_phase3.py
+.venv/bin/python backend/test_phase4_5.py
+.venv/bin/python backend/test_phase4_6.py
 ```
 
 ### 3. Frontend Production Build
@@ -414,33 +576,40 @@ cd frontend && npm run build
    - Observe status change to `● Automation running` with pending/running action items.
    - Upon completion, observe `✓ Automation completed`, `5 / 5 actions completed`, execution time, and application list.
    - Observe all 5 action items marked with green checkmarks (`✓`).
-5. **Execution History Inspection**:
-   - Scroll down to the **Execution History (Phase 4.5)** section on the main dashboard.
-   - Verify the newly completed execution appears with `✓ Automation completed`, duration, and application badges.
-   - Click **Inspect Details** to open the inspection modal.
-   - Verify the action timeline displays all 5 steps with application names and `completed` status pills.
-6. **Failure & Observability Demo**:
-   - Return to the proposal modal (or click **Run Again**).
-   - Select `Unknown Customer (Fail Demo)` and click **APPROVE & RUN**.
-   - Observe execution halt at Step 3 (`search_customer`).
-   - Status badge shows `⚠ Automation stopped`.
-   - Steps 1 & 2 show `✓ completed`.
-   - Step 3 shows `✗ failed` with reason: `Customer not found`.
-   - Steps 4 & 5 show `○ NOT EXECUTED` (`skipped`).
-   - Human intervention alert displays:
-     ```
-     Workflow paused
-     Reason: Customer not found
-     Action required: Please resolve the issue in WorkFlow CRM.
-     ⚠ Human intervention required
-     ```
-   - In **Execution History**, verify the run is recorded with `⚠ Automation stopped`, `2 / 5 actions`, and inspect its timeline in the details modal.
+5. **Human-in-the-Loop Pause Demo**:
+   - In proposal modal, select `Unknown Customer (Fail Demo)` and click **APPROVE & RUN**.
+   - Step 1 (`open_email`) and Step 2 (`download_attachment`) succeed (`✓`).
+   - Step 3 (`search_customer`) fails with `Customer not found`.
+   - Workflow transitions to `⏸ Automation paused (Requires Human Intervention)`.
+   - Observe Steps 4 & 5 remain in `○ pending` state (not skipped).
+   - Yellow Human Intervention Banner appears with failure reason and prompt.
+   - Footer controls present:
+     - Target Fix dropdown (`Rahul (Valid Customer)`).
+     - **[ Resume Execution ]** button.
+     - **[ Cancel Execution ]** button.
+6. **Resume Execution Demo**:
+   - Select `Rahul (Valid Customer)` in the intervention quick-fix dropdown.
+   - Click **[ Resume Execution ]**.
+   - Observe status change to `Resuming execution from step 3...`.
+   - Step 3 is retried and succeeds (`✓`).
+   - Steps 4 and 5 execute and complete (`✓`).
+   - Workflow finishes with `✓ Automation completed` (`5 / 5 actions`, `Resumed 1 time`).
+7. **Cancel Execution Demo**:
+   - Run another execution with `Unknown Customer (Fail Demo)`.
+   - When execution enters `⏸ Automation paused`, click **[ Cancel Execution ]**.
+   - Execution transitions to `⏹ Automation cancelled`.
+   - Resume controls are disabled.
+8. **Execution History Inspection**:
+   - In **Execution History (Phase 4.5 & 4.6)**, inspect runs.
+   - Paused runs show `⏸ paused` badge.
+   - Resumed runs show `✓ completed` badge with `↺ Resumed 1x` tag.
+   - Cancelled runs show `⏹ cancelled` badge.
+   - Click **Inspect Details** to view full lifecycle audit trail with timestamps (`paused_at`, `resumed_at`, `cancelled_at`).
 
 ---
 
 ## Known Limitations
 
 - Supported canonical actions are currently restricted to the 5 demo actions (`open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`).
-- Automated actions target local demo endpoints (`/demo/email`, `/demo/crm`, `/demo/chat`), not external third-party SaaS services.
-- Resuming workflows after human intervention (pause/resume state machine) is scheduled for Phase 4.6.
-- Execution history is currently stored in-memory during the application lifecycle for hackathon simplicity; it resets on server restart.
+- Automated actions target local demo endpoints (`/demo/email`, `/demo/crm`, `/demo/chat`), not external third-party SaaS services. Real external integrations belong to Phase 7.
+- Execution history is stored in-memory during the application lifecycle for demo simplicity; persistent DB storage can be connected via existing database adapters.

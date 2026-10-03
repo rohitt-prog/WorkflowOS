@@ -10,6 +10,7 @@ from automation.models import (
     AutomationExecution,
     AutomationStatus,
     ExecutionActionResult,
+    is_valid_transition,
 )
 from automation.executor import ActionExecutor, NoOpExecutor
 
@@ -40,13 +41,21 @@ class ApprovalRequiredError(AutomationEngineError):
     pass
 
 
+class InvalidStateTransitionError(AutomationEngineError):
+    """Raised when a requested state transition is not allowed by the state machine."""
+    pass
+
+
 class AutomationEngine:
     """
     Core engine responsible for translating Phase 3 WorkflowProposal definitions
     into validated AutomationAction sequences, applying human approval safety gates,
     and coordinating sequential action execution through the ActionExecutor interface.
 
-    Phase 4.2 uses NoOpExecutor by default. No browser is launched.
+    Phase 4.6 adds:
+    - PAUSED execution status when an action fails (enabling human-in-the-loop)
+    - execute_from_index(): resume from a specific action without re-running completed actions
+    - State machine transition enforcement via is_valid_transition()
     """
 
     def __init__(self, default_executor: Optional[ActionExecutor] = None):
@@ -98,6 +107,56 @@ class AutomationEngine:
 
         return automation_actions
 
+    def _build_actions_detail(
+        self,
+        all_actions: List[AutomationAction],
+        completed: List[str],
+        action_results: List[ExecutionActionResult],
+        failed_action_id: Optional[str] = None,
+        is_pending: bool = False,
+        paused: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Build the actions_detail list from the current execution state.
+
+        Phase 4.6 change:
+        - When paused=True: actions after the failed action stay as 'pending'
+          (they are NOT marked 'skipped' — they will be retried on resume).
+        - When not paused (i.e. terminal FAILED): actions after failure are 'skipped'.
+        """
+        details = []
+        for act in all_actions:
+            if is_pending:
+                act_status = "pending"
+                msg = "Pending human approval"
+            elif act.type in completed:
+                act_status = "completed"
+                res = next((r for r in action_results if r.action_id == act.id), None)
+                msg = res.message if res else "Completed successfully"
+            elif act.id == failed_action_id or (failed_action_id and act.type == failed_action_id):
+                act_status = "failed"
+                res = next((r for r in action_results if r.action_id == act.id), None)
+                msg = res.message if res else "Action execution failed"
+            else:
+                # Post-failure action
+                if paused:
+                    act_status = "pending"   # Will be retried after human intervention
+                    msg = "Pending — awaiting human intervention to resume"
+                else:
+                    act_status = "skipped"
+                    msg = "Not executed (halted after prior action failure)"
+
+            details.append({
+                "action": act.type,
+                "action_id": act.id,
+                "description": act.description,
+                "application": act.application,
+                "target": act.target,
+                "status": act_status,
+                "message": msg,
+            })
+        return details
+
     async def execute_workflow(
         self,
         proposal: WorkflowProposal,
@@ -109,25 +168,15 @@ class AutomationEngine:
         """
         Executes a workflow proposal after validating approval and action types.
 
+        Phase 4.6 behaviour change:
+        - When an action fails, execution status is set to PAUSED (not FAILED).
+        - requires_human_intervention=True and resume_available=True are set.
+        - Actions after the failed action remain PENDING (not SKIPPED).
+        - The serialized action list is stored on the execution for resume support.
+
         APPROVAL SAFETY GATE:
         - If approved is False, execution is refused immediately.
         - Status is set to AutomationStatus.PENDING with 0 completed actions.
-
-        ACTION MAPPING:
-        - WorkflowActions are converted to AutomationActions.
-        - Unknown action types produce a controlled error and halt execution.
-
-        EXECUTION:
-        - Actions are executed sequentially through the ActionExecutor.
-        - Execution halts immediately if any action fails.
-        - Completed actions are recorded.
-
-        :param proposal: Validated WorkflowProposal produced by Phase 3.
-        :param approved: Explicit boolean approval flag.
-        :param executor: Optional ActionExecutor override (defaults to NoOpExecutor).
-        :param parameters: Optional parameter dictionary for actions.
-        :param context: Optional runtime context.
-        :return: AutomationExecution tracking the execution state and results.
         """
         start_time = time.perf_counter()
         started_at = datetime.now(timezone.utc).isoformat()
@@ -136,41 +185,6 @@ class AutomationEngine:
         applications = list(dict.fromkeys(
             proposal.applications or [act.application for act in proposal.actions if act.application]
         ))
-
-        def build_actions_detail(
-            all_actions: List[AutomationAction],
-            completed: List[str],
-            action_results: List[ExecutionActionResult],
-            failed_action_id: Optional[str] = None,
-            is_pending: bool = False
-        ) -> List[Dict[str, Any]]:
-            details = []
-            for act in all_actions:
-                if is_pending:
-                    act_status = "pending"
-                    msg = "Pending human approval"
-                elif act.type in completed:
-                    act_status = "completed"
-                    res = next((r for r in action_results if r.action_id == act.id), None)
-                    msg = res.message if res else "Completed successfully"
-                elif act.id == failed_action_id or (failed_action_id and act.type == failed_action_id):
-                    act_status = "failed"
-                    res = next((r for r in action_results if r.action_id == act.id), None)
-                    msg = res.message if res else "Action execution failed"
-                else:
-                    act_status = "skipped"
-                    msg = "Not executed (halted after prior action failure)"
-
-                details.append({
-                    "action": act.type,
-                    "action_id": act.id,
-                    "description": act.description,
-                    "application": act.application,
-                    "target": act.target,
-                    "status": act_status,
-                    "message": msg,
-                })
-            return details
 
         logger.info(
             f"Initiating automation engine for workflow: '{proposal.name}' "
@@ -186,7 +200,7 @@ class AutomationEngine:
         except UnsupportedActionError as uae:
             logger.error(f"Workflow '{proposal.name}' action validation failed: {uae}")
             now_iso = datetime.now(timezone.utc).isoformat()
-            return AutomationExecution(
+            exec_obj = AutomationExecution(
                 execution_id=execution_id,
                 workflow_name=proposal.name,
                 status=AutomationStatus.FAILED,
@@ -201,17 +215,17 @@ class AutomationEngine:
                 execution_time_seconds=round(time.perf_counter() - start_time, 3),
                 applications=applications,
                 actions_detail=[],
+                all_actions=[],
             )
+            return exec_obj
 
         # 2. Approval Safety Gate
-        # Do not automatically approve anything.
-        # If approval is False, do NOT execute any action.
         if not approved:
             logger.info(
                 f"Workflow '{proposal.name}' is unapproved. Refusing execution (status=pending)."
             )
-            actions_detail = build_actions_detail(actions, [], [], is_pending=True)
-            return AutomationExecution(
+            actions_detail = self._build_actions_detail(actions, [], [], is_pending=True)
+            exec_obj = AutomationExecution(
                 execution_id=execution_id,
                 workflow_name=proposal.name,
                 status=AutomationStatus.PENDING,
@@ -226,23 +240,135 @@ class AutomationEngine:
                 execution_time_seconds=0.0,
                 applications=applications,
                 actions_detail=actions_detail,
+                all_actions=actions_detail,
+            )
+            return exec_obj
+
+        # 3. Approved Execution — delegate to internal runner
+        return await self._run_actions(
+            actions=actions,
+            execution_id=execution_id,
+            workflow_name=proposal.name,
+            start_index=0,
+            prior_completed=[],
+            prior_results=[],
+            start_time=start_time,
+            started_at=started_at,
+            applications=applications,
+            executor=executor,
+            context=context,
+            resume_count=0,
+            resumed_at=None,
+        )
+
+    async def execute_from_index(
+        self,
+        execution: AutomationExecution,
+        start_index: int,
+        executor: Optional[ActionExecutor] = None,
+        context: Optional[Dict[str, Any]] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> AutomationExecution:
+        """
+        Phase 4.6: Resume execution from a specific action index.
+
+        Reconstructs AutomationAction objects from the serialized list stored on the
+        execution, then runs only the actions at and after start_index.
+        Already-completed actions are NOT re-executed.
+
+        :param execution: The existing PAUSED AutomationExecution.
+        :param start_index: Zero-based index of the first action to (re-)execute.
+        :param executor: Optional executor override.
+        :param context: Optional runtime context.
+        :param parameters: Optional updated action parameters.
+        :return: Updated AutomationExecution with final status.
+        """
+        if not is_valid_transition(execution.status, AutomationStatus.RUNNING):
+            raise InvalidStateTransitionError(
+                f"Cannot resume execution '{execution.execution_id}': "
+                f"invalid state transition {execution.status} → RUNNING. "
+                f"Only PAUSED executions can be resumed."
             )
 
-        # 3. Approved Execution
-        active_executor = executor or self._default_executor
-        completed_actions: List[str] = []
-        results: List[ExecutionActionResult] = []
+        # Reconstruct actions from serialized list
+        actions = [AutomationAction(**a) for a in execution.serialized_actions]
+        if parameters:
+            for act in actions:
+                if act.id in parameters:
+                    act.parameters.update(parameters[act.id])
+                elif act.type in parameters:
+                    act.parameters.update(parameters[act.type])
+
+        prior_completed = list(execution.completed_actions)
+        # Keep only results of actions completed prior to start_index (deduplicate retried action)
+        prior_results = [r for r in execution.results if r.success and r.action_type in prior_completed]
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         logger.info(
-            f"Approval confirmed. Executing {len(actions)} actions sequentially "
+            f"Resuming execution '{execution.execution_id}' from action index {start_index} "
+            f"(already completed: {prior_completed})"
+        )
+
+        return await self._run_actions(
+            actions=actions,
+            execution_id=execution.execution_id,
+            workflow_name=execution.workflow_name,
+            start_index=start_index,
+            prior_completed=prior_completed,
+            prior_results=prior_results,
+            start_time=time.perf_counter(),
+            started_at=execution.started_at or now_iso,
+            applications=execution.applications,
+            executor=executor,
+            context=context,
+            resume_count=execution.resume_count + 1,
+            resumed_at=now_iso,
+            accumulated_time=execution.execution_time_seconds or 0.0,
+        )
+
+    async def _run_actions(
+        self,
+        actions: List[AutomationAction],
+        execution_id: str,
+        workflow_name: str,
+        start_index: int,
+        prior_completed: List[str],
+        prior_results: List[ExecutionActionResult],
+        start_time: float,
+        started_at: str,
+        applications: List[str],
+        executor: Optional[ActionExecutor],
+        context: Optional[Dict[str, Any]],
+        resume_count: int,
+        resumed_at: Optional[str],
+        accumulated_time: float = 0.0,
+    ) -> AutomationExecution:
+        """
+        Internal sequential execution runner.
+        Runs actions[start_index:] with the given executor.
+        Carries forward completed actions from prior_completed.
+        """
+        active_executor = executor or self._default_executor
+        completed_actions: List[str] = list(prior_completed)
+        results: List[ExecutionActionResult] = list(prior_results)
+
+        logger.info(
+            f"Approval confirmed. Executing {len(actions) - start_index} actions "
+            f"(index {start_index}–{len(actions) - 1}) sequentially "
             f"via {active_executor.__class__.__name__}..."
         )
+
+        # Serialise full action list for potential future resumes
+        serialized_actions = [a.model_dump() for a in actions]
 
         try:
             await active_executor.start()
 
-            for action in actions:
-                # Execute current action
+            for idx, action in enumerate(actions):
+                if idx < start_index:
+                    # Skip already-completed actions
+                    continue
+
                 logger.info(f"Executing step {action.id} ({action.type})...")
                 try:
                     result = await active_executor.execute(action, context=context)
@@ -258,60 +384,82 @@ class AutomationEngine:
                     results.append(result)
 
                 if not result.success:
-                    # Stop subsequent actions immediately
+                    # ── Phase 4.6: PAUSED instead of FAILED ─────────────
                     logger.warning(
-                        f"Action {action.id} failed: {result.message}. Halting workflow execution."
+                        f"Action {action.id} failed: {result.message}. "
+                        f"Execution PAUSED — human intervention required."
                     )
-                    elapsed = round(time.perf_counter() - start_time, 3)
+                    elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
                     now_iso = datetime.now(timezone.utc).isoformat()
-                    actions_detail = build_actions_detail(
+                    actions_detail = self._build_actions_detail(
                         actions,
                         completed_actions,
                         results,
-                        failed_action_id=action.id
+                        failed_action_id=action.id,
+                        paused=True,    # post-failure actions stay PENDING, not SKIPPED
                     )
                     return AutomationExecution(
                         execution_id=execution_id,
-                        workflow_name=proposal.name,
-                        status=AutomationStatus.FAILED,
+                        workflow_name=workflow_name,
+                        status=AutomationStatus.PAUSED,
                         current_action=action.type,
                         completed_actions=completed_actions,
                         total_actions=len(actions),
                         error=result.message,
-                        requires_human_intervention=False,
+                        requires_human_intervention=True,
+                        # Phase 4.6
+                        failed_action=action.type,
+                        failure_reason=result.message,
+                        resume_available=True,
+                        resume_count=resume_count,
+                        paused_at=now_iso,
+                        resumed_at=resumed_at,
+                        serialized_actions=serialized_actions,
+                        context=context or {},
                         results=results,
                         started_at=started_at,
-                        completed_at=now_iso,
+                        completed_at=None,
                         execution_time_seconds=elapsed,
                         applications=applications,
                         actions_detail=actions_detail,
+                        all_actions=actions_detail,
                     )
 
                 # Record completed action
                 completed_actions.append(action.type)
 
-            # 4. Completed Execution
+            # ── All actions completed successfully ────────────────────────
             logger.info(
-                f"Workflow '{proposal.name}' completed successfully ({len(completed_actions)}/{len(actions)} actions)."
+                f"Workflow '{workflow_name}' completed successfully "
+                f"({len(completed_actions)}/{len(actions)} actions)."
             )
-            elapsed = round(time.perf_counter() - start_time, 3)
+            elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
             now_iso = datetime.now(timezone.utc).isoformat()
-            actions_detail = build_actions_detail(actions, completed_actions, results)
+            actions_detail = self._build_actions_detail(actions, completed_actions, results)
             return AutomationExecution(
                 execution_id=execution_id,
-                workflow_name=proposal.name,
+                workflow_name=workflow_name,
                 status=AutomationStatus.COMPLETED,
                 current_action=None,
                 completed_actions=completed_actions,
                 total_actions=len(actions),
                 error=None,
                 requires_human_intervention=False,
+                # Phase 4.6
+                failed_action=None,
+                failure_reason=None,
+                resume_available=False,
+                resume_count=resume_count,
+                resumed_at=resumed_at,
+                serialized_actions=serialized_actions,
+                context=context or {},
                 results=results,
                 started_at=started_at,
                 completed_at=now_iso,
                 execution_time_seconds=elapsed,
                 applications=applications,
                 actions_detail=actions_detail,
+                all_actions=actions_detail,
             )
         finally:
             await active_executor.cleanup()
@@ -319,3 +467,6 @@ class AutomationEngine:
 
 # Singleton instance for general use
 automation_engine = AutomationEngine()
+
+
+

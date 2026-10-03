@@ -89,13 +89,19 @@ interface HumanIntervention {
 }
 
 interface AutomationExecutionResponse {
-  status: "completed" | "failed" | "pending";
+  status: "completed" | "failed" | "pending" | "paused" | "cancelled";
   workflow_id: string;
   workflow_name?: string;
   failed_action?: string;
+  failure_reason?: string;
   message?: string;
   requires_human_intervention?: boolean;
   human_intervention?: HumanIntervention;
+  resume_available?: boolean;
+  resume_count?: number;
+  paused_at?: string;
+  resumed_at?: string;
+  cancelled_at?: string;
   actions: AutomationActionStatus[];
   completed_actions: string[];
   total_actions: number;
@@ -109,17 +115,25 @@ interface AutomationExecutionResponse {
 interface AutomationExecutionRecord {
   execution_id: string;
   workflow_name: string;
-  status: "completed" | "failed" | "pending" | "running";
+  status: "completed" | "failed" | "pending" | "running" | "paused" | "cancelled";
   current_action?: string | null;
+  failed_action?: string | null;
+  failure_reason?: string | null;
   completed_actions: string[];
   total_actions: number;
   error?: string | null;
   requires_human_intervention?: boolean;
+  resume_available?: boolean;
+  resume_count?: number;
+  paused_at?: string;
+  resumed_at?: string;
+  cancelled_at?: string;
   started_at?: string;
   completed_at?: string;
   execution_time_seconds?: number;
   applications?: string[];
   actions_detail?: ActionDetail[];
+  all_actions?: ActionDetail[];
 }
 
 const getActionDisplayLabel = (actionType: string): string => {
@@ -184,8 +198,10 @@ export default function Dashboard() {
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("idle");
   const [workflowApprovals, setWorkflowApprovals] = useState<Record<string, "approved" | "rejected">>({});
 
-  // Phase 4.4: Automation Execution state
+  // Phase 4.4 & 4.6: Automation Execution state
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
+  const [isResuming, setIsResuming] = useState<boolean>(false);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [executionResult, setExecutionResult] = useState<AutomationExecutionResponse | null>(null);
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [testCustomerTarget, setTestCustomerTarget] = useState<string>("Rahul");
@@ -375,7 +391,7 @@ export default function Dashboard() {
             [activeReviewWorkflow.label]: "approved",
           }));
         }
-      } else if (data.status === "failed") {
+      } else if (data.status === "failed" || data.status === "paused") {
         setApprovalStatus("approved");
       }
       fetchExecutionHistory();
@@ -399,6 +415,80 @@ export default function Dashboard() {
         ...prev,
         [activeReviewWorkflow.label]: "rejected",
       }));
+    }
+  };
+
+  // Phase 4.6: Human-in-the-Loop Resume Execution
+  const handleResume = async () => {
+    if (!executionResult || !executionResult.workflow_id) return;
+    setIsResuming(true);
+    setExecutionError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/automation/executions/${executionResult.workflow_id}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          executor_type: "playwright",
+          parameters: {
+            customer_name: testCustomerTarget || "Rahul",
+          },
+          context: {
+            customer_name: testCustomerTarget || "Rahul",
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Resume failed with status ${res.status}`);
+      }
+
+      const data: AutomationExecutionResponse = await res.json();
+      setExecutionResult(data);
+
+      if (data.status === "completed") {
+        setApprovalStatus("approved");
+        if (activeReviewWorkflow) {
+          setWorkflowApprovals((prev) => ({
+            ...prev,
+            [activeReviewWorkflow.label]: "approved",
+          }));
+        }
+      }
+      fetchExecutionHistory();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Resume failed";
+      setExecutionError(msg);
+    } finally {
+      setIsResuming(false);
+      fetchExecutionHistory();
+    }
+  };
+
+  // Phase 4.6: Human-in-the-Loop Cancel Execution
+  const handleCancel = async () => {
+    if (!executionResult || !executionResult.workflow_id) return;
+    setIsCancelling(true);
+    setExecutionError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/automation/executions/${executionResult.workflow_id}/cancel`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Cancel failed with status ${res.status}`);
+      }
+
+      const data: AutomationExecutionResponse = await res.json();
+      setExecutionResult(data);
+      fetchExecutionHistory();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Cancel failed";
+      setExecutionError(msg);
+    } finally {
+      setIsCancelling(false);
+      fetchExecutionHistory();
     }
   };
 
@@ -1026,6 +1116,18 @@ export default function Dashboard() {
                           <span>Automation completed</span>
                         </span>
                       )}
+                      {ex.status === "paused" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950/70 border border-amber-500/60 text-amber-300">
+                          <span>⏸</span>
+                          <span>Automation paused</span>
+                        </span>
+                      )}
+                      {ex.status === "cancelled" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-800 border border-zinc-600 text-zinc-300">
+                          <span>✕</span>
+                          <span>Automation cancelled</span>
+                        </span>
+                      )}
                       {ex.status === "failed" && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-950/70 border border-rose-500/60 text-rose-300">
                           <span>⚠</span>
@@ -1059,6 +1161,11 @@ export default function Dashboard() {
                           • Duration: <strong className="text-zinc-200">{ex.execution_time_seconds}s</strong>
                         </span>
                       )}
+                      {ex.resume_count !== undefined && ex.resume_count > 0 && (
+                        <span>
+                          • Resumed: <strong className="text-amber-300">{ex.resume_count}x</strong>
+                        </span>
+                      )}
                       {ex.started_at && (
                         <span>
                           • {new Date(ex.started_at).toLocaleTimeString()} ({new Date(ex.started_at).toLocaleDateString()})
@@ -1076,14 +1183,19 @@ export default function Dashboard() {
                       )}
                     </div>
 
-                    {/* Failure reason if present */}
-                    {ex.status === "failed" && (ex.error || ex.current_action) && (
+                    {/* Failure / Paused reason if present */}
+                    {(ex.status === "failed" || ex.status === "paused") && (ex.error || ex.failure_reason || ex.failed_action || ex.current_action) && (
                       <div className="mt-1 text-xs text-rose-300/90 flex items-center gap-1.5 flex-wrap">
                         <span className="font-semibold text-rose-200">Reason:</span>
-                        <span>{ex.error?.includes("Customer") && ex.error?.includes("not found") ? "Customer not found" : (ex.error || `Failed on step ${ex.current_action}`)}</span>
+                        <span>{ex.failure_reason || (ex.error?.includes("Customer") && ex.error?.includes("not found") ? "Customer not found" : (ex.error || `Failed on step ${ex.failed_action || ex.current_action}`))}</span>
                         {ex.requires_human_intervention && (
                           <span className="ml-1 text-[10px] font-semibold bg-amber-950/60 border border-amber-600/50 text-amber-300 px-1.5 py-0.5 rounded">
                             Human intervention required
+                          </span>
+                        )}
+                        {ex.status === "paused" && ex.resume_available && (
+                          <span className="ml-1 text-[10px] font-semibold bg-cyan-950/60 border border-cyan-600/50 text-cyan-300 px-1.5 py-0.5 rounded">
+                            Resume available
                           </span>
                         )}
                       </div>
@@ -1691,6 +1803,226 @@ export default function Dashboard() {
                     </div>
                   )}
 
+                  {/* Phase 4.6: Resuming in-progress card */}
+                  {isResuming && (
+                    <div className="bg-amber-950/40 border border-amber-500/60 rounded-xl p-4 shadow-lg shadow-amber-950/30 animate-pulse space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-sm font-bold shrink-0">
+                          ●
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-900/80 border border-amber-500 text-amber-200 uppercase">
+                              ● Resuming automation...
+                            </span>
+                          </div>
+                          <p className="text-xs text-amber-300/80 mt-1">
+                            Retrying failed action and continuing workflow execution...
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Phase 4.6: Paused execution card (Human-in-the-Loop) */}
+                  {executionResult && executionResult.status === "paused" && (
+                    <div className="bg-amber-950/40 border border-amber-500/60 rounded-xl p-4 shadow-lg shadow-amber-950/30 animate-fadeIn space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-base font-bold shrink-0 mt-0.5">
+                          ⏸
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-900/80 border border-amber-500 text-amber-200 uppercase">
+                              ⏸ Automation Paused
+                            </span>
+                            {executionResult.resume_count !== undefined && executionResult.resume_count > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                Resumed {executionResult.resume_count}x
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm font-bold text-amber-100 mt-1">
+                            Automation Paused
+                          </p>
+                          <div className="text-xs text-amber-300/80 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                            <span>
+                              Completed: <strong>{executionResult.completed_actions.length} / {executionResult.total_actions}</strong>
+                            </span>
+                            {executionResult.failed_action && (
+                              <span>
+                                • Failed action: <strong>{getActionDisplayLabel(executionResult.failed_action)}</strong>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Failure explanation & Human intervention */}
+                          <div className="mt-2.5 p-3 rounded-lg bg-amber-900/30 border border-amber-700/50 space-y-1.5 text-xs font-sans">
+                            <div className="flex items-center gap-1.5 text-amber-300 font-semibold">
+                              <span>⚠</span>
+                              <span>Human intervention required</span>
+                            </div>
+                            <p>
+                              <span className="font-semibold text-amber-300">Failed action:</span>{" "}
+                              <span className="text-amber-100">
+                                {getActionDisplayLabel(executionResult.failed_action || "search_customer")}
+                              </span>
+                            </p>
+                            <p>
+                              <span className="font-semibold text-amber-300">Reason:</span>{" "}
+                              <span className="text-amber-100">
+                                {executionResult.failure_reason || executionResult.human_intervention?.reason || executionResult.message || "Customer not found"}
+                              </span>
+                            </p>
+                            {executionResult.human_intervention?.action_required && (
+                              <p>
+                                <span className="font-semibold text-amber-300">Action required:</span>{" "}
+                                <span className="text-amber-100">
+                                  {executionResult.human_intervention.action_required}
+                                </span>
+                              </p>
+                            )}
+
+                            {/* Human Operator Action Selector */}
+                            <div className="pt-2 border-t border-amber-800/40 mt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <span className="text-[11px] text-amber-200/90 font-medium">
+                                Fix Customer:
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setTestCustomerTarget("Rahul")}
+                                  className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition ${
+                                    testCustomerTarget === "Rahul"
+                                      ? "bg-cyan-600 text-white border border-cyan-400 font-bold"
+                                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700"
+                                  }`}
+                                >
+                                  Rahul (Valid Customer)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setTestCustomerTarget("Unknown Customer")}
+                                  className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition ${
+                                    testCustomerTarget === "Unknown Customer"
+                                      ? "bg-amber-600 text-white border border-amber-400 font-bold"
+                                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700"
+                                  }`}
+                                >
+                                  Unknown Customer
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action checklist showing completed, failed, and pending */}
+                      <div className="space-y-1.5 font-mono text-xs pt-2 border-t border-amber-900/60">
+                        {(executionResult.all_actions && executionResult.all_actions.length > 0
+                          ? executionResult.all_actions
+                          : workflowProposal.actions.map((act) => {
+                              const isComp = executionResult.completed_actions.includes(act.type);
+                              const isFail = act.type === executionResult.failed_action;
+                              return {
+                                action: act.type,
+                                application: act.application,
+                                status: isComp ? ("completed" as const) : isFail ? ("failed" as const) : ("pending" as const),
+                                message: isComp ? "completed" : isFail ? (executionResult.failure_reason || "failed") : "pending",
+                              };
+                            })
+                        ).map((act, idx) => {
+                          const isComp = act.status === "completed";
+                          const isFail = act.status === "failed";
+
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex items-center justify-between px-3 py-2 rounded border ${
+                                isComp
+                                  ? "bg-emerald-950/30 text-emerald-300 border-emerald-800/40"
+                                  : isFail
+                                  ? "bg-rose-950/60 text-rose-200 border-rose-700/60"
+                                  : "bg-zinc-900/40 text-zinc-500 border-zinc-800/50"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <span className={`font-bold text-sm ${isComp ? "text-emerald-400" : isFail ? "text-rose-400" : "text-zinc-600"}`}>
+                                  {isComp ? "✓" : isFail ? "✗" : "○"}
+                                </span>
+                                <div>
+                                  <span className={`font-sans font-medium block ${isComp ? "text-emerald-100" : isFail ? "text-rose-100" : "text-zinc-400"}`}>
+                                    {getActionDisplayLabel(act.action)}
+                                  </span>
+                                  <span className="font-sans text-[11px] opacity-75 block">
+                                    {getApplicationDisplayName(act.application)}
+                                  </span>
+                                </div>
+                              </span>
+                              <span className={`text-[11px] font-semibold ${isComp ? "text-emerald-400" : isFail ? "text-rose-300" : "text-zinc-500"}`}>
+                                {isComp ? "✓ completed" : isFail ? "✗ failed" : "○ pending"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Resume / Cancel Action Buttons */}
+                      <div className="pt-2 border-t border-amber-900/60 flex items-center justify-end gap-2.5">
+                        <button
+                          type="button"
+                          onClick={handleCancel}
+                          disabled={isCancelling || isResuming}
+                          className="px-3.5 py-1.5 bg-zinc-800 hover:bg-rose-950/70 hover:text-rose-200 hover:border-rose-700 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer disabled:opacity-50"
+                        >
+                          {isCancelling ? "Cancelling..." : "Cancel Execution"}
+                        </button>
+                        {executionResult.resume_available && (
+                          <button
+                            type="button"
+                            onClick={handleResume}
+                            disabled={isResuming || isCancelling}
+                            className="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white border border-amber-400/60 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-md shadow-amber-950/60 disabled:opacity-50"
+                          >
+                            {isResuming && (
+                              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <span>{isResuming ? "Resuming automation..." : "Resume Execution"}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Phase 4.6: Cancelled execution card */}
+                  {executionResult && executionResult.status === "cancelled" && (
+                    <div className="bg-zinc-900/70 border border-zinc-700 rounded-xl p-4 shadow-lg animate-fadeIn space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center text-base font-bold shrink-0 mt-0.5">
+                          ✕
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 border border-zinc-700 text-zinc-300 uppercase">
+                              ✕ Automation Cancelled
+                            </span>
+                          </div>
+                          <p className="text-sm font-bold text-zinc-200 mt-1">
+                            Workflow execution was cancelled
+                          </p>
+                          <p className="text-xs text-zinc-400 mt-0.5">
+                            This execution was cancelled by the user. Resume is no longer available.
+                          </p>
+                          <div className="text-xs text-zinc-400 mt-1">
+                            <span>
+                              Completed: <strong>{executionResult.completed_actions.length} / {executionResult.total_actions}</strong> actions
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {executionResult && executionResult.status === "failed" && (
                     <div className="bg-rose-950/40 border border-rose-500/60 rounded-xl p-4 shadow-lg shadow-rose-950/30 animate-fadeIn space-y-3">
                       <div className="flex items-start gap-3">
@@ -1820,9 +2152,28 @@ export default function Dashboard() {
                       <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
                       ● Automation running
                     </span>
+                  ) : isResuming ? (
+                    <span className="text-amber-400 font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                      ● Resuming automation...
+                    </span>
                   ) : executionResult ? (
-                    <span className={`font-semibold flex items-center gap-1.5 ${executionResult.status === "completed" ? "text-emerald-400" : "text-rose-400"}`}>
-                      {executionResult.status === "completed" ? "✓ Automation completed" : "⚠ Automation stopped"}
+                    <span className={`font-semibold flex items-center gap-1.5 ${
+                      executionResult.status === "completed"
+                        ? "text-emerald-400"
+                        : executionResult.status === "paused"
+                        ? "text-amber-400"
+                        : executionResult.status === "cancelled"
+                        ? "text-zinc-400"
+                        : "text-rose-400"
+                    }`}>
+                      {executionResult.status === "completed"
+                        ? "✓ Automation completed"
+                        : executionResult.status === "paused"
+                        ? "⏸ Automation paused"
+                        : executionResult.status === "cancelled"
+                        ? "✕ Automation cancelled"
+                        : "⚠ Automation stopped"}
                     </span>
                   ) : (
                     <span className="text-amber-400/90 flex items-center gap-1.5">
@@ -1834,7 +2185,7 @@ export default function Dashboard() {
                   )}
                 </div>
                 <div className="flex items-center gap-2.5">
-                  {!isExecuting && !executionResult && approvalStatus === "idle" && (
+                  {!isExecuting && !isResuming && !executionResult && approvalStatus === "idle" && (
                     <button
                       id="reject-workflow-btn"
                       onClick={handleReject}
@@ -1843,22 +2194,52 @@ export default function Dashboard() {
                       Reject
                     </button>
                   )}
-                  <button
-                    id="approve-workflow-btn"
-                    onClick={handleApproveAndRun}
-                    disabled={isExecuting}
-                    className={`px-5 py-2 text-white rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-2 shadow-lg ${
-                      isExecuting
-                        ? "bg-zinc-700 opacity-80 cursor-not-allowed"
-                        : "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 border border-emerald-500/50 shadow-emerald-950/50 hover:shadow-emerald-500/20"
-                    }`}
-                  >
-                    {isExecuting && (
-                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    )}
-                    <span>{isExecuting ? "Running Workflow..." : executionResult ? "Run Again" : "APPROVE & RUN"}</span>
-                  </button>
-                  {(!isExecuting && (executionResult || approvalStatus !== "idle")) && (
+
+                  {/* Paused state buttons */}
+                  {executionResult && executionResult.status === "paused" && (
+                    <>
+                      <button
+                        onClick={handleCancel}
+                        disabled={isCancelling || isResuming}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-rose-950/70 hover:text-rose-200 hover:border-rose-700 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer disabled:opacity-50"
+                      >
+                        {isCancelling ? "Cancelling..." : "Cancel Execution"}
+                      </button>
+                      {executionResult.resume_available && (
+                        <button
+                          onClick={handleResume}
+                          disabled={isResuming || isCancelling}
+                          className="px-5 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white border border-amber-400/60 rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-2 shadow-lg shadow-amber-950/60 disabled:opacity-50"
+                        >
+                          {isResuming && (
+                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          )}
+                          <span>{isResuming ? "Resuming automation..." : "Resume Execution"}</span>
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {/* Normal Approve / Run Again buttons (when not paused) */}
+                  {(!executionResult || executionResult.status !== "paused") && (
+                    <button
+                      id="approve-workflow-btn"
+                      onClick={handleApproveAndRun}
+                      disabled={isExecuting || isResuming}
+                      className={`px-5 py-2 text-white rounded-lg text-xs font-semibold transition active:scale-95 cursor-pointer flex items-center gap-2 shadow-lg ${
+                        isExecuting || isResuming
+                          ? "bg-zinc-700 opacity-80 cursor-not-allowed"
+                          : "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 border border-emerald-500/50 shadow-emerald-950/50 hover:shadow-emerald-500/20"
+                      }`}
+                    >
+                      {isExecuting && (
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      )}
+                      <span>{isExecuting ? "Running Workflow..." : executionResult ? "Run Again" : "APPROVE & RUN"}</span>
+                    </button>
+                  )}
+
+                  {(!isExecuting && !isResuming && (executionResult || approvalStatus !== "idle")) && (
                     <button
                       onClick={() => setReviewModalOpen(false)}
                       className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition cursor-pointer"
@@ -1923,6 +2304,55 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {selectedExecutionDetail.status === "paused" && (
+                <div className="bg-amber-950/50 border border-amber-500/60 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-base font-bold shrink-0">
+                      ⏸
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-amber-200">⏸ Automation paused</p>
+                      <p className="text-xs text-amber-300/80 mt-0.5">
+                        Execution paused • {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions} actions completed
+                      </p>
+                    </div>
+                  </div>
+                  {(selectedExecutionDetail.failure_reason || selectedExecutionDetail.error || selectedExecutionDetail.failed_action || selectedExecutionDetail.current_action) && (
+                    <div className="pt-2 border-t border-amber-900/60 text-xs text-amber-200 space-y-1 font-sans">
+                      <p>
+                        <span className="font-semibold text-amber-100">Failed step:</span>{" "}
+                        {getActionDisplayLabel(selectedExecutionDetail.failed_action || selectedExecutionDetail.current_action || "action")}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-amber-100">Reason:</span>{" "}
+                        {selectedExecutionDetail.failure_reason || (selectedExecutionDetail.error?.includes("Customer") && selectedExecutionDetail.error?.includes("not found") ? "Customer not found" : (selectedExecutionDetail.error || "Action execution failed"))}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-amber-100">Action required:</span> Please resolve the issue in WorkFlow CRM and click Resume.
+                      </p>
+                      <div className="flex items-center gap-1.5 text-amber-300 font-semibold pt-1">
+                        <span>⚠</span>
+                        <span>Human intervention required • {selectedExecutionDetail.resume_available ? "Resume available" : "Not resumable"}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedExecutionDetail.status === "cancelled" && (
+                <div className="bg-zinc-800/80 border border-zinc-600 rounded-xl p-3.5 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-zinc-700 text-zinc-300 flex items-center justify-center text-base font-bold shrink-0">
+                    ✕
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-zinc-200">✕ Automation cancelled</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Workflow execution was cancelled by operator • {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions} actions completed
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {selectedExecutionDetail.status === "failed" && (
                 <div className="bg-rose-950/50 border border-rose-500/60 rounded-xl p-3.5 space-y-2">
                   <div className="flex items-center gap-3">
@@ -1932,7 +2362,7 @@ export default function Dashboard() {
                     <div>
                       <p className="text-sm font-bold text-rose-200">⚠ Automation stopped</p>
                       <p className="text-xs text-rose-300/80 mt-0.5">
-                        Workflow paused • {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions} actions completed
+                        Workflow failed • {selectedExecutionDetail.completed_actions.length} / {selectedExecutionDetail.total_actions} actions completed
                       </p>
                     </div>
                   </div>
@@ -1943,12 +2373,8 @@ export default function Dashboard() {
                         {selectedExecutionDetail.error?.includes("Customer") && selectedExecutionDetail.error?.includes("not found") ? "Customer not found" : (selectedExecutionDetail.error || `Action failed: ${selectedExecutionDetail.current_action}`)}
                       </p>
                       <p>
-                        <span className="font-semibold text-rose-100">Action required:</span> Please resolve the issue in WorkFlow CRM.
+                        <span className="font-semibold text-rose-100">Action required:</span> Please resolve the issue and retry.
                       </p>
-                      <div className="flex items-center gap-1.5 text-amber-300 font-semibold pt-1">
-                        <span>⚠</span>
-                        <span>Human intervention required</span>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -1977,6 +2403,33 @@ export default function Dashboard() {
                   <span className="font-semibold text-white">
                     {selectedExecutionDetail.applications?.length || 3}
                   </span>
+                </div>
+              </div>
+
+              {/* Phase 4.6: Lifecycle Timestamps & Resumes */}
+              <div className="bg-zinc-800/40 border border-zinc-800 rounded-lg p-2.5 text-[11px] text-zinc-300 space-y-1">
+                <div className="flex items-center justify-between text-zinc-400 font-mono text-[10px] uppercase">
+                  <span>Lifecycle Telemetry</span>
+                  {selectedExecutionDetail.resume_count !== undefined && selectedExecutionDetail.resume_count > 0 && (
+                    <span className="text-amber-400 font-semibold">Resumed: {selectedExecutionDetail.resume_count}x</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 pt-1 font-sans">
+                  {selectedExecutionDetail.started_at && (
+                    <div><span className="text-zinc-400">Started:</span> {new Date(selectedExecutionDetail.started_at).toLocaleTimeString()} ({new Date(selectedExecutionDetail.started_at).toLocaleDateString()})</div>
+                  )}
+                  {selectedExecutionDetail.paused_at && (
+                    <div><span className="text-amber-400">Paused:</span> {new Date(selectedExecutionDetail.paused_at).toLocaleTimeString()}</div>
+                  )}
+                  {selectedExecutionDetail.resumed_at && (
+                    <div><span className="text-cyan-400">Resumed:</span> {new Date(selectedExecutionDetail.resumed_at).toLocaleTimeString()}</div>
+                  )}
+                  {selectedExecutionDetail.completed_at && (
+                    <div><span className="text-emerald-400">Completed:</span> {new Date(selectedExecutionDetail.completed_at).toLocaleTimeString()}</div>
+                  )}
+                  {selectedExecutionDetail.cancelled_at && (
+                    <div><span className="text-zinc-400">Cancelled:</span> {new Date(selectedExecutionDetail.cancelled_at).toLocaleTimeString()}</div>
+                  )}
                 </div>
               </div>
 

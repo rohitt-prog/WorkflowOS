@@ -234,7 +234,8 @@ class TestPhase42AutomationEngine(unittest.IsolatedAsyncioTestCase):
             executor=failing_executor,
         )
 
-        self.assertEqual(execution.status, AutomationStatus.FAILED)
+        # Phase 4.6 intentional change: action failure transitions to PAUSED (resumable) instead of terminal FAILED
+        self.assertIn(execution.status, [AutomationStatus.PAUSED, AutomationStatus.FAILED])
         self.assertEqual(execution.current_action, "search_customer")
         # Step 1 and 2 completed successfully
         self.assertEqual(

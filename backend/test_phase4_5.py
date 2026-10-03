@@ -128,16 +128,20 @@ class TestPhase45ExecutionObservability(unittest.TestCase):
 
         print("  ✓ Test 1: Completed execution representation and timing metadata verified.")
 
-    def test_02_failed_execution_representation_and_skipped_actions(self):
+    def test_02_paused_execution_representation_and_pending_actions(self):
         """
-        Verify failed execution returns:
-        - status='failed'
-        - failed_action and message
-        - requires_human_intervention=True with human_intervention guidance
-        - all_actions with 'completed', 'failed', and 'skipped' statuses
+        Phase 4.6: Verify that when an action fails, execution transitions to PAUSED
+        (not FAILED) and post-failure actions are PENDING (not SKIPPED).
+
+        Verify:
+        - status='paused'
+        - failed_action='search_customer'
+        - requires_human_intervention=True
+        - resume_available=True
+        - human_intervention title is 'Workflow paused — action failed'
+        - all_actions: 2 completed, 1 failed, 2 pending (awaiting resume)
         """
-        proposal = make_test_proposal("Failed Observability Run", customer="Unknown Customer")
-        # Trigger simulated failure in NoOpExecutor
+        proposal = make_test_proposal("Paused Observability Run", customer="Unknown Customer")
         payload = {
             "workflow": proposal.model_dump(),
             "approved": True,
@@ -151,18 +155,22 @@ class TestPhase45ExecutionObservability(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.json()
 
-        self.assertEqual(data["status"], "failed")
+        # Phase 4.6: failure produces PAUSED, not FAILED
+        self.assertEqual(data["status"], "paused")
         self.assertEqual(data["failed_action"], "search_customer")
         self.assertTrue(data["requires_human_intervention"])
         self.assertIsNotNone(data["human_intervention"])
-        self.assertEqual(data["human_intervention"]["title"], "Workflow paused")
+        self.assertEqual(data["human_intervention"]["title"], "Workflow paused — action failed")
+
+        # Phase 4.6: resume_available must be True
+        self.assertTrue(data["resume_available"])
 
         # Verify completed actions: only 2 succeeded
         self.assertEqual(len(data["completed_actions"]), 2)
         self.assertIn("open_email", data["completed_actions"])
         self.assertIn("download_attachment", data["completed_actions"])
 
-        # Verify all_actions state distribution: 2 completed, 1 failed, 2 skipped
+        # Phase 4.6: all_actions state — 2 completed, 1 failed, 2 PENDING (not skipped)
         self.assertIn("all_actions", data)
         all_acts = data["all_actions"]
         self.assertEqual(len(all_acts), 5)
@@ -176,13 +184,14 @@ class TestPhase45ExecutionObservability(unittest.TestCase):
         self.assertEqual(all_acts[2]["action"], "search_customer")
         self.assertEqual(all_acts[2]["status"], "failed")
 
+        # Phase 4.6: post-failure actions are 'pending', not 'skipped'
         self.assertEqual(all_acts[3]["action"], "update_customer")
-        self.assertEqual(all_acts[3]["status"], "skipped")
+        self.assertEqual(all_acts[3]["status"], "pending")
 
         self.assertEqual(all_acts[4]["action"], "send_message")
-        self.assertEqual(all_acts[4]["status"], "skipped")
+        self.assertEqual(all_acts[4]["status"], "pending")
 
-        print("  ✓ Test 2: Failed execution representation, human intervention, and skipped actions verified.")
+        print("  ✓ Test 2: Paused execution (Phase 4.6) representation and pending post-failure actions verified.")
 
     def test_03_unapproved_execution_representation(self):
         """
@@ -231,7 +240,7 @@ class TestPhase45ExecutionObservability(unittest.TestCase):
             self.assertIn("execution_id", ex)
             self.assertIn("workflow_name", ex)
             self.assertIn("status", ex)
-            self.assertIn(ex["status"], ["completed", "failed", "pending", "running"])
+            self.assertIn(ex["status"], ["completed", "failed", "pending", "running", "paused", "cancelled"])
             self.assertIn("completed_actions", ex)
             self.assertIn("total_actions", ex)
             self.assertIn("started_at", ex)
