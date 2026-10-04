@@ -29,6 +29,15 @@ export interface ConfidenceBreakdown {
   raw_signals?: Record<string, unknown>;
 }
 
+export interface RankingBreakdown {
+  pattern_confidence: number;
+  execution_fidelity: number;
+  operational_volume: number;
+  automation_impact: number;
+  task_richness: number;
+  raw_signals?: Record<string, unknown>;
+}
+
 export interface DiscoveredWorkflow {
   label: string;
   sequence: string[];
@@ -39,11 +48,22 @@ export interface DiscoveredWorkflow {
   confidence_tier?: "high" | "medium" | "low";
   confidence_breakdown?: ConfidenceBreakdown;
   confidence_explanation?: string;
+  // Phase 8.3 Ranking & Duplicate Detection fields
+  rank?: number;
+  ranking_score?: number;
+  quality_tier?: "exceptional" | "strong" | "moderate" | "low";
+  ranking_breakdown?: RankingBreakdown;
+  ranking_explanation?: string;
+  is_duplicate?: boolean;
+  representative_pattern_id?: string;
+  suppression_reason?: string;
 }
 
 export interface DiscoveryResult {
   detected: boolean;
   workflows: DiscoveredWorkflow[];
+  suppressed_workflows?: DiscoveredWorkflow[];
+  total_candidates_evaluated?: number;
 }
 
 export interface WorkflowTrigger {

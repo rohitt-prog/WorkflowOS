@@ -17,11 +17,14 @@ class DiscoveryService:
         min_occurrences: int = 2,
         similarity_threshold: float = 0.8,
         min_confidence: Optional[float] = None,
+        min_ranking_score: Optional[float] = None,
+        filter_noise: bool = False,
+        include_suppressed: bool = False,
         collection=None
     ) -> DiscoveryResult:
         """
         Retrieves event history from MongoDB, builds ordered session sequences,
-        and applies the deterministic repetition detector.
+        and applies the deterministic repetition detector with Phase 8.3 ranking.
         """
         try:
             # Step 1: Retrieve and group chronological sequences by session
@@ -38,6 +41,9 @@ class DiscoveryService:
                 min_occurrences=min_occurrences,
                 similarity_threshold=similarity_threshold,
                 min_confidence=min_confidence,
+                min_ranking_score=min_ranking_score,
+                filter_noise=filter_noise,
+                include_suppressed=include_suppressed,
             )
             return result
         except Exception as e:

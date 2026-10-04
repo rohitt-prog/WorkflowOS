@@ -479,12 +479,211 @@ def build_phase8_2_evaluation_dataset() -> List[EvaluationScenario]:
     return scenarios
 
 
+def build_phase8_3_evaluation_dataset() -> List[EvaluationScenario]:
+    """
+    Constructs the 8 deterministic evaluation scenarios established in Phase 8.3:
+    Scenario 17: Exact duplicates across multiple extraction paths collapsed to 1 representative.
+    Scenario 18: Overlapping shadow patterns (shorter sub-slices with identical session support suppressed).
+    Scenario 19: Short valid workflows preserved (3-step workflows preserved, not suppressed by noise filters).
+    Scenario 20: Frequent common-action noise (monotonous repetitions suppressed by noise filtering).
+    Scenario 21: Genuinely distinct business workflows maintained (not falsely merged).
+    Scenario 22: Variable session support ranking (high-volume workflow ranked higher than low-volume).
+    Scenario 23: Legitimate repeated actions in valid workflow (workflow with repeated comments preserved).
+    Scenario 24: Weak marginal pattern with low ranking / noise rejected.
+    """
+    scenarios: List[EvaluationScenario] = []
+
+    canonical_5_step = [
+        "open_email",
+        "download_attachment",
+        "search_customer",
+        "update_customer",
+        "send_message",
+    ]
+
+    # Scenario 17: Exact Duplicate Sequences
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_17_exact_duplicates",
+            name="Exact Duplicate Sequences Collapsed",
+            description="Identical 5-step sequence occurring in multiple sessions; candidate deduplication must retain only 1 representative.",
+            session_sequences={
+                "session_1701": list(canonical_5_step),
+                "session_1702": list(canonical_5_step),
+                "session_1703": list(canonical_5_step),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=3, label="Customer Request Processing")
+            ],
+            category="exact_duplicate",
+        )
+    )
+
+    # Scenario 18: Overlapping Shadow Subsequences
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_18_overlapping_shadow_subsequence",
+            name="Overlapping Shadow Subsequences Suppressed",
+            description="3-step sub-slice appearing only in sessions that contain the 5-step workflow; shorter shadow must be suppressed.",
+            session_sequences={
+                "session_1801": list(canonical_5_step),
+                "session_1802": list(canonical_5_step),
+                "session_1803": list(canonical_5_step),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=3, label="Customer Request Processing")
+            ],
+            category="overlapping_shadow",
+        )
+    )
+
+    # Scenario 19: Short Valid Workflow Preserved
+    short_crm_update = ["search_customer", "update_customer", "send_message"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_19_short_valid_workflow",
+            name="Short Valid Workflow Preserved",
+            description="3-step customer tier update routine; must not be discarded by noise filtering.",
+            session_sequences={
+                "session_1901": list(short_crm_update),
+                "session_1902": list(short_crm_update),
+                "session_1903": list(short_crm_update),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=short_crm_update, min_occurrences=3, label="Customer Account Tier Update")
+            ],
+            category="short_valid",
+        )
+    )
+
+    # Scenario 20: Frequent Common-Action Noise Suppressed
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_20_frequent_common_action_noise",
+            name="Monotonous Loop Repetition Suppressed",
+            description="Monotonous loop repeating view_dashboard x 3 across sessions; must be suppressed by noise filtering.",
+            session_sequences={
+                "session_2001": ["view_dashboard", "view_dashboard", "view_dashboard"],
+                "session_2002": ["view_dashboard", "view_dashboard", "view_dashboard"],
+                "session_2003": ["view_dashboard", "view_dashboard", "view_dashboard"],
+            },
+            expected_detected=False,
+            expected_workflows=[],
+            category="noise_reduction",
+        )
+    )
+
+    # Scenario 21: Genuinely Distinct Workflows Maintained
+    wf_order_fulfill = ["create_order", "process_payment", "pack_items", "dispatch_delivery"]
+    wf_order_cancel = ["create_order", "cancel_order", "refund_payment", "restock_items"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_21_distinct_business_workflows",
+            name="Genuinely Distinct Workflows Maintained",
+            description="Two separate e-commerce workflows sharing initial action; must not merge or suppress each other.",
+            session_sequences={
+                "session_2101": list(wf_order_fulfill),
+                "session_2102": list(wf_order_fulfill),
+                "session_2103": list(wf_order_cancel),
+                "session_2104": list(wf_order_cancel),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=wf_order_fulfill, min_occurrences=2, label="Order Fulfillment Routine"),
+                GroundTruthWorkflow(sequence=wf_order_cancel, min_occurrences=2, label="Order Cancellation Routine"),
+            ],
+            category="distinct_workflows",
+        )
+    )
+
+    # Scenario 22: Variable Session Support Ranking
+    wf_high_volume = ["search_customer", "update_customer", "send_message"]
+    wf_low_volume = ["open_document", "edit_document", "export_document"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_22_variable_support_ranking",
+            name="Variable Session Support Ranking",
+            description="High-volume CRM workflow (6 sessions) vs low-volume doc workflow (2 sessions); CRM workflow must rank higher.",
+            session_sequences={
+                "session_2201": list(wf_high_volume),
+                "session_2202": list(wf_high_volume),
+                "session_2203": list(wf_high_volume),
+                "session_2204": list(wf_high_volume),
+                "session_2205": list(wf_high_volume),
+                "session_2206": list(wf_high_volume),
+                "session_2207": list(wf_low_volume),
+                "session_2208": list(wf_low_volume),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=wf_high_volume, min_occurrences=6, label="Customer Account Tier Update"),
+                GroundTruthWorkflow(sequence=wf_low_volume, min_occurrences=2, label="Document Editing Routine"),
+            ],
+            category="support_ranking",
+        )
+    )
+
+    # Scenario 23: Legitimate Repeated Actions in Valid Workflow
+    wf_doc_review = ["open_document", "add_review_comment", "add_review_comment", "submit_approval"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_23_legitimate_repeated_actions",
+            name="Legitimate Repeated Actions in Valid Workflow",
+            description="Document review routine containing intentional repeated comments; must not be falsely rejected as noise.",
+            session_sequences={
+                "session_2301": list(wf_doc_review),
+                "session_2302": list(wf_doc_review),
+                "session_2303": list(wf_doc_review),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=wf_doc_review, min_occurrences=3, label="Document Review & Approval Routine")
+            ],
+            category="legitimate_repeated_actions",
+        )
+    )
+
+    # Scenario 24: Weak Marginal Pattern with Low Ranking
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_24_weak_marginal_pattern",
+            name="Weak Marginal Pattern Rejected",
+            description="Inconsistent sessions with low similarity and no coherent repeated structure; must be rejected.",
+            session_sequences={
+                "session_2401": ["open_email", "random_act_1", "random_act_2"],
+                "session_2402": ["view_dashboard", "random_act_3", "random_act_4"],
+                "session_2403": ["open_settings", "random_act_5", "random_act_6"],
+            },
+            expected_detected=False,
+            expected_workflows=[],
+            category="marginal_rejection",
+        )
+    )
+
+    return scenarios
+
+
 def build_full_evaluation_dataset() -> List[EvaluationScenario]:
     """
     Combines Phase 8.1 regression scenarios (1-8) and Phase 8.2 scenarios (9-16).
     Total 16 deterministic scenarios.
     """
     return build_synthetic_evaluation_dataset() + build_phase8_2_evaluation_dataset()
+
+
+def build_complete_benchmark_dataset() -> List[EvaluationScenario]:
+    """
+    Combines Phase 8.1 regression (1-8), Phase 8.2 (9-16), and Phase 8.3 (17-24).
+    Total 24 deterministic evaluation scenarios.
+    """
+    return (
+        build_synthetic_evaluation_dataset()
+        + build_phase8_2_evaluation_dataset()
+        + build_phase8_3_evaluation_dataset()
+    )
 
 
 class LegacyPhase81Detector:
@@ -498,12 +697,12 @@ class LegacyPhase81Detector:
         self.min_occurrences = min_occurrences
         self.similarity_threshold = similarity_threshold
 
-    def detect(self, session_sequences: Dict[str, List[str]]) -> DiscoveryResult:
+    def detect(self, session_sequences: Dict[str, List[str]], **kwargs) -> DiscoveryResult:
         qualified_sessions = {
             sid: seq for sid, seq in session_sequences.items() if len(seq) >= self.min_length
         }
         if len(qualified_sessions) < self.min_occurrences:
-            return DiscoveryResult(detected=False, workflows=[])
+            return DiscoveryResult(detected=False, workflows=[], suppressed_workflows=[], total_candidates_evaluated=0)
 
         exact_clusters: Dict[Tuple[str, ...], List[str]] = {}
         for sid, seq in qualified_sessions.items():
@@ -555,6 +754,8 @@ class LegacyPhase81Detector:
         return DiscoveryResult(
             detected=len(discovered_workflows) > 0,
             workflows=discovered_workflows,
+            suppressed_workflows=[],
+            total_candidates_evaluated=len(sorted_patterns),
         )
 
 
@@ -570,6 +771,8 @@ class EvaluationReport:
     recall: float
     f1_score: float
     accuracy: float
+    duplicate_suppressions: int = 0
+    total_candidates_evaluated: int = 0
     scenario_details: List[Dict[str, Any]] = field(default_factory=list)
 
 
@@ -599,11 +802,24 @@ def evaluate_discovery_engine(
     fp = 0
     fn = 0
     tn = 0
+    total_dup_suppressions = 0
+    total_candidates = 0
     scenario_details: List[Dict[str, Any]] = []
 
     for scenario in scenarios:
-        result: DiscoveryResult = active_detector.detect(scenario.session_sequences)
+        if hasattr(active_detector, "detect"):
+            try:
+                result = active_detector.detect(scenario.session_sequences, include_suppressed=True)
+            except TypeError:
+                result = active_detector.detect(scenario.session_sequences)
+        else:
+            result = active_detector.detect(scenario.session_sequences)
+
         detected_workflows = result.workflows
+        if hasattr(result, "suppressed_workflows") and result.suppressed_workflows:
+            total_dup_suppressions += len(result.suppressed_workflows)
+        if hasattr(result, "total_candidates_evaluated"):
+            total_candidates += result.total_candidates_evaluated
 
         scen_tp = 0
         scen_fp = 0
@@ -679,63 +895,77 @@ def evaluate_discovery_engine(
         recall=recall,
         f1_score=f1,
         accuracy=accuracy,
+        duplicate_suppressions=total_dup_suppressions,
+        total_candidates_evaluated=total_candidates,
         scenario_details=scenario_details,
     )
 
 
 if __name__ == "__main__":
-    full_dataset = build_full_evaluation_dataset()
+    complete_dataset = build_complete_benchmark_dataset()
 
-    print("=================================================================")
-    print("      WORKFLOWOS DISCOVERY BENCHMARK: PHASE 8.1 vs PHASE 8.2     ")
-    print("=================================================================")
+    print("=========================================================================================")
+    print("      WORKFLOWOS DISCOVERY BENCHMARK: PHASE 8.1 vs PHASE 8.2 vs PHASE 8.3                ")
+    print("=========================================================================================")
 
-    # 1. Baseline Phase 8.1 detector on full 16-scenario dataset
+    # 1. Baseline Phase 8.1 detector on full 24-scenario dataset
     legacy_detector = LegacyPhase81Detector()
-    report_legacy = evaluate_discovery_engine(detector=legacy_detector, dataset=full_dataset)
+    report_legacy = evaluate_discovery_engine(detector=legacy_detector, dataset=complete_dataset)
 
-    # 2. Phase 8.2 detector on full 16-scenario dataset
-    smarter_detector = RepetitionDetector(min_length=3, min_occurrences=2, similarity_threshold=0.8)
-    report_smarter = evaluate_discovery_engine(detector=smarter_detector, dataset=full_dataset)
+    # 2. Phase 8.2 local alignment detector on full 24-scenario dataset
+    p82_detector = RepetitionDetector(min_length=3, min_occurrences=2, similarity_threshold=0.8)
+    report_p82 = evaluate_discovery_engine(detector=p82_detector, dataset=complete_dataset)
 
-    # 3. Phase 8.2 with high-confidence filter (min_confidence=0.80)
-    report_hc = evaluate_discovery_engine(
-        detector=RepetitionDetector(min_confidence=0.80), dataset=full_dataset
+    # 3. Phase 8.3 detector with ranking & noise reduction (filter_noise=True, min_ranking_score=0.70)
+    p83_ranked = RepetitionDetector(
+        min_length=3,
+        min_occurrences=2,
+        similarity_threshold=0.8,
+        filter_noise=True,
+        min_ranking_score=0.70,
     )
+    report_p83 = evaluate_discovery_engine(detector=p83_ranked, dataset=complete_dataset)
 
-    print(f"Dataset Size: {len(full_dataset)} Scenarios (8 Phase 8.1 + 8 Phase 8.2)")
+    print(f"Dataset Size: {len(complete_dataset)} Scenarios (8 P8.1 + 8 P8.2 + 8 P8.3)")
     print(f"")
-    print(f"Metric                 | Phase 8.1 Baseline | Phase 8.2 Smarter  | Phase 8.2 (Conf >= 0.80)")
-    print(f"-----------------------|--------------------|--------------------|-------------------------")
-    print(f"Precision              | {report_legacy.precision:.4f} ({report_legacy.precision*100:.1f}%)     | {report_smarter.precision:.4f} ({report_smarter.precision*100:.1f}%)     | {report_hc.precision:.4f} ({report_hc.precision*100:.1f}%)")
-    print(f"Recall                 | {report_legacy.recall:.4f} ({report_legacy.recall*100:.1f}%)     | {report_smarter.recall:.4f} ({report_smarter.recall*100:.1f}%)    | {report_hc.recall:.4f} ({report_hc.recall*100:.1f}%)")
-    print(f"F1 Score               | {report_legacy.f1_score:.4f}             | {report_smarter.f1_score:.4f}             | {report_hc.f1_score:.4f}")
-    print(f"True Positives (TP)    | {report_legacy.true_positives:<18} | {report_smarter.true_positives:<18} | {report_hc.true_positives}")
-    print(f"False Positives (FP)   | {report_legacy.false_positives:<18} | {report_smarter.false_positives:<18} | {report_hc.false_positives}")
-    print(f"False Negatives (FN)   | {report_legacy.false_negatives:<18} | {report_smarter.false_negatives:<18} | {report_hc.false_negatives}")
-    print(f"True Negatives (TN)    | {report_legacy.true_negatives:<18} | {report_smarter.true_negatives:<18} | {report_hc.true_negatives}")
-    print(f"Accuracy               | {report_legacy.accuracy:.4f} ({report_legacy.accuracy*100:.1f}%)     | {report_smarter.accuracy:.4f} ({report_smarter.accuracy*100:.1f}%)     | {report_hc.accuracy:.4f} ({report_hc.accuracy*100:.1f}%)")
-    print("=================================================================")
+    print(f"Metric                    | Phase 8.1 Baseline | Phase 8.2 Smarter  | Phase 8.3 Ranked & Clean")
+    print(f"--------------------------|--------------------|--------------------|-------------------------")
+    print(f"Precision                 | {report_legacy.precision:.4f} ({report_legacy.precision*100:.1f}%)     | {report_p82.precision:.4f} ({report_p82.precision*100:.1f}%)     | {report_p83.precision:.4f} ({report_p83.precision*100:.1f}%)")
+    print(f"Recall                    | {report_legacy.recall:.4f} ({report_legacy.recall*100:.1f}%)     | {report_p82.recall:.4f} ({report_p82.recall*100:.1f}%)    | {report_p83.recall:.4f} ({report_p83.recall*100:.1f}%)")
+    print(f"F1 Score                  | {report_legacy.f1_score:.4f}             | {report_p82.f1_score:.4f}             | {report_p83.f1_score:.4f}")
+    print(f"True Positives (TP)       | {report_legacy.true_positives:<18} | {report_p82.true_positives:<18} | {report_p83.true_positives}")
+    print(f"False Positives (FP)      | {report_legacy.false_positives:<18} | {report_p82.false_positives:<18} | {report_p83.false_positives}")
+    print(f"False Negatives (FN)      | {report_legacy.false_negatives:<18} | {report_p82.false_negatives:<18} | {report_p83.false_negatives}")
+    print(f"True Negatives (TN)       | {report_legacy.true_negatives:<18} | {report_p82.true_negatives:<18} | {report_p83.true_negatives}")
+    print(f"Accuracy                  | {report_legacy.accuracy:.4f} ({report_legacy.accuracy*100:.1f}%)     | {report_p82.accuracy:.4f} ({report_p82.accuracy*100:.1f}%)     | {report_p83.accuracy:.4f} ({report_p83.accuracy*100:.1f}%)")
+    print(f"Duplicates Suppressed     | {report_legacy.duplicate_suppressions:<18} | {report_p82.duplicate_suppressions:<18} | {report_p83.duplicate_suppressions}")
+    print("=========================================================================================")
 
-    print("\nDetailed Scenario Breakdown (Phase 8.2 Smarter Detector):")
-    for d in report_smarter.scenario_details:
+    print("\nDetailed Scenario Breakdown (Phase 8.3 Ranked Detector):")
+    for d in report_p83.scenario_details:
         status_str = "PASS" if (d["fp"] == 0 and d["fn"] == 0) else "WARN"
         print(f"  [{status_str}] {d['scenario_id']:<45}: TP={d['tp']}, FP={d['fp']}, FN={d['fn']}, TN={d['tn']}")
 
-    print("\n-----------------------------------------------------------------")
-    print("Sample Phase 8.2 Local Alignment Detections:")
+    print("\n-----------------------------------------------------------------------------------------")
+    print("Sample Phase 8.3 Ranked Discoveries with Utility Scores & Quality Tiers:")
     for sc_id in [
-        "scenario_9_embedded_subsequence_with_noise",
-        "scenario_10_interleaved_inserted_actions",
-        "scenario_12_adjacent_step_transpositions",
-        "scenario_15_mixture_exact_and_local",
+        "scenario_17_exact_duplicates",
+        "scenario_18_overlapping_shadow_subsequence",
+        "scenario_21_distinct_business_workflows",
+        "scenario_22_variable_support_ranking",
+        "scenario_23_legitimate_repeated_actions",
     ]:
-        matching_sc = next(s for s in full_dataset if s.scenario_id == sc_id)
-        res = smarter_detector.detect(matching_sc.session_sequences)
+        matching_sc = next(s for s in complete_dataset if s.scenario_id == sc_id)
+        res = p83_ranked.detect(matching_sc.session_sequences, include_suppressed=True)
         print(f"\nScenario: {matching_sc.name}")
         for wf in res.workflows:
             print(f"  -> Discovered: {wf.label}")
+            print(f"     Rank:        #{wf.rank} | Score: {wf.ranking_score:.4f} ({wf.quality_tier})")
             print(f"     Sequence:    {' -> '.join(wf.sequence)}")
-            print(f"     Occurrences: {wf.occurrences} | Avg Sim: {wf.similarity:.4f} | Conf: {wf.confidence:.4f} ({wf.confidence_tier})")
-            print(f"     Explanation: {wf.confidence_explanation}")
-    print("=================================================================")
+            print(f"     Explanation: {wf.ranking_explanation}")
+        if res.suppressed_workflows:
+            print(f"     [Suppressed Candidates]: {len(res.suppressed_workflows)}")
+            for sw in res.suppressed_workflows[:2]:
+                print(f"       * {sw.suppression_reason}: {' -> '.join(sw.sequence)} (rep: {sw.representative_pattern_id})")
+    print("=========================================================================================")
+

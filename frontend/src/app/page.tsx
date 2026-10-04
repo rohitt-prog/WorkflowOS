@@ -64,7 +64,7 @@ export default function WorkFlowOSApp() {
 
   const fetchDiscovery = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/discovery/repeated`, { cache: "no-store" });
+      const res = await fetch(`${API_BASE_URL}/api/discovery/repeated?include_suppressed=true`, { cache: "no-store" });
       if (!res.ok) throw new Error(`Discovery API returned ${res.status}`);
       const data: DiscoveryResult = await res.json();
       setDiscovery(data);

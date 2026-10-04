@@ -40,20 +40,36 @@ async def get_repeated_workflows(
         le=1.0,
         description="Optional minimum confidence score threshold (0.0 - 1.0)"
     ),
+    min_ranking_score: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Optional minimum ranking utility score threshold (0.0 - 1.0)"
+    ),
+    include_suppressed: bool = Query(
+        False,
+        description="Whether to include suppressed noise and duplicate patterns in the response"
+    ),
 ):
     """
-    Endpoint for Phase 8.1 deterministic workflow discovery with confidence scoring.
+    Endpoint for Phase 8.1 - 8.3 deterministic workflow discovery with ranking and noise reduction.
     Retrieves events grouped by session, determines recurring patterns,
     and returns discovered workflow definitions with occurrences, similarity scores,
-    and calibrated confidence breakdowns.
+    calibrated confidence breakdowns, deterministic ranking scores, and quality tiers.
     """
     try:
-        result = await discovery_service.get_repeated_workflows(
-            min_length=min_length,
-            min_occurrences=min_occurrences,
-            similarity_threshold=similarity_threshold,
-            min_confidence=min_confidence,
-        )
+        kwargs = {
+            "min_length": min_length,
+            "min_occurrences": min_occurrences,
+            "similarity_threshold": similarity_threshold,
+            "min_confidence": min_confidence,
+        }
+        if min_ranking_score is not None:
+            kwargs["min_ranking_score"] = min_ranking_score
+        if include_suppressed:
+            kwargs["include_suppressed"] = include_suppressed
+
+        result = await discovery_service.get_repeated_workflows(**kwargs)
         return result
     except Exception as e:
         logger.error(f"Failed to detect repeated workflows: {e}", exc_info=True)

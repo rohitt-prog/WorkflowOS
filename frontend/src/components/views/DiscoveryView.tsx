@@ -279,6 +279,11 @@ export default function DiscoveryView({
                   {/* Top metadata row */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2.5">
+                      {wf.rank !== undefined && (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-900 text-white shadow-2xs">
+                          #{wf.rank}
+                        </span>
+                      )}
                       <h3 className="text-base font-bold text-[#0F172A] tracking-tight">
                         {wf.label || `Workflow Pattern #${idx + 1}`}
                       </h3>
@@ -295,6 +300,22 @@ export default function DiscoveryView({
                     </div>
 
                     <div className="flex items-center gap-2 text-xs font-mono">
+                      {wf.ranking_score !== undefined && (
+                        <span
+                          title={wf.ranking_explanation || `Utility Score: ${Math.round(wf.ranking_score * 100)}/100`}
+                          className={`px-2 py-0.5 rounded border text-[11px] font-semibold ${
+                            wf.quality_tier === "exceptional"
+                              ? "bg-purple-50 text-purple-700 border-purple-200"
+                              : wf.quality_tier === "strong"
+                              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                              : wf.quality_tier === "moderate"
+                              ? "bg-slate-100 text-slate-700 border-slate-200"
+                              : "bg-rose-50 text-rose-700 border-rose-200"
+                          }`}
+                        >
+                          Score {Math.round(wf.ranking_score * 100)} ({wf.quality_tier || "standard"})
+                        </span>
+                      )}
                       {wf.confidence !== undefined && (
                         <span
                           title={wf.confidence_explanation || `Confidence: ${(wf.confidence * 100).toFixed(0)}%`}
@@ -324,7 +345,7 @@ export default function DiscoveryView({
                   </div>
 
                   <p className="text-xs text-[#64748B] mb-4">
-                    {wf.confidence_explanation || `Observed sequence of ${wf.sequence.length} actions across multiple operational sessions.`}
+                    {wf.ranking_explanation || wf.confidence_explanation || `Observed sequence of ${wf.sequence.length} actions across multiple operational sessions.`}
                   </p>
 
                   {/* Connected Step Visualizer */}
@@ -379,6 +400,50 @@ export default function DiscoveryView({
               </div>
             );
           })}
+
+          {/* Suppressed / Filtered Patterns Accordion */}
+          {discovery.suppressed_workflows && discovery.suppressed_workflows.length > 0 && (
+            <details className="group bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 text-xs transition">
+              <summary className="font-semibold text-[#475569] flex items-center justify-between cursor-pointer select-none">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-[#64748B] transition group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span>Filtered Noise & Duplicates ({discovery.suppressed_workflows.length})</span>
+                </div>
+                <span className="text-[11px] font-normal text-[#94A3B8]">
+                  Automatically pruned to reduce clutter and maintain canonical workflow representatives
+                </span>
+              </summary>
+              <div className="mt-3 space-y-2 pt-3 border-t border-[#E2E8F0]">
+                {discovery.suppressed_workflows.map((sw, sIdx) => (
+                  <div key={sIdx} className="bg-white border border-[#E2E8F0] rounded-lg p-3 flex flex-col md:flex-row md:items-center justify-between gap-2 shadow-2xs">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-[#0F172A]">{sw.label}</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                          {sw.suppression_reason || "SUPPRESSED"}
+                        </span>
+                        {sw.representative_pattern_id && (
+                          <span className="text-[10px] text-[#64748B]">
+                            &rarr; Rep: <strong>{sw.representative_pattern_id}</strong>
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] font-mono text-[#64748B]">
+                        {sw.sequence.join(" \u2192 ")}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-[#94A3B8] font-mono shrink-0">
+                      <span>{sw.occurrences} sess</span>
+                      <span>&bull;</span>
+                      <span>Sim {Math.round(sw.similarity * 100)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
 

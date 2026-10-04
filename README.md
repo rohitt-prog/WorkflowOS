@@ -58,6 +58,11 @@
 | **Phase 6** | Production Workflow Engine + Frontend Redesign | ✅ Complete |
 | **Phase 7.1** | Integration Foundation & Encrypted Token Storage | ✅ Complete |
 | **Phase 7.2** | Secure Gmail OAuth 2.0 Integration & Read-Only Action | ✅ Complete |
+| **Phase 7.3** | Declarative Workflow Builder & UI Action Testing | ✅ Complete |
+| **Phase 7.4** | Reliability, Security, & Operational Recovery | ✅ Complete |
+| **Phase 8.1** | Discovery Evaluation & Calibrated Confidence Scoring | ✅ Complete |
+| **Phase 8.2** | Smarter Sequence Detection & Dynamic Local Alignment | ✅ Complete |
+| **Phase 8.3** | Pattern Ranking, Noise Reduction & Duplicate Detection | ✅ Complete |
 
 ---
 
@@ -486,11 +491,47 @@ Evaluated via `.venv/bin/python -m discovery.evaluation`:
 
 ---
 
+## Phase 8.3 — Pattern Ranking, Noise Reduction & Duplicate Detection
+
+Phase 8.3 enhances discovered pattern quality by prioritizing high-utility workflows, suppressing noise and repetitive loops, and deduplicating overlapping variants into canonical representatives.
+
+### 1. Deterministic Utility Ranking
+Ranking score $R \in [0.0, 1.0]$ evaluates automation utility (separate from detection confidence) using 5 normalized signals:
+- **Pattern Confidence ($w=0.30$)**: Intrinsic match confidence from local alignment.
+- **Execution Fidelity ($w=0.25$)**: Average sequence alignment (0.60) + session replay consistency (0.40).
+- **Operational Volume ($w=0.20$)**: Multi-session adoption scaled from 2 to 7+ distinct sessions.
+- **Automation Impact ($w=0.15$)**: Sequence length savings potential scaled from 3 to 5+ steps.
+- **Task Richness ($w=0.10$)**: Unique verb diversity entropy.
+
+Workflows receive discrete quality tiers (`exceptional` $\ge 0.85$, `strong` $\ge 0.70$, `moderate` $\ge 0.55$, `low` $< 0.55$) and deterministic 1-based ranks with explainable summaries.
+
+### 2. Active Noise Reduction & Legitimate Loop Preservation
+- **Monotonous Loops**: Sequences dominated by single repeated actions (e.g. `view_dashboard x 3`) are penalized and assigned suppression reason `monotonous_repeated_actions`.
+- **Marginal Utility Filter**: Weak patterns below `min_ranking_score` (default: 0.50) are suppressed as `marginal_ranking_score`.
+- **Legitimate Workflows Preserved**: Valid multi-step workflows with repeated actions (e.g. `download -> review -> review -> approve`) maintain high entropy and are preserved as valid.
+
+### 3. Duplicate & Overlapping Variant Detection
+- **Exact Duplicates**: Repeated candidate extractions collapse into a single canonical workflow with consolidated sessions.
+- **Overlapping Shadows**: Shorter sub-sequences whose sessions are $\ge 70\%$ contained within a parent workflow are suppressed as `overlapping_shadow` with a link to `representative_pattern_id`.
+- **Similar Variants**: Variants sharing $\ge 80\%$ alignment similarity and $\ge 50\%$ session overlap are deduplicated to the highest-confidence representative.
+- **Independent Sequences**: Sub-sequences with $\ge \text{min\_occurrences}$ independent sessions outside the parent workflow are preserved.
+
+### 4. 24-Scenario Comparative Benchmark Results
+Evaluated via `.venv/bin/python -m discovery.evaluation`:
+- **Phase 8.1 Baseline**: Precision = 91.3%, Recall = 95.5%, F1 = 0.9333, Acc = 89.7%
+- **Phase 8.2 Smarter Detector**: Precision = 91.7%, Recall = **100.0%**, F1 = 0.9565, Acc = 93.1%
+- **Phase 8.3 Ranking & Noise Reduction**: Precision = **100.0%**, Recall = **100.0%**, F1 = **1.0000**, Acc = **100.0%**, Duplicates Suppressed = **123**
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (260+ tests)
+# Full test suite across all phases (296 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Phase 8.3 (Pattern Ranking, Noise Reduction & Duplicate Detection)
+.venv/bin/python3 -m unittest backend.test_phase8_3 -v
 
 # Phase 8.2 (Smarter Sequence Detection & Local Alignment)
 .venv/bin/python3 -m unittest backend.test_phase8_2 -v
@@ -498,7 +539,7 @@ Evaluated via `.venv/bin/python -m discovery.evaluation`:
 # Phase 8.1 (Discovery Evaluation & Confidence Scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run the 16-Scenario Synthetic Discovery Benchmark
+# Run the 24-Scenario Synthetic Discovery Benchmark
 .venv/bin/python3 -m discovery.evaluation
 
 # Phase 7.4 (Reliability, Security & Recovery)
@@ -518,11 +559,11 @@ Evaluated via `.venv/bin/python -m discovery.evaluation`:
 
 # Frontend Checks
 npm --prefix frontend run lint
-npx --prefix frontend tsc --noEmit
+frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 8.2):** 261 tests · 247 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 8.3):** 296 tests · 282 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 
