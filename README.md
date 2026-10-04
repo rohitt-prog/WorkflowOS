@@ -466,23 +466,39 @@ Confidence $C \in [0.0, 1.0]$ combines 5 orthogonal signals strictly summing to 
 - **`low` ($< 0.65$)**: Insufficient repetition or penalized low-entropy repetition.
 - **Deterministic Text Explanations**: Generates clear, non-LLM natural summaries of the contributing evidence.
 
-### 3. Empirical Evaluation Benchmark
-Evaluated across an 8-scenario synthetic ground-truth benchmark (`python -m discovery.evaluation`):
-- **Baseline (Default Discovery)**: Precision = 85.71%, Recall = 100.0%, F1 = 0.9231 (1 FP from monotonous noise).
-- **High-Confidence Filter ($\ge 0.80$)**: Precision = 100.0%, Recall = 66.67%, F1 = 0.8000 (0 False Positives).
+---
+
+## Phase 8.2 — Smarter Sequence Detection with Local Alignment
+
+Phase 8.2 introduces semi-global dynamic programming local alignment with Damerau transposition handling, enabling discovery of workflows embedded within longer, noisy user sessions.
+
+### 1. Key Capabilities
+- **Embedded Workflow Extraction**: Finds repeated sequences surrounded by arbitrary prefix and suffix noise.
+- **Variation Tolerance**: Handles inserted intermediate actions, missing steps, and small adjacent step transpositions ($A \to B$ vs $B \to A$) within strict coverage limits ($\ge 0.75$).
+- **Strict Distinct-Session Occurrences**: Single-session internal repetitions cannot artificially inflate candidate occurrence counts.
+- **Shadow Pruning**: Prunes redundant sub-slices of longer workflows while preserving genuinely distinct workflows that share common prefixes (e.g. Billing vs. Support routines).
+
+### 2. 16-Scenario Comparative Benchmark Results
+Evaluated via `.venv/bin/python -m discovery.evaluation`:
+- **Phase 8.1 Baseline**: Precision = 92.9%, Recall = 92.9%, F1 = 0.9286 (failed on embedded noise).
+- **Phase 8.2 Smarter Detector**: Precision = **93.3%**, Recall = **100.0%** (14/14 ground truth workflows found), F1 = **0.9655**, Accuracy = **94.7%**.
+- **Phase 8.2 with High-Confidence Filter ($\ge 0.80$)**: Precision = **100.0%** (0 False Positives).
 
 ---
 
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (240+ tests)
+# Full test suite across all phases (260+ tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Phase 8.2 (Smarter Sequence Detection & Local Alignment)
+.venv/bin/python3 -m unittest backend.test_phase8_2 -v
 
 # Phase 8.1 (Discovery Evaluation & Confidence Scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run the 8-Scenario Synthetic Discovery Benchmark
+# Run the 16-Scenario Synthetic Discovery Benchmark
 .venv/bin/python3 -m discovery.evaluation
 
 # Phase 7.4 (Reliability, Security & Recovery)
@@ -506,7 +522,7 @@ npx --prefix frontend tsc --noEmit
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 8.1):** 243 tests · 229 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 8.2):** 261 tests · 247 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 

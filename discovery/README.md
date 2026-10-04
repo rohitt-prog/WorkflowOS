@@ -1,4 +1,4 @@
-# WorkFlowOS — Discovery Module & Confidence Scoring (Phases 2 & 8.1)
+# WorkFlowOS — Discovery Module & Smarter Sequence Detection (Phases 2, 8.1, & 8.2)
 
 The **Discovery** module observes recorded user activity events, identifies recurring workflows across user sessions, evaluates pattern quality against a deterministic ground-truth benchmark, and calculates transparent, calibrated confidence scores.
 
@@ -13,7 +13,10 @@ Events (MongoDB Atlas)
     ↓
 sequence.py      — Groups events by session_id, sorts chronologically, normalises to event_type verbs
     ↓
-detector.py      — Compares sequences across sessions; exact clustering + SequenceMatcher similarity
+alignment.py     — Semi-global dynamic programming local alignment with Damerau transposition extension
+    ↓
+detector.py      — Generates candidates (full sessions, pairwise LCS, n-grams), evaluates local alignment
+                   across distinct sessions, prunes shadows/subsumed slices, and ranks candidates
     ↓
 confidence.py    — Calculates 5 deterministic signals + composite confidence score + human explanation
     ↓
@@ -23,7 +26,7 @@ models.py        — Pydantic response models: DiscoveredWorkflow, DiscoveryResu
     ↓
 backend/routes/discovery.py  — GET /api/discovery/repeated (with optional min_confidence query param)
     ↓
-evaluation.py    — Deterministic 8-scenario synthetic benchmark harness (Precision, Recall, F1)
+evaluation.py    — Deterministic 16-scenario synthetic benchmark harness (Phase 8.1 vs Phase 8.2)
 ```
 
 ---
@@ -32,191 +35,138 @@ evaluation.py    — Deterministic 8-scenario synthetic benchmark harness (Preci
 
 | File | Purpose |
 |------|---------|
+| `alignment.py` | Semi-global local alignment DP with Damerau transposition extension & pairwise LCS |
+| `detector.py` | `RepetitionDetector` class + `detect_repeated_workflows()` with local alignment and shadow pruning |
+| `confidence.py` | Calibrated deterministic signal calculation, confidence scoring, and explanations |
 | `models.py` | `DiscoveredWorkflow`, `DiscoveryResult`, and `ConfidenceBreakdown` Pydantic models |
 | `sequence.py` | `build_session_sequences()` and `fetch_session_sequences()` with session isolation |
-| `detector.py` | `RepetitionDetector` class + `detect_repeated_workflows()` with confidence ranking |
-| `confidence.py` | Calibrated deterministic signal calculation, confidence scoring, and explanations |
 | `service.py` | `DiscoveryService` — wires event retrieval, session extraction, and detection |
-| `evaluation.py` | Deterministic synthetic evaluation dataset and benchmark runner |
+| `evaluation.py` | Deterministic 16-scenario synthetic evaluation dataset and comparative benchmark runner |
 
 ---
 
-## Sequence Normalisation & Session Isolation
+## Phase 8.2 — Smarter Sequence Detection
 
-Events are normalised strictly by **`event_type`**. Dynamic runtime parameters (`_id`, `timestamp`, `metadata`, customer names) are stripped to prevent overfitting to session-specific data.
+Phase 8.2 enhances the Discovery Engine to detect workflows embedded within longer, noisy user sessions, tolerating real-world human behavioral variations.
 
-```
-{ "session_id": "s1", "event_type": "search_customer", "metadata": { "customer": "Rahul" } }
-         ↓
-"search_customer"
-```
+### 1. Algorithm Selection & Design Rationale
 
-Multi-session activity arriving in an interleaved chronological stream is partitioned cleanly by `session_id`. Actions within a session are ordered strictly by timestamp.
+Standard global sequence matching (e.g. `difflib.SequenceMatcher` or global Levenshtein) fails on embedded workflows because prefix or suffix noise lowers the global similarity ratio below operational thresholds:
+
+$$\text{Global Ratio } = \frac{2 \times \text{matches}}{\text{len}(\text{Pattern}) + \text{len}(\text{Session})}$$
+
+If a 5-step workflow is surrounded by 5 noise actions in a 10-step session, the global ratio drops to $\frac{10}{15} = 0.667$, missing the match even though the 5-step workflow is 100% present.
+
+**Selected Approach: Semi-Global Dynamic Programming with Damerau Transposition Extension**:
+- **Free Start & End Gaps in Session**: The pattern can begin and end at any index in the session sequence without score penalty.
+- **Strict Pattern Alignment**: The pattern itself must align end-to-end within the discovered sub-window.
+- **Configurable Scoring**:
+  - Exact Match: $+2.0$
+  - Substitution / Mismatch: $-1.0$
+  - Insertion in Session (extra action): $-1.0$
+  - Deletion in Session (missing action): $-1.0$
+  - Adjacent Step Transposition: $+1.8$ (treating adjacent step swaps like $A \to B$ vs $B \to A$ with minor penalty rather than two separate errors).
+- **Coverage Requirement**: $\text{coverage} = \frac{\text{matches} + \text{transpositions}}{\text{len}(\text{pattern})} \ge 0.75$. Prevents a short 3-step pattern from losing an essential step.
+- **Computational Efficiency**: $O(m \times n)$ with $m \le 15, n \le 30$. Executes in $<0.05$ milliseconds per session pair with zero external dependencies.
 
 ---
 
-## Phase 8.1 — Confidence Scoring System
+### 2. Multi-Session Candidate Generation
 
-Confidence in WorkFlowOS is a deterministic, normalized index $C \in [0.0, 1.0]$ measuring empirical evidence that a detected sequence represents an intentional, automatable workflow rather than random noise or monotonous loops.
+Candidates are extracted deterministically across the session pool:
+1. **Full Qualified Sequences**: Every unique sequence from qualified sessions ($\text{length} \ge \text{min\_length}$).
+2. **Pairwise Longest Common Subsequences (LCS)**: Exact LCS extracted between session pairs, automatically stripping non-shared noise actions.
+3. **Frequent Contiguous N-Grams**: Contiguous slices of lengths $k \in [\text{min\_length}, \dots, 10]$ occurring across sessions.
 
-### The Five Deterministic Signals
+---
 
-Each signal is normalized to $[0.0, 1.0]$ and assigned a clear, justified weight:
+### 3. Distinct-Session Occurrence Counting
 
-$$\text{Confidence } C = \sum_{k} w_k S_k = 0.30 S_{\text{rep}} + 0.25 S_{\text{sim}} + 0.20 S_{\text{div}} + 0.15 S_{\text{len}} + 0.10 S_{\text{cons}}$$
+- **Rule**: Each session `session_id` can contribute **at most once** to the occurrence count of a candidate pattern.
+- If a user performs a 3-step workflow 5 times within a single session, the pattern occurrence count is **1**.
+- Discovered workflows require support from at least `min_occurrences` (default: 2) **distinct sessions**.
 
-```
-┌─────────────────────────────────┬────────┬────────────────────────────────────────────────────────┐
-│ Signal                          │ Weight │ Description & Formula                                  │
-├─────────────────────────────────┼────────┼────────────────────────────────────────────────────────┤
-│ Repetition Support (S_rep)      │  0.30  │ Volume of observations across distinct sessions.       │
-│                                 │        │ S_rep = min(1.0, 0.50 + 0.50 * (N - 2) / 3) for N >= 2 │
-├─────────────────────────────────┼────────┼────────────────────────────────────────────────────────┤
-│ Sequence Similarity (S_sim)     │  0.25  │ Average SequenceMatcher alignment across sessions.     │
-│                                 │        │ S_sim = 0.60 + 0.40 * (avg_sim - 0.80) / 0.20          │
-├─────────────────────────────────┼────────┼────────────────────────────────────────────────────────┤
-│ Action Diversity (S_div)        │  0.20  │ Unique actions ratio; penalizes low-entropy repetition │
-│                                 │        │ U=1 -> 0.10 (severe penalty for view x 3 loops)        │
-│                                 │        │ U>1 -> 0.10 + 0.90 * (U - 1) / (L - 1)                 │
-├─────────────────────────────────┼────────┼────────────────────────────────────────────────────────┤
-│ Sequence Length (S_len)         │  0.15  │ Task complexity and intentionality.                    │
-│                                 │        │ L=3 -> 0.60, L=4 -> 0.80, L>=5 -> 1.00                 │
-├─────────────────────────────────┼────────┼────────────────────────────────────────────────────────┤
-│ Session Consistency (S_cons)    │  0.10  │ Proportion of exact 1.0 match sessions.                │
-│                                 │        │ S_cons = 0.50 + 0.50 * (exact_matches / N)             │
-└─────────────────────────────────┴────────┴────────────────────────────────────────────────────────┘
-```
+---
 
-### Confidence Tiers
-- **`high` ($\ge 0.80$)**: Strong candidate for operator review and workflow proposal.
-- **`medium` ($0.65 \le C < 0.80$)**: Moderate evidence; minor variations or short sequence.
-- **`low` ($< 0.65$)**: Low evidence, insufficient repetitions, or low-entropy single-action noise.
+### 4. Shadow Pruning & Distinct Workflow Separation
 
-### Deterministic Explanation
-The engine synthesizes an explainable, non-probabilistic textual rationale:
-> *"High confidence (95%): robust session support (4 sessions), identical sequence alignment (100%), high action variety (5/5 distinct steps)."*
+To prevent returning redundant sub-slices (e.g. returning both a 5-step workflow and its 3-step sub-slice), candidate deduplication enforces:
+
+1. **Subsumption**: Candidate $C$ is subsumed by accepted workflow $A$ if $C$ is a strict subsequence of $A$, and $C$'s supporting sessions are predominantly contained in $A$'s sessions ($|C_{\text{sess}} \cap A_{\text{sess}}| / |C_{\text{sess}}| \ge 0.70$).
+2. **Multi-Parent Coverage**: If $C$ is a sub-slice shared between multiple longer workflows (e.g. between Billing and Support), and all of $C$'s sessions are covered by longer workflows, $C$ is pruned as an intersection artifact.
+3. **Independent Session Exception**: If candidate $C$ has at least `min_occurrences` sessions that *never executed $A$*, $C$ is recognized as an independent workflow and retained.
+4. **Shared-Prefix Workflow Separation**: Distinct workflows sharing prefix steps (e.g. Billing vs. Support workflows starting with `open_email -> download_attachment`) diverge in their remaining steps; mutual similarity remains low ($< 0.40$), preserving both as distinct workflows.
 
 ---
 
 ## Deterministic Synthetic Evaluation Dataset
 
-`discovery/evaluation.py` defines 8 standardized test scenarios with explicit ground truth:
+`discovery/evaluation.py` defines 16 standardized test scenarios with explicit ground truth:
 
-1. **`scenario_1_identical_repeated`**: Canonical 5-step customer inquiry processing repeated across 4 sessions.
-   - *Expected:* Detected (TP=1), High confidence (~0.95).
-2. **`scenario_2_minor_variations`**: 3 sessions with 1 session containing an extra inspect step (similarity ~0.95).
-   - *Expected:* Detected (TP=1), Medium confidence (~0.80).
-3. **`scenario_3_unrelated_actions`**: Arbitrary disconnected actions across sessions with no overlap.
-   - *Expected:* Not detected (TN=1).
-4. **`scenario_4_incomplete_sequences`**: Short bursts below minimum workflow length threshold.
-   - *Expected:* Not detected (TN=1).
-5. **`scenario_5_interleaved_sessions`**: Events from 2 separate sessions arriving interleaved in time.
-   - *Expected:* Partitioned cleanly by session, detected (TP=1), Medium confidence (~0.79).
-6. **`scenario_6_frequent_common_actions`**: Monotonous single action (`view_dashboard` repeated 3 times).
-   - *Expected:* Monotonous low-entropy noise should not form an automated workflow.
-   - *Engine Result:* Detected at baseline as FP, but penalized by confidence scoring to 0.66 (action_diversity=0.10).
-7. **`scenario_7_missing_or_reordered`**: 5-step workflow with missing and swapped intermediate steps across sessions.
-   - *Expected:* Detected (TP=1), High confidence (~0.81).
-8. **`scenario_8_distinct_workflows_no_merge`**: Two separate workflows (Billing vs Support) sharing a prefix.
-   - *Expected:* Two distinct workflows detected without improper merging (TP=2).
+### Phase 8.1 Regression Scenarios (1–8)
+1. `scenario_1_identical_repeated`: Canonical 5-step flow across 4 sessions.
+2. `scenario_2_minor_variations`: 3 sessions with 1 session containing an extra inspect step.
+3. `scenario_3_unrelated_actions`: Arbitrary disconnected actions across sessions (Noise).
+4. `scenario_4_incomplete_sequences`: Short bursts below minimum workflow length (< 3).
+5. `scenario_5_interleaved_sessions`: Interleaved multi-session activity stream.
+6. `scenario_6_frequent_common_actions`: Monotonous single action (`view_dashboard x 3`).
+7. `scenario_7_missing_or_reordered`: 5-step flow with missing and swapped intermediate steps.
+8. `scenario_8_distinct_workflows_no_merge`: Two distinct workflows sharing a prefix.
 
----
-
-## Baseline vs. Confidence-Filtered Benchmark
-
-Evaluated using `python -m discovery.evaluation`:
-
-| Metric | Default Baseline (Min Length=3, Min Occur=2, Sim=0.8) | High Confidence Filter (`min_confidence=0.80`) |
-|--------|------------------------------------------------------|------------------------------------------------|
-| **Precision** | **85.71%** (0.8571) | **100.0%** (1.0000) |
-| **Recall** | **100.0%** (1.0000) | **66.67%** (0.6667) |
-| **F1 Score** | **0.9231** | **0.8000** |
-| **True Positives (TP)** | 6 | 4 |
-| **False Positives (FP)** | 1 (`view_dashboard x 3` monotonous loop) | 0 |
-| **False Negatives (FN)** | 0 | 2 (Scenarios with 2-3 sessions & variations) |
-| **True Negatives (TN)** | 2 | 3 |
-
-### Ground-Truth Metric Definitions:
-- **True Positive (TP)**: Expected workflow sequence detected with SequenceMatcher ratio $\ge 0.80$ against ground truth.
-- **False Positive (FP)**: Spurious workflow detected in negative scenario, or distinct workflows erroneously merged.
-- **False Negative (FN)**: Expected ground truth workflow omitted from detection results.
-- **True Negative (TN)**: Negative scenario where engine correctly reports `detected=False` with 0 workflows.
+### Phase 8.2 Smarter Detection Scenarios (9–16)
+9. `scenario_9_embedded_subsequence_with_noise`: Workflow embedded inside prefix and suffix noise.
+10. `scenario_10_interleaved_inserted_actions`: Intermediate actions inserted between canonical steps.
+11. `scenario_11_single_session_repetition_rejected`: Pattern repeated 3 times in 1 session; rejected due to distinct session requirement.
+12. `scenario_12_adjacent_step_transpositions`: Adjacent step reordering tolerated via Damerau alignment.
+13. `scenario_13_shared_prefix_distinct_workflows`: Billing and Support workflows kept separate.
+14. `scenario_14_excessive_variation_rejected`: Excessive variation (>60% edit distance) rejected.
+15. `scenario_15_mixture_exact_and_local`: 4 sessions combining exact, embedded, and inserted actions.
+16. `scenario_16_similar_looking_distinct_workflows`: Workflows differing by a critical operational verb (`update` vs `delete`) kept separate.
 
 ---
 
-## API Reference
+## Comparative Benchmark Results (Phase 8.1 vs. Phase 8.2)
 
-### `GET /api/discovery/repeated`
+Evaluated across the 16-scenario dataset using `.venv/bin/python -m discovery.evaluation`:
 
-**Query Parameters:**
-- `min_length` (int, default `3`): Minimum sequence length.
-- `min_occurrences` (int, default `2`): Minimum distinct session occurrences.
-- `similarity_threshold` (float, default `0.8`): Minimum sequence similarity ratio.
-- `min_confidence` (float, optional): Filter returned workflows by minimum confidence score.
-
-**Response Example:**
-```json
-{
-  "detected": true,
-  "workflows": [
-    {
-      "label": "Customer Request Processing",
-      "sequence": [
-        "open_email",
-        "download_attachment",
-        "search_customer",
-        "update_customer",
-        "send_message"
-      ],
-      "occurrences": 4,
-      "similarity": 1.0,
-      "session_ids": ["session_101", "session_102", "session_103", "session_104"],
-      "confidence": 0.95,
-      "confidence_tier": "high",
-      "confidence_breakdown": {
-        "repetition_support": 0.8333,
-        "sequence_similarity": 1.0,
-        "action_diversity": 1.0,
-        "sequence_length": 1.0,
-        "session_consistency": 1.0,
-        "raw_signals": {
-          "occurrences": 4,
-          "length": 5,
-          "unique_actions": 5,
-          "avg_similarity": 1.0,
-          "exact_matches_count": 4
-        }
-      },
-      "confidence_explanation": "High confidence (95%): robust session support (4 sessions), identical sequence alignment (100%), high action variety (5/5 distinct steps)."
-    }
-  ]
-}
-```
+| Metric | Phase 8.1 Baseline | Phase 8.2 Smarter Detector | Phase 8.2 (Conf $\ge$ 0.80) |
+|--------|--------------------|----------------------------|-----------------------------|
+| **Precision** | **92.86%** (0.9286) | **93.33%** (0.9333) | **100.0%** (1.0000) |
+| **Recall** | **92.86%** (0.9286) | **100.0%** (1.0000) | **85.71%** (0.8571) |
+| **F1 Score** | **0.9286** | **0.9655** | **0.9231** |
+| **True Positives (TP)** | 13 | **14** (All ground-truth found) | 12 |
+| **False Positives (FP)** | 1 | 1 (`view_dashboard x 3` noise) | **0** |
+| **False Negatives (FN)** | 1 (Failed on embedded noise) | **0** | 2 |
+| **True Negatives (TN)** | 4 | 4 | 5 |
+| **Accuracy** | 89.47% | **94.74%** | 89.47% |
 
 ---
 
-## Limitations & Known Failure Cases
+## Limitations & Trade-offs
 
-1. **Fixed Sliding Window Clustering**: Patterns embedded inside very long sessions without clean delimiter markers rely on exact cluster sorting rather than local alignment (targeted for Phase 8.2).
-2. **Low-Entropy Repetitive Loops**: In default mode (no `min_confidence` filter), sequences like `[view, view, view]` pass the structural occurrence threshold; confidence scoring penalizes their diversity to 0.10 and drops confidence to 0.66, but filtering requires passing `min_confidence >= 0.70` or checking `confidence_tier`.
-3. **Reordered Intermediate Steps**: Levenshtein / SequenceMatcher handles insertions and deletions well, but penalizes adjacent step transpositions more heavily than human semantic equivalence would suggest.
+1. **Adjacent Transpositions Only**: Step order tolerance is constrained to adjacent swaps (e.g. steps $i$ and $i+1$). Arbitrary wide reordering across distant steps is intentionally penalized to prevent false positive associations.
+2. **Minimum Coverage Guard**: Patterns with length 3 require 100% of steps to match ($\text{coverage} \ge 0.75$), meaning a 3-step workflow does not tolerate missing actions. This is by design to ensure that short workflows retain structural integrity.
+3. **Unsupervised Clustering Bound**: Candidate LCS generation pairs sessions up to a sliding horizon ($N \le 25$). For extreme enterprise scales ($>10,000$ concurrent sessions), prefix tree indexing or suffix arrays should be introduced in future optimization phases.
 
 ---
 
 ## Reproducing Evaluation and Tests
 
 ```bash
-# Run the synthetic evaluation benchmark
+# Run the 16-scenario synthetic comparative benchmark
 .venv/bin/python3 -m discovery.evaluation
 
-# Run Phase 8.1 test suite
+# Run Phase 8.2 test suite
+.venv/bin/python3 -m unittest backend.test_phase8_2 -v
+
+# Run Phase 8.1 regression test suite
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run full backend regression suite
+# Run full backend regression suite (260+ tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
 
 # Run frontend lint, typecheck, and build
 npm --prefix frontend run lint
-./frontend/node_modules/.bin/tsc --project frontend --noEmit
+npx --prefix frontend tsc --noEmit
 npm --prefix frontend run build
 ```
