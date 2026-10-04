@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
@@ -13,9 +14,11 @@ from automation.models import (
     StepCondition,
     RetryPolicy,
     is_valid_transition,
+    compute_workflow_definition_hash,
 )
 from automation.engine import automation_engine, AutomationEngine, InvalidStateTransitionError
 from automation.executor import ActionExecutor
+from integrations.credentials import sanitize_credential_dict, sanitize_log_message
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +27,12 @@ class AutomationService:
     """
     Internal service layer managing workflow automation executions, definitions, and history.
 
-    Phase 6 adds:
-    - Declarative workflow registration and execution
-    - Template registry with built-in declarative workflows
-    - Seamless resume for declarative and legacy workflows
+    Phase 7.4 adds:
+    - Durable persistence in MongoDB Atlas executions collection with memory fallback
+    - Safe startup recovery of interrupted executions (RUNNING -> PAUSED with step preservation)
+    - Idempotency key deduplication
+    - Cryptographic definition hash validation
+    - Seamless progress callbacks on each step execution
     """
 
     def __init__(self, engine: Optional[AutomationEngine] = None):
@@ -35,6 +40,99 @@ class AutomationService:
         self._executions: Dict[str, AutomationExecution] = {}
         self._workflows: Dict[str, WorkflowDefinition] = {}
         self._init_built_in_workflows()
+
+    async def _persist_execution(self, execution: AutomationExecution) -> None:
+        """Persists the execution record to MongoDB Atlas durably with credential redaction."""
+        try:
+            from backend.database import get_database
+            db = get_database()
+            if db is not None:
+                doc = execution.model_dump()
+                sanitized_doc = sanitize_credential_dict(doc)
+                await db["executions"].update_one(
+                    {"execution_id": execution.execution_id},
+                    {"$set": sanitized_doc},
+                    upsert=True,
+                )
+        except Exception as e:
+            logger.warning(
+                f"[AutomationService] MongoDB execution persistence failed for {execution.execution_id}: {e}. "
+                "Execution remains available in memory cache."
+            )
+
+    async def _on_progress_update(self, execution: AutomationExecution) -> None:
+        """Invoked by engine on step progression for durable intermediate status."""
+        self._executions[execution.execution_id] = execution
+        await self._persist_execution(execution)
+
+    async def load_executions_from_db(self) -> int:
+        """Loads historical executions from MongoDB Atlas into in-memory cache."""
+        try:
+            from backend.database import get_database
+            db = get_database()
+            if db is not None:
+                cursor = db["executions"].find({})
+                count = 0
+                async for doc in cursor:
+                    doc.pop("_id", None)
+                    try:
+                        exec_obj = AutomationExecution(**doc)
+                        self._executions[exec_obj.execution_id] = exec_obj
+                        count += 1
+                    except Exception as parse_err:
+                        logger.warning(f"[AutomationService] Failed parsing execution doc: {parse_err}")
+                logger.info(f"[AutomationService] Restored {count} executions from MongoDB Atlas.")
+                return count
+        except Exception as e:
+            logger.warning(f"[AutomationService] MongoDB load failed: {e}. Starting with memory executions.")
+        return 0
+
+    async def recover_interrupted_executions(self) -> List[str]:
+        """
+        Phase 7.4: Safely recovers executions left in RUNNING state due to unexpected shutdown.
+        - Identifies active runs and transitions them to PAUSED.
+        - Sets requires_human_intervention=True and resume_available=True.
+        - Never blindly reruns completed actions; keeps existing completed steps intact.
+        - Records recovery decisions and reasons in execution logs and audit fields.
+        """
+        recovered_ids: List[str] = []
+        for exec_id, execution in list(self._executions.items()):
+            if execution.status == AutomationStatus.RUNNING:
+                logger.warning(
+                    f"[AutomationService] Interrupted RUNNING execution detected: '{exec_id}'. "
+                    f"Safely recovering to PAUSED (completed {len(execution.completed_actions)}/{execution.total_actions} actions)."
+                )
+                now_iso = datetime.now(timezone.utc).isoformat()
+                recovery_reason = (
+                    "Execution interrupted by unexpected server restart or shutdown. "
+                    "Completed steps safely preserved; awaiting human review to resume."
+                )
+                updated_logs = list(execution.execution_logs or [])
+                updated_logs.append(f"Recovery: {recovery_reason}")
+
+                recovered = execution.model_copy(update={
+                    "status": AutomationStatus.PAUSED,
+                    "requires_human_intervention": True,
+                    "resume_available": True,
+                    "recovery_attempts": (execution.recovery_attempts or 0) + 1,
+                    "recovery_reason": recovery_reason,
+                    "paused_at": now_iso,
+                    "execution_logs": updated_logs,
+                    "error": execution.error or "Interrupted by system restart",
+                })
+                self._executions[exec_id] = recovered
+                await self._persist_execution(recovered)
+                recovered_ids.append(exec_id)
+        return recovered_ids
+
+    def find_by_idempotency_key(self, idempotency_key: str) -> Optional[AutomationExecution]:
+        """Looks up an execution by its client idempotency key."""
+        if not idempotency_key:
+            return None
+        for execution in self._executions.values():
+            if execution.idempotency_key == idempotency_key:
+                return execution
+        return None
 
     def _init_built_in_workflows(self):
         """Seed default declarative workflow templates for Phase 6."""
@@ -208,10 +306,22 @@ class AutomationService:
         inputs: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        expected_definition_hash: Optional[str] = None,
     ) -> AutomationExecution:
         """
         Executes a Phase 6 declarative WorkflowDefinition through the automation engine.
+        Supports idempotency deduplication, progress updates, and durable persistence.
         """
+        if idempotency_key:
+            existing = self.find_by_idempotency_key(idempotency_key)
+            if existing:
+                logger.info(
+                    f"[AutomationService] Idempotent request match: key '{idempotency_key}' mapped to "
+                    f"existing execution '{existing.execution_id}' ({existing.status}). Skipping duplicate run."
+                )
+                return existing
+
         active_executor = executor
         if active_executor is None and executor_type:
             if executor_type.lower() == "playwright":
@@ -232,12 +342,17 @@ class AutomationService:
             inputs=inputs,
             parameters=parameters,
             context=context,
+            progress_callback=self._on_progress_update,
+            expected_definition_hash=expected_definition_hash,
+            idempotency_key=idempotency_key,
         )
         execution = execution.model_copy(update={
             "executor_type": executor_type or "playwright",
             "context": context or {},
+            "idempotency_key": idempotency_key,
         })
         self._executions[execution.execution_id] = execution
+        await self._persist_execution(execution)
         return execution
 
     async def run_workflow(
@@ -250,6 +365,8 @@ class AutomationService:
         inputs: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        expected_definition_hash: Optional[str] = None,
     ) -> AutomationExecution:
         """
         Unified entrypoint: executes either a declarative WorkflowDefinition or a legacy WorkflowProposal.
@@ -263,10 +380,21 @@ class AutomationService:
                 inputs=inputs,
                 parameters=parameters,
                 context=context,
+                idempotency_key=idempotency_key,
+                expected_definition_hash=expected_definition_hash,
             )
 
         if not proposal:
             raise ValueError("Either 'workflow_definition' or 'proposal' must be provided.")
+
+        if idempotency_key:
+            existing = self.find_by_idempotency_key(idempotency_key)
+            if existing:
+                logger.info(
+                    f"[AutomationService] Idempotent request match: key '{idempotency_key}' mapped to "
+                    f"existing execution '{existing.execution_id}' ({existing.status}). Skipping duplicate run."
+                )
+                return existing
 
         active_executor = executor
         if active_executor is None and executor_type:
@@ -291,8 +419,10 @@ class AutomationService:
         execution = execution.model_copy(update={
             "executor_type": executor_type or "playwright",
             "context": context or {},
+            "idempotency_key": idempotency_key,
         })
         self._executions[execution.execution_id] = execution
+        await self._persist_execution(execution)
         return execution
 
     async def resume_execution(
@@ -316,7 +446,7 @@ class AutomationService:
         if not execution:
             raise KeyError(f"Execution '{execution_id}' not found.")
 
-        if execution.status != AutomationStatus.PAUSED:
+        if not is_valid_transition(execution.status, AutomationStatus.RUNNING):
             raise InvalidStateTransitionError(
                 f"Cannot resume execution '{execution_id}': "
                 f"current status is '{execution.status}'. Only PAUSED executions can be resumed."
@@ -368,6 +498,7 @@ class AutomationService:
                 executor=active_executor,
                 parameters=parameters,
                 context=merged_context,
+                progress_callback=self._on_progress_update,
             )
         else:
             updated = await self._engine.execute_from_index(
@@ -383,6 +514,7 @@ class AutomationService:
             "context": merged_context,
         })
         self._executions[execution_id] = updated
+        await self._persist_execution(updated)
         return updated
 
     def cancel_execution(self, execution_id: str) -> AutomationExecution:
@@ -418,6 +550,17 @@ class AutomationService:
             "completed_at": now_iso,
         })
         self._executions[execution_id] = cancelled
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._persist_execution(cancelled))
+        except RuntimeError:
+            pass
+        return cancelled
+
+    async def cancel_execution_async(self, execution_id: str) -> AutomationExecution:
+        """Asynchronous version of cancel_execution that awaits durable DB persistence."""
+        cancelled = self.cancel_execution(execution_id)
+        await self._persist_execution(cancelled)
         return cancelled
 
     def get_execution(self, execution_id: str) -> Optional[AutomationExecution]:

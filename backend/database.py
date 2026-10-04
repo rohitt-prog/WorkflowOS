@@ -47,17 +47,34 @@ def get_database() -> AsyncIOMotorDatabase:
 async def init_indexes():
     """
     Ensure required indexes are created on startup:
-    - timestamp (descending for recent event queries)
-    - session_id
-    - application
+    - events: timestamp (-1), session_id (1), application (1)
+    - executions: execution_id (1, unique), status (1), started_at (-1), workflow_id (1), idempotency_key (1, sparse)
+    - workflows: id (1, unique), updated_at (-1)
     """
-    db = get_database()
-    events_collection = db["events"]
     try:
+        db = get_database()
+        
+        # Events collection indexes
+        events_collection = db["events"]
         await events_collection.create_index([("timestamp", -1)])
         await events_collection.create_index([("session_id", 1)])
         await events_collection.create_index([("application", 1)])
         logger.info("MongoDB indexes verified on collection 'events'.")
+
+        # Executions collection indexes (Phase 7.4 durable state)
+        executions_collection = db["executions"]
+        await executions_collection.create_index([("execution_id", 1)], unique=True)
+        await executions_collection.create_index([("status", 1)])
+        await executions_collection.create_index([("started_at", -1)])
+        await executions_collection.create_index([("workflow_id", 1)])
+        await executions_collection.create_index([("idempotency_key", 1)], sparse=True)
+        logger.info("MongoDB indexes verified on collection 'executions'.")
+
+        # Workflows collection indexes
+        workflows_collection = db["workflows"]
+        await workflows_collection.create_index([("id", 1)], unique=True)
+        await workflows_collection.create_index([("updated_at", -1)])
+        logger.info("MongoDB indexes verified on collection 'workflows'.")
     except Exception as e:
         logger.warning(f"Could not initialize MongoDB indexes: {e}")
 

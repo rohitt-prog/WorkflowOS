@@ -20,12 +20,29 @@ logger = logging.getLogger("workflowos")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure indexes are initialized
+    # Startup: ensure indexes are initialized and safely restore execution state
     logger.info("Starting up WorkFlowOS backend...")
     await init_indexes()
+    try:
+        from automation.service import automation_service
+        loaded_count = await automation_service.load_executions_from_db()
+        recovered_ids = await automation_service.recover_interrupted_executions()
+        logger.info(
+            f"Restored {loaded_count} execution records from MongoDB; "
+            f"recovered {len(recovered_ids)} interrupted active executions."
+        )
+    except Exception as e:
+        logger.warning(f"Could not load or recover executions during startup: {e}")
+
     yield
-    # Shutdown: cleanly close database client
+
+    # Shutdown: cleanly close active Playwright browser instances and database client
     logger.info("Shutting down WorkFlowOS backend...")
+    try:
+        from automation.playwright_executor import close_active_executors
+        await close_active_executors()
+    except Exception as e:
+        logger.warning(f"Error during browser cleanup on shutdown: {e}")
     await close_mongo_connection()
 
 app = FastAPI(

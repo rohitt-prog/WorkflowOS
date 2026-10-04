@@ -1,3 +1,5 @@
+import hashlib
+import json
 import uuid
 from enum import Enum
 from typing import List, Optional, Dict, Any, Set
@@ -39,9 +41,14 @@ VALID_TRANSITIONS: Dict[AutomationStatus, Set[AutomationStatus]] = {
 }
 
 
-def is_valid_transition(from_status: AutomationStatus, to_status: AutomationStatus) -> bool:
+def is_valid_transition(from_status: Any, to_status: Any) -> bool:
     """Return True iff the transition from_status → to_status is permitted by the state machine."""
-    return to_status in VALID_TRANSITIONS.get(from_status, set())
+    try:
+        from_enum = AutomationStatus(from_status)
+        to_enum = AutomationStatus(to_status)
+        return to_enum in VALID_TRANSITIONS.get(from_enum, set())
+    except (ValueError, TypeError):
+        return False
 
 
 class AutomationAction(BaseModel):
@@ -202,6 +209,40 @@ class WorkflowDefinition(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Optional workflow categorization tags")
     created_at: Optional[str] = Field(default=None, description="Creation timestamp")
     updated_at: Optional[str] = Field(default=None, description="Last update timestamp")
+    definition_hash: Optional[str] = Field(default=None, description="Canonical SHA-256 fingerprint of workflow specification")
+
+
+def compute_workflow_definition_hash(workflow: WorkflowDefinition) -> str:
+    """
+    Computes a canonical SHA-256 hash of a WorkflowDefinition's core executable specification.
+    Includes name, trigger, inputs, variables, steps (id, type, application, target, parameters, condition, on_true, on_false),
+    and requires_approval flag.
+    Excludes volatile fields like created_at, updated_at, id, and definition_hash itself.
+    """
+    norm = {
+        "name": workflow.name,
+        "trigger": workflow.trigger.model_dump() if workflow.trigger else {},
+        "inputs": [inp.model_dump() for inp in workflow.inputs],
+        "variables": workflow.variables or {},
+        "steps": [
+            {
+                "id": s.id,
+                "type": s.type,
+                "application": s.application,
+                "target": s.target or "",
+                "parameters": s.parameters or {},
+                "condition": s.condition.model_dump() if s.condition else None,
+                "on_true": s.on_true,
+                "on_false": s.on_false,
+                "continue_on_failure": s.continue_on_failure,
+                "timeout_seconds": s.timeout_seconds,
+            }
+            for s in workflow.steps
+        ],
+        "requires_approval": workflow.requires_approval,
+    }
+    raw = json.dumps(norm, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 class StepExecutionResult(BaseModel):
@@ -365,6 +406,23 @@ class AutomationExecution(BaseModel):
         default_factory=list,
         description="Alias for actions_detail; comprehensive action list with states"
     )
+    # Phase 7.4: Reliability, Idempotency & Security
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        description="Client idempotency key to prevent duplicate runs (Phase 7.4)"
+    )
+    definition_hash: Optional[str] = Field(
+        default=None,
+        description="SHA-256 fingerprint of approved workflow definition (Phase 7.4)"
+    )
+    recovery_attempts: int = Field(
+        default=0,
+        description="Count of system recoveries performed on restart (Phase 7.4)"
+    )
+    recovery_reason: Optional[str] = Field(
+        default=None,
+        description="Audit reason for recovery classification (Phase 7.4)"
+    )
 
 
 class ExecuteWorkflowRequest(BaseModel):
@@ -414,6 +472,15 @@ class ExecuteWorkflowRequest(BaseModel):
         default="playwright",
         description="Executor to use: 'playwright' (default for Phase 4.4) or 'noop' (unit testing)"
     )
+    # Phase 7.4 additions
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        description="Optional idempotency key to prevent duplicate runs (Phase 7.4)"
+    )
+    definition_hash: Optional[str] = Field(
+        default=None,
+        description="Optional expected SHA-256 fingerprint of approved workflow definition (Phase 7.4)"
+    )
 
 
 class ExecuteWorkflowResponse(BaseModel):
@@ -452,4 +519,7 @@ class ExecuteWorkflowResponse(BaseModel):
     variables: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Final workflow variables state")
     step_results: List[Dict[str, Any]] = Field(default_factory=list, description="Detailed per-step results and logs")
     execution_logs: List[str] = Field(default_factory=list, description="Workflow-level execution logs")
+    # Phase 7.4
+    idempotency_key: Optional[str] = Field(default=None, description="Client idempotency key if provided (Phase 7.4)")
+    definition_hash: Optional[str] = Field(default=None, description="SHA-256 fingerprint of approved workflow (Phase 7.4)")
 

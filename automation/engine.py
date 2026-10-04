@@ -4,7 +4,7 @@ import re
 import uuid
 import time
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Dict, Any, Set, Callable, Awaitable
 
 from ai.models import WorkflowProposal, WorkflowAction, WorkflowTrigger
 from automation.models import (
@@ -20,10 +20,43 @@ from automation.models import (
     WorkflowDefinition,
     StepExecutionResult,
     is_valid_transition,
+    compute_workflow_definition_hash,
 )
 from automation.executor import ActionExecutor, NoOpExecutor
+from integrations.credentials import sanitize_credential_dict, sanitize_log_message
+from backend.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Non-retryable error patterns: permanent auth failures, client errors, schema errors
+NON_RETRYABLE_PATTERNS = [
+    r"\b400\b",
+    r"\b401\b",
+    r"\b403\b",
+    r"\b404\b",
+    r"\b422\b",
+    r"unauthorized",
+    r"forbidden",
+    r"permission denied",
+    r"invalid_token",
+    r"token expired",
+    r"token revoked",
+    r"not found",
+    r"validation error",
+    r"schema error",
+    r"unsupported action",
+]
+
+
+def is_non_retryable_error(error_message: Optional[str]) -> bool:
+    """Classifies whether an error is fundamentally non-retryable (e.g. auth failure, bad input)."""
+    if not error_message:
+        return False
+    msg_lower = error_message.lower()
+    for pattern in NON_RETRYABLE_PATTERNS:
+        if re.search(pattern, msg_lower):
+            return True
+    return False
 
 # Canonical action verbs supported by the Phase 4 WorkFlowOS automation pipeline
 SUPPORTED_ACTION_TYPES: Set[str] = {
@@ -191,6 +224,11 @@ class UnsupportedActionError(AutomationEngineError):
 
 class ApprovalRequiredError(AutomationEngineError):
     """Raised when an unapproved workflow is requested to execute."""
+    pass
+
+
+class ApprovalTamperingError(AutomationEngineError):
+    """Raised when workflow definition hash does not match approved definition."""
     pass
 
 
@@ -674,6 +712,9 @@ class AutomationEngine:
         inputs: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Callable[[AutomationExecution], Awaitable[None]]] = None,
+        expected_definition_hash: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> AutomationExecution:
         """
         Executes a declarative WorkflowDefinition supporting configurable triggers,
@@ -686,6 +727,18 @@ class AutomationEngine:
         applications = list(dict.fromkeys(
             s.application for s in workflow.steps if s.application and s.application != "workflow_system"
         ))
+
+        # Compute canonical definition hash
+        computed_hash = compute_workflow_definition_hash(workflow)
+        workflow.definition_hash = computed_hash
+
+        if expected_definition_hash and expected_definition_hash != computed_hash:
+            err_msg = (
+                f"Workflow definition was modified after approval. Expected hash "
+                f"'{expected_definition_hash}', but current hash is '{computed_hash}'. Renewed approval required."
+            )
+            logger.warning(err_msg)
+            raise ApprovalTamperingError(err_msg)
 
         # 1. Inputs validation & defaults
         merged_inputs = {}
@@ -712,13 +765,15 @@ class AutomationEngine:
                 status=AutomationStatus.FAILED,
                 error=err_msg,
                 total_actions=len(workflow.steps),
-                inputs=merged_inputs,
-                variables=dict(workflow.variables),
+                inputs=sanitize_credential_dict(merged_inputs),
+                variables=sanitize_credential_dict(dict(workflow.variables)),
                 execution_logs=[err_msg],
                 started_at=started_at,
                 completed_at=now_iso,
                 execution_time_seconds=0.0,
                 applications=applications,
+                definition_hash=computed_hash,
+                idempotency_key=idempotency_key,
             )
 
         # 2. Action Type & Parameter Schema Validation
@@ -744,13 +799,15 @@ class AutomationEngine:
                         status=AutomationStatus.FAILED,
                         error=err_msg,
                         total_actions=len(workflow.steps),
-                        inputs=merged_inputs,
-                        variables=dict(workflow.variables),
+                        inputs=sanitize_credential_dict(merged_inputs),
+                        variables=sanitize_credential_dict(dict(workflow.variables)),
                         execution_logs=[err_msg],
                         started_at=started_at,
                         completed_at=now_iso,
                         execution_time_seconds=0.0,
                         applications=applications,
+                        definition_hash=computed_hash,
+                        idempotency_key=idempotency_key,
                     )
                 # Static input validation if not template-guarded
                 has_templates = any(
@@ -769,13 +826,15 @@ class AutomationEngine:
                             status=AutomationStatus.FAILED,
                             error=err_msg,
                             total_actions=len(workflow.steps),
-                            inputs=merged_inputs,
-                            variables=dict(workflow.variables),
+                            inputs=sanitize_credential_dict(merged_inputs),
+                            variables=sanitize_credential_dict(dict(workflow.variables)),
                             execution_logs=[err_msg],
                             started_at=started_at,
                             completed_at=now_iso,
                             execution_time_seconds=0.0,
                             applications=applications,
+                            definition_hash=computed_hash,
+                            idempotency_key=idempotency_key,
                         )
             elif step.type not in SUPPORTED_ACTION_TYPES and step.type not in ("condition", "wait", "transform", "log"):
                 err_msg = (
@@ -791,13 +850,15 @@ class AutomationEngine:
                     status=AutomationStatus.FAILED,
                     error=err_msg,
                     total_actions=len(workflow.steps),
-                    inputs=merged_inputs,
-                    variables=dict(workflow.variables),
+                    inputs=sanitize_credential_dict(merged_inputs),
+                    variables=sanitize_credential_dict(dict(workflow.variables)),
                     execution_logs=[err_msg],
                     started_at=started_at,
                     completed_at=now_iso,
                     execution_time_seconds=0.0,
                     applications=applications,
+                    definition_hash=computed_hash,
+                    idempotency_key=idempotency_key,
                 )
 
         # 3. Approval Gate
@@ -822,8 +883,8 @@ class AutomationEngine:
                 status=AutomationStatus.PENDING,
                 completed_actions=[],
                 total_actions=len(workflow.steps),
-                inputs=merged_inputs,
-                variables=dict(workflow.variables),
+                inputs=sanitize_credential_dict(merged_inputs),
+                variables=sanitize_credential_dict(dict(workflow.variables)),
                 serialized_workflow=workflow.model_dump(),
                 started_at=started_at,
                 completed_at=started_at,
@@ -832,6 +893,8 @@ class AutomationEngine:
                 actions_detail=actions_detail,
                 all_actions=actions_detail,
                 execution_logs=["Workflow awaiting human approval before execution"],
+                definition_hash=computed_hash,
+                idempotency_key=idempotency_key,
             )
 
         # 4. Execute steps
@@ -852,6 +915,8 @@ class AutomationEngine:
             context=context,
             resume_count=0,
             resumed_at=None,
+            progress_callback=progress_callback,
+            idempotency_key=idempotency_key,
         )
 
     async def _run_declarative_steps(
@@ -873,6 +938,8 @@ class AutomationEngine:
         resume_count: int,
         resumed_at: Optional[str],
         accumulated_time: float = 0.0,
+        progress_callback: Optional[Callable[[AutomationExecution], Awaitable[None]]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> AutomationExecution:
         active_executor = executor or self._default_executor
         runtime_context = dict(context or {})
@@ -908,6 +975,109 @@ class AutomationEngine:
             for s in workflow.steps
         ]
 
+        def _build_snapshot(
+            status: AutomationStatus,
+            current_action_id: Optional[str] = None,
+            error_str: Optional[str] = None,
+            paused: bool = False,
+            completed: bool = False,
+        ) -> AutomationExecution:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
+            completed_step_ids = {r.step_id for r in step_results if r.status == "completed"}
+            skipped_step_ids = {r.step_id for r in step_results if r.status == "skipped"}
+
+            actions_detail = []
+            for s in workflow.steps:
+                if s.id in completed_step_ids:
+                    s_status = "completed"
+                    s_msg = next((r.logs[-1] for r in step_results if r.step_id == s.id), "Completed")
+                elif s.id in skipped_step_ids:
+                    s_status = "skipped"
+                    s_msg = next((r.logs[-1] for r in step_results if r.step_id == s.id), "Skipped")
+                elif s.id == current_action_id:
+                    if paused:
+                        s_status = "failed"
+                        s_msg = error_str or "Paused pending human intervention"
+                    elif status == AutomationStatus.FAILED:
+                        s_status = "failed"
+                        s_msg = error_str or "Action failed"
+                    elif status == AutomationStatus.RUNNING:
+                        s_status = "running"
+                        s_msg = "Executing action"
+                    else:
+                        s_status = "pending"
+                        s_msg = "Pending"
+                else:
+                    s_status = "pending"
+                    s_msg = "Pending"
+                actions_detail.append({
+                    "action": s.type,
+                    "action_id": s.id,
+                    "description": s.description or s.name or s.type,
+                    "application": s.application,
+                    "target": s.target or "",
+                    "status": s_status,
+                    "message": s_msg,
+                })
+
+            sanitized_step_results = [
+                StepExecutionResult(
+                    step_id=sr.step_id,
+                    action_type=sr.action_type,
+                    application=sr.application,
+                    status=sr.status,
+                    attempts=sr.attempts,
+                    started_at=sr.started_at,
+                    completed_at=sr.completed_at,
+                    inputs=sanitize_credential_dict(sr.inputs),
+                    outputs=sanitize_credential_dict(sr.outputs),
+                    logs=[sanitize_log_message(l) for l in sr.logs],
+                    error=sanitize_log_message(sr.error) if sr.error else None,
+                )
+                for sr in step_results
+            ]
+
+            current_action_type = (
+                step_map[current_action_id].type
+                if (current_action_id and current_action_id in step_map)
+                else current_action_id
+            )
+
+            return AutomationExecution(
+                execution_id=execution_id,
+                workflow_id=workflow.id,
+                workflow_name=workflow.name,
+                status=status,
+                current_action=current_action_type,
+                completed_actions=list(completed_actions),
+                total_actions=len(workflow.steps),
+                error=sanitize_log_message(error_str) if error_str else None,
+                requires_human_intervention=paused,
+                failed_action=current_action_type if (paused or status == AutomationStatus.FAILED) else None,
+                failure_reason=sanitize_log_message(error_str) if (paused or status == AutomationStatus.FAILED) else None,
+                resume_available=paused,
+                resume_count=resume_count,
+                paused_at=now_iso if paused else None,
+                resumed_at=resumed_at,
+                serialized_actions=serialized_actions,
+                serialized_workflow=workflow.model_dump(),
+                context=sanitize_credential_dict(runtime_context),
+                inputs=sanitize_credential_dict(merged_inputs),
+                variables=sanitize_credential_dict(runtime_context.get("variables", {})),
+                step_results=sanitized_step_results,
+                execution_logs=[sanitize_log_message(l) for l in execution_logs],
+                results=results,
+                started_at=started_at,
+                completed_at=now_iso if (completed or status in (AutomationStatus.COMPLETED, AutomationStatus.FAILED)) else None,
+                execution_time_seconds=elapsed,
+                applications=applications,
+                actions_detail=actions_detail,
+                all_actions=actions_detail,
+                idempotency_key=idempotency_key,
+                definition_hash=workflow.definition_hash,
+            )
+
         try:
             try:
                 await active_executor.start()
@@ -916,6 +1086,14 @@ class AutomationEngine:
                     f"Action executor {type(active_executor).__name__} pre-start failed: {start_err}. "
                     "Will attempt on-demand start for browser actions."
                 )
+
+            # Emit initial running state snapshot to progress callback
+            if progress_callback:
+                try:
+                    first_action = step_ids[curr_idx] if curr_idx < len(step_ids) else None
+                    await progress_callback(_build_snapshot(AutomationStatus.RUNNING, current_action_id=first_action))
+                except Exception as cb_err:
+                    logger.warning(f"Initial progress_callback failed: {cb_err}")
 
             while curr_idx < len(step_ids):
                 step = step_map[step_ids[curr_idx]]
@@ -953,6 +1131,13 @@ class AutomationEngine:
                             curr_idx = step_ids.index(step.on_false)
                         else:
                             curr_idx += 1
+
+                        if progress_callback:
+                            try:
+                                next_step = step_ids[curr_idx] if curr_idx < len(step_ids) else None
+                                await progress_callback(_build_snapshot(AutomationStatus.RUNNING, current_action_id=next_step))
+                            except Exception as cb_err:
+                                logger.warning(f"Step progress_callback failed: {cb_err}")
                         continue
 
                 # Template Resolution for step parameters and target
@@ -978,13 +1163,33 @@ class AutomationEngine:
                         max_retries = getattr(step.retry_policy, "max_retries", 0)
                     delay = getattr(step.retry_policy, "delay_seconds", None)
                     backoff = delay if delay is not None else getattr(step.retry_policy, "backoff_seconds", 1.0)
+
+                # Determine action timeout
+                step_timeout = None
+                if step.retry_policy and getattr(step.retry_policy, "timeout_seconds", None):
+                    step_timeout = step.retry_policy.timeout_seconds
+                elif getattr(step, "timeout_seconds", None):
+                    step_timeout = step.timeout_seconds
+                if not step_timeout or step_timeout <= 0:
+                    step_timeout = getattr(settings, "DEFAULT_ACTION_TIMEOUT", 30.0)
+
                 attempts = 0
                 result: Optional[ExecutionActionResult] = None
 
                 for attempt in range(1, max_retries + 2):
                     attempts = attempt
                     try:
-                        result = await active_executor.execute(action, context=runtime_context)
+                        result = await asyncio.wait_for(
+                            active_executor.execute(action, context=runtime_context),
+                            timeout=float(step_timeout),
+                        )
+                    except asyncio.TimeoutError:
+                        result = ExecutionActionResult(
+                            action_id=step.id,
+                            action_type=step.type,
+                            success=False,
+                            message=f"Action execution timed out after {step_timeout}s",
+                        )
                     except Exception as exc:
                         result = ExecutionActionResult(
                             action_id=step.id,
@@ -992,10 +1197,16 @@ class AutomationEngine:
                             success=False,
                             message=f"Executor exception: {str(exc)}",
                         )
+
                     step_logs.append(f"Attempt {attempt}: success={result.success}, message='{result.message}'")
                     if result.success:
                         break
+
                     if attempt <= max_retries:
+                        # Abort retry if error is non-retryable
+                        if is_non_retryable_error(result.message):
+                            step_logs.append(f"Non-retryable error detected: '{result.message}'. Aborting retries.")
+                            break
                         if step.retry_policy and step.retry_policy.retry_on_errors:
                             if not any(err in (result.message or "") for err in step.retry_policy.retry_on_errors):
                                 step_logs.append("Error does not match retry_on_errors policy. Aborting retries.")
@@ -1046,6 +1257,13 @@ class AutomationEngine:
                         curr_idx = step_ids.index(step.on_true)
                     else:
                         curr_idx += 1
+
+                    if progress_callback:
+                        try:
+                            next_step = step_ids[curr_idx] if curr_idx < len(step_ids) else None
+                            await progress_callback(_build_snapshot(AutomationStatus.RUNNING, current_action_id=next_step))
+                        except Exception as cb_err:
+                            logger.warning(f"Step progress_callback failed: {cb_err}")
                 else:
                     if step.continue_on_failure:
                         execution_logs.append(f"Step '{step.id}' failed but continue_on_failure is True. Continuing.")
@@ -1054,153 +1272,40 @@ class AutomationEngine:
                             "error": result.message,
                         }
                         curr_idx += 1
+                        if progress_callback:
+                            try:
+                                next_step = step_ids[curr_idx] if curr_idx < len(step_ids) else None
+                                await progress_callback(_build_snapshot(AutomationStatus.RUNNING, current_action_id=next_step))
+                            except Exception as cb_err:
+                                logger.warning(f"Step progress_callback failed: {cb_err}")
                     else:
                         # Paused for human intervention
                         execution_logs.append(f"Step '{step.id}' failed. Workflow PAUSED pending human intervention.")
-                        elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
-                        actions_detail = [
-                            {
-                                "action": s.type,
-                                "action_id": s.id,
-                                "description": s.description or s.name or s.type,
-                                "application": s.application,
-                                "target": s.target or "",
-                                "status": "completed" if s.id in [r.step_id for r in step_results if r.status == "completed"]
-                                          else ("failed" if s.id == step.id else "pending"),
-                                "message": next((r.logs[-1] for r in step_results if r.step_id == s.id), "Pending"),
-                            }
-                            for s in workflow.steps
-                        ]
-                        return AutomationExecution(
-                            execution_id=execution_id,
-                            workflow_id=workflow.id,
-                            workflow_name=workflow.name,
+                        return _build_snapshot(
                             status=AutomationStatus.PAUSED,
-                            current_action=step.type,
-                            completed_actions=completed_actions,
-                            total_actions=len(workflow.steps),
-                            error=result.message,
-                            requires_human_intervention=True,
-                            failed_action=step.type,
-                            failure_reason=result.message,
-                            resume_available=True,
-                            resume_count=resume_count,
-                            paused_at=now_iso,
-                            resumed_at=resumed_at,
-                            serialized_actions=serialized_actions,
-                            serialized_workflow=workflow.model_dump(),
-                            context=runtime_context,
-                            inputs=merged_inputs,
-                            variables=runtime_context.get("variables", {}),
-                            step_results=step_results,
-                            execution_logs=execution_logs,
-                            results=results,
-                            started_at=started_at,
-                            completed_at=None,
-                            execution_time_seconds=elapsed,
-                            applications=applications,
-                            actions_detail=actions_detail,
-                            all_actions=actions_detail,
+                            current_action_id=step.id,
+                            error_str=result.message,
+                            paused=True,
                         )
 
             # All steps completed
-            elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
-            now_iso = datetime.now(timezone.utc).isoformat()
             execution_logs.append(f"Workflow '{workflow.name}' completed successfully ({len(completed_actions)} actions).")
-            actions_detail = [
-                {
-                    "action": s.type,
-                    "action_id": s.id,
-                    "description": s.description or s.name or s.type,
-                    "application": s.application,
-                    "target": s.target or "",
-                    "status": "completed" if s.id in [r.step_id for r in step_results if r.status == "completed"]
-                              else ("skipped" if s.id in [r.step_id for r in step_results if r.status == "skipped"] else "failed"),
-                    "message": next((r.logs[-1] for r in step_results if r.step_id == s.id), "Success"),
-                }
-                for s in workflow.steps
-            ]
-            return AutomationExecution(
-                execution_id=execution_id,
-                workflow_id=workflow.id,
-                workflow_name=workflow.name,
+            return _build_snapshot(
                 status=AutomationStatus.COMPLETED,
-                current_action=None,
-                completed_actions=completed_actions,
-                total_actions=len(workflow.steps),
-                error=None,
-                requires_human_intervention=False,
-                failed_action=None,
-                failure_reason=None,
-                resume_available=False,
-                resume_count=resume_count,
-                resumed_at=resumed_at,
-                serialized_actions=serialized_actions,
-                serialized_workflow=workflow.model_dump(),
-                context=runtime_context,
-                inputs=merged_inputs,
-                variables=runtime_context.get("variables", {}),
-                step_results=step_results,
-                execution_logs=execution_logs,
-                results=results,
-                started_at=started_at,
-                completed_at=now_iso,
-                execution_time_seconds=elapsed,
-                applications=applications,
-                actions_detail=actions_detail,
-                all_actions=actions_detail,
+                current_action_id=None,
+                completed=True,
             )
         except Exception as exc:
-            elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
-            now_iso = datetime.now(timezone.utc).isoformat()
             execution_logs.append(f"Workflow execution failed with unexpected error: {str(exc)}")
             logger.error(
                 f"Unexpected error running declarative steps for workflow '{workflow.name}': {exc}",
                 exc_info=True,
             )
-            actions_detail = [
-                {
-                    "action": s.type,
-                    "action_id": s.id,
-                    "description": s.description or s.name or s.type,
-                    "application": s.application,
-                    "target": s.target or "",
-                    "status": "completed" if s.id in [r.step_id for r in step_results if r.status == "completed"]
-                              else ("failed" if (curr_idx < len(step_ids) and s.id == step_ids[curr_idx]) else "pending"),
-                    "message": next((r.logs[-1] for r in step_results if r.step_id == s.id), str(exc) if (curr_idx < len(step_ids) and s.id == step_ids[curr_idx]) else "Pending"),
-                }
-                for s in workflow.steps
-            ]
             failed_step_type = step_ids[curr_idx] if curr_idx < len(step_ids) else None
-            return AutomationExecution(
-                execution_id=execution_id,
-                workflow_id=workflow.id,
-                workflow_name=workflow.name,
+            return _build_snapshot(
                 status=AutomationStatus.FAILED,
-                current_action=failed_step_type,
-                completed_actions=completed_actions,
-                total_actions=len(workflow.steps),
-                error=str(exc),
-                requires_human_intervention=False,
-                failed_action=failed_step_type,
-                failure_reason=str(exc),
-                resume_available=False,
-                resume_count=resume_count,
-                resumed_at=resumed_at,
-                serialized_actions=serialized_actions,
-                serialized_workflow=workflow.model_dump(),
-                context=runtime_context,
-                inputs=merged_inputs,
-                variables=runtime_context.get("variables", {}),
-                step_results=step_results,
-                execution_logs=execution_logs,
-                results=results,
-                started_at=started_at,
-                completed_at=now_iso,
-                execution_time_seconds=elapsed,
-                applications=applications,
-                actions_detail=actions_detail,
-                all_actions=actions_detail,
+                current_action_id=failed_step_type,
+                error_str=str(exc),
             )
         finally:
             await active_executor.cleanup()
@@ -1213,6 +1318,7 @@ class AutomationEngine:
         inputs: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         context: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Callable[[AutomationExecution], Awaitable[None]]] = None,
     ) -> AutomationExecution:
         """
         Resumes a PAUSED declarative workflow execution from the failed step.
@@ -1273,6 +1379,8 @@ class AutomationEngine:
             resume_count=execution.resume_count + 1,
             resumed_at=now_iso,
             accumulated_time=execution.execution_time_seconds or 0.0,
+            progress_callback=progress_callback,
+            idempotency_key=execution.idempotency_key,
         )
 
 

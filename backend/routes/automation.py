@@ -11,7 +11,7 @@ from automation.models import (
     ExecuteWorkflowResponse,
     WorkflowDefinition,
 )
-from automation.engine import InvalidStateTransitionError
+from automation.engine import InvalidStateTransitionError, ApprovalTamperingError
 from automation.service import automation_service
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,8 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
         "completed_at": execution.completed_at,
         "all_actions": execution.actions_detail,
         "resume_count": execution.resume_count,
+        "idempotency_key": execution.idempotency_key,
+        "definition_hash": execution.definition_hash,
     }
 
     # ── PENDING (unapproved) ──────────────────────────────────────────────
@@ -216,50 +218,73 @@ async def execute_workflow_endpoint(request: ExecuteWorkflowRequest):
 
     executor_type = request.executor_type or "playwright"
 
-    # Branch 1: Declarative WorkflowDefinition (Phase 6)
-    if request.workflow_definition:
+    # Idempotency deduplication check
+    if request.idempotency_key:
+        existing = automation_service.find_by_idempotency_key(request.idempotency_key)
+        if existing:
+            logger.info(
+                f"[API Execute] Returning existing execution for idempotency key '{request.idempotency_key}'"
+            )
+            return _build_response(existing)
+
+    try:
+        # Branch 1: Declarative WorkflowDefinition (Phase 6)
+        if request.workflow_definition:
+            execution = await automation_service.run_workflow(
+                workflow_definition=request.workflow_definition,
+                approved=request.approved,
+                executor_type=executor_type,
+                inputs=request.inputs,
+                parameters=request.parameters,
+                context=context,
+                idempotency_key=request.idempotency_key,
+                expected_definition_hash=request.definition_hash,
+            )
+            return _build_response(execution)
+
+        # Branch 2: Legacy WorkflowProposal (Phase 3/4)
+        proposal = request.workflow or request.proposal
+        if not proposal and request.actions:
+            proposal = WorkflowProposal(
+                name="Custom Workflow Execution",
+                intent="Execute specified automation actions",
+                trigger=WorkflowTrigger(
+                    type="custom_trigger",
+                    application="demo_email",
+                    description="Custom action trigger",
+                ),
+                actions=request.actions,
+                variables=[],
+                applications=list({a.application for a in request.actions}),
+                requires_approval=True,
+            )
+
+        if not proposal:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A 'workflow_definition', 'workflow', 'proposal', or list of 'actions' is required for execution.",
+            )
+
         execution = await automation_service.run_workflow(
-            workflow_definition=request.workflow_definition,
+            proposal=proposal,
             approved=request.approved,
             executor_type=executor_type,
-            inputs=request.inputs,
             parameters=request.parameters,
             context=context,
+            idempotency_key=request.idempotency_key,
         )
+
         return _build_response(execution)
-
-    # Branch 2: Legacy WorkflowProposal (Phase 3/4)
-    proposal = request.workflow or request.proposal
-    if not proposal and request.actions:
-        proposal = WorkflowProposal(
-            name="Custom Workflow Execution",
-            intent="Execute specified automation actions",
-            trigger=WorkflowTrigger(
-                type="custom_trigger",
-                application="demo_email",
-                description="Custom action trigger",
-            ),
-            actions=request.actions,
-            variables=[],
-            applications=list({a.application for a in request.actions}),
-            requires_approval=True,
-        )
-
-    if not proposal:
+    except ApprovalTamperingError as ate:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A 'workflow_definition', 'workflow', 'proposal', or list of 'actions' is required for execution.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(ate),
         )
-
-    execution = await automation_service.run_workflow(
-        proposal=proposal,
-        approved=request.approved,
-        executor_type=executor_type,
-        parameters=request.parameters,
-        context=context,
-    )
-
-    return _build_response(execution)
+    except InvalidStateTransitionError as iste:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(iste),
+        )
 
 
 class ResumeExecutionRequest(BaseModel):
@@ -348,7 +373,7 @@ async def cancel_execution_endpoint(execution_id: str):
     Cancels a PAUSED execution permanently. This is irreversible.
     """
     try:
-        execution = automation_service.cancel_execution(execution_id)
+        execution = await automation_service.cancel_execution_async(execution_id)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

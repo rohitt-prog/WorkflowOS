@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 
 from automation.models import AutomationAction, ExecutionActionResult
 from automation.executor import ActionExecutor
@@ -17,6 +17,30 @@ PLAYWRIGHT_SUPPORTED_ACTIONS = {
     "update_customer",
     "send_message",
 }
+
+# Global registry of active Playwright executor instances for guaranteed shutdown cleanup
+_active_executors: Set["PlaywrightExecutor"] = set()
+
+
+def register_active_executor(executor: "PlaywrightExecutor") -> None:
+    _active_executors.add(executor)
+
+
+def unregister_active_executor(executor: "PlaywrightExecutor") -> None:
+    _active_executors.discard(executor)
+
+
+async def close_active_executors() -> None:
+    """Terminates all running PlaywrightExecutor browser instances cleanly during shutdown."""
+    executors = list(_active_executors)
+    if executors:
+        logger.info(f"[PlaywrightExecutor] Cleaning up {len(executors)} active browser instances on shutdown...")
+    for exc in executors:
+        try:
+            await exc.cleanup()
+        except Exception as e:
+            logger.warning(f"[PlaywrightExecutor] Error cleaning up executor during shutdown: {e}")
+    _active_executors.clear()
 
 
 class PlaywrightExecutor(ActionExecutor):
@@ -94,6 +118,7 @@ class PlaywrightExecutor(ActionExecutor):
             )
             self._context = await self._browser.new_context()
             self._page = await self._context.new_page()
+            register_active_executor(self)
             logger.info("[PlaywrightExecutor] Browser, context, and page ready.")
         except Exception as e:
             logger.error(f"[PlaywrightExecutor] Failed to launch browser: {e}", exc_info=True)
@@ -105,6 +130,7 @@ class PlaywrightExecutor(ActionExecutor):
         Cleanly closes page, context, browser, and terminates the Playwright engine.
         Guarantees no orphaned browser processes remain.
         """
+        unregister_active_executor(self)
         logger.info("[PlaywrightExecutor] Releasing browser resources...")
         try:
             if self._page and not self._page.is_closed():

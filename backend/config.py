@@ -24,6 +24,10 @@ class Settings:
     # Playwright / Automation Configuration (Phase 4.3)
     PLAYWRIGHT_BASE_URL: str = os.getenv("PLAYWRIGHT_BASE_URL", "http://localhost:3000")
     PLAYWRIGHT_HEADLESS: bool = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() in ("true", "1", "yes")
+
+    # Security & Reliability Configuration (Phase 7.4)
+    WORKFLOWOS_CREDENTIAL_KEY: str = os.getenv("WORKFLOWOS_CREDENTIAL_KEY", "")
+    DEFAULT_ACTION_TIMEOUT: float = float(os.getenv("DEFAULT_ACTION_TIMEOUT", "30.0"))
     
     @property
     def cors_origins(self) -> List[str]:

@@ -401,23 +401,81 @@ npm run dev
 
 ---
 
+---
+
+## Phase 7.4: Reliability, Security, and Recoverability
+
+Phase 7.4 hardens the execution engine, state persistence, approval authorization, and resource cleanup:
+
+### 1. Execution State Lifecycle & Transitions
+The workflow engine enforces a strict finite state machine:
+- `PENDING`: Unapproved workflow awaiting operator approval.
+- `RUNNING`: Actively executing workflow steps. Step progress is durably updated in MongoDB Atlas before and after each action.
+- `PAUSED`: Action failure or unexpected interruption occurred. Halts execution, sets `requires_human_intervention=True`, and enables `resume_available=True`.
+- `COMPLETED`: All steps executed successfully (terminal state).
+- `FAILED`: Terminal failure (e.g. fatal validation error or unhandled exception).
+- `CANCELLED`: Terminal cancellation by operator.
+
+State transition rules:
+- `PENDING` → `RUNNING`, `CANCELLED`
+- `RUNNING` → `PAUSED`, `COMPLETED`, `FAILED`, `CANCELLED`
+- `PAUSED` → `RUNNING` (via `/resume`), `CANCELLED` (via `/cancel`)
+- `COMPLETED`, `FAILED`, `CANCELLED` are terminal: cannot be resumed, restarted, or cancelled.
+
+### 2. Durable Persistence & Outage Fallback
+- **MongoDB Atlas Storage**: Execution records and step-level history are saved to the `executions` collection.
+- **Graceful Offline Fallback**: If MongoDB Atlas is unavailable or experiences a network outage, `AutomationService` gracefully falls back to its in-memory cache with warning logs, avoiding workflow execution loss.
+- **Credential Redaction**: Before writing execution records to MongoDB or returning API payloads, all credentials (tokens, keys, passwords, bearer headers) are scrubbed using `sanitize_credential_dict` and `sanitize_log_message`.
+
+### 3. Safe Recovery of Interrupted Executions
+- **Startup Recovery Scan**: During FastAPI `lifespan` startup, `AutomationService.recover_interrupted_executions()` scans for any executions left in `RUNNING` state due to a crash or unexpected shutdown.
+- **Safe Transition to PAUSED**: Active runs are transitioned to `PAUSED` with `requires_human_intervention=True`.
+- **Completed-Step Preservation**: Completed actions are never blindly rerun. When resumed, execution starts from the failed or next step.
+- **Audit Logging**: Recovery reasons, timestamps, and incremented `recovery_attempts` are permanently recorded in the execution record.
+
+### 4. Idempotency & Duplicate Execution Prevention
+- **Idempotency Key**: Clients can submit an `idempotency_key` with execution requests.
+- **Deduplication**: If an execution with the given key already exists, the server returns the existing execution without duplicating execution actions.
+
+### 5. Cryptographic Approval Binding & Tamper Detection
+- **Canonical Definition Hash**: `compute_workflow_definition_hash()` generates a SHA-256 hash across workflow inputs, variables, triggers, steps, and approval requirements.
+- **Tamper Detection**: If a workflow definition is modified after approval, the hash changes. The backend detects the mismatch and returns `HTTP 409 Conflict`, requiring renewed operator approval.
+
+### 6. Timeouts, Error Classification, and Cleanup
+- **Step Timeouts**: Every action execution is bounded by `timeout_seconds` (defaulting to `DEFAULT_ACTION_TIMEOUT = 30.0s`) using `asyncio.wait_for`.
+- **Non-Retryable Error Classification**: Errors indicating authentication failures (401, 403), missing resources (404), or schema validation errors immediately abort retries. Transient errors retry with bounded backoff.
+- **Resource Cleanup on Shutdown**: Active Playwright browser and page instances are tracked in a global registry and cleanly terminated during FastAPI shutdown via `close_active_executors()`.
+
+---
+
 ## Running Tests
 
 ```bash
-# All phase tests
-.venv/bin/python3 -m unittest discover -s backend -p "test_phase*.py" -v
+# Full test suite across all phases (225+ tests)
+.venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
 
-# Phase 7.2 (Gmail OAuth & Integration)
+# Phase 7.4 (Reliability, Security & Recovery)
+.venv/bin/python3 -m unittest backend.test_phase7_4 -v
+
+# Phase 7.3 (Gmail Workflow Integration)
+.venv/bin/python3 -m unittest backend.test_phase7_3 -v
+
+# Phase 7.2 (Gmail OAuth & Credential Storage)
 .venv/bin/python3 -m unittest backend.test_phase7_2 -v
 
 # Phase 7.1 (Integration Foundation)
 .venv/bin/python3 -m unittest backend.test_phase7_1 -v
 
-# Phase 6 only
+# Phase 6 (Declarative Engine)
 .venv/bin/python3 -m unittest backend.test_phase6 -v
+
+# Frontend Checks
+npm --prefix frontend run lint
+./frontend/node_modules/.bin/tsc --project frontend --noEmit
+npm --prefix frontend run build
 ```
 
-**Test Results (Phase 7.2):** 181 tests · 167 passed · 14 skipped (require live MongoDB) · 0 failures.
+**Test Results (Phase 7.4):** 225 tests · 211 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 
