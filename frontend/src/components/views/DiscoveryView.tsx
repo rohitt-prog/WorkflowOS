@@ -295,6 +295,20 @@ export default function DiscoveryView({
                     </div>
 
                     <div className="flex items-center gap-2 text-xs font-mono">
+                      {wf.confidence !== undefined && (
+                        <span
+                          title={wf.confidence_explanation || `Confidence: ${(wf.confidence * 100).toFixed(0)}%`}
+                          className={`px-2 py-0.5 rounded border font-semibold ${
+                            wf.confidence >= 0.8
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : wf.confidence >= 0.65
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-rose-50 text-rose-700 border-rose-200"
+                          }`}
+                        >
+                          Confidence {(wf.confidence * 100).toFixed(0)}%
+                        </span>
+                      )}
                       <span className="px-2 py-0.5 rounded bg-blue-50 text-[#2563EB] border border-blue-200 font-semibold">
                         {wf.occurrences} repetitions
                       </span>
@@ -310,7 +324,7 @@ export default function DiscoveryView({
                   </div>
 
                   <p className="text-xs text-[#64748B] mb-4">
-                    Observed sequence of {wf.sequence.length} actions across multiple operational sessions.
+                    {wf.confidence_explanation || `Observed sequence of ${wf.sequence.length} actions across multiple operational sessions.`}
                   </p>
 
                   {/* Connected Step Visualizer */}

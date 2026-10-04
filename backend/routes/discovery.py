@@ -34,17 +34,25 @@ async def get_repeated_workflows(
         le=1.0,
         description="Minimum sequence similarity ratio (0.0 - 1.0)"
     ),
+    min_confidence: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Optional minimum confidence score threshold (0.0 - 1.0)"
+    ),
 ):
     """
-    Endpoint for Phase 2 deterministic workflow discovery.
+    Endpoint for Phase 8.1 deterministic workflow discovery with confidence scoring.
     Retrieves events grouped by session, determines recurring patterns,
-    and returns discovered workflow definitions with occurrences and similarity scores.
+    and returns discovered workflow definitions with occurrences, similarity scores,
+    and calibrated confidence breakdowns.
     """
     try:
         result = await discovery_service.get_repeated_workflows(
             min_length=min_length,
             min_occurrences=min_occurrences,
             similarity_threshold=similarity_threshold,
+            min_confidence=min_confidence,
         )
         return result
     except Exception as e:

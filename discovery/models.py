@@ -1,5 +1,6 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
+from discovery.confidence import ConfidenceBreakdown
 
 class DiscoveredWorkflow(BaseModel):
     """
@@ -27,6 +28,24 @@ class DiscoveredWorkflow(BaseModel):
     session_ids: List[str] = Field(
         ...,
         description="List of session IDs that participated in this repeated workflow"
+    )
+    confidence: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        description="Deterministic composite confidence score (0.0 - 1.0) indicating pattern strength"
+    )
+    confidence_tier: Optional[str] = Field(
+        default=None,
+        description="Human-readable confidence tier: 'high', 'medium', or 'low'"
+    )
+    confidence_breakdown: Optional[ConfidenceBreakdown] = Field(
+        default=None,
+        description="Detailed signal breakdown contributing to the confidence score"
+    )
+    confidence_explanation: Optional[str] = Field(
+        default=None,
+        description="Deterministic explanation of why this confidence score was assigned"
     )
 
     model_config = {

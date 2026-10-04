@@ -16,6 +16,7 @@ class DiscoveryService:
         min_length: int = 3,
         min_occurrences: int = 2,
         similarity_threshold: float = 0.8,
+        min_confidence: Optional[float] = None,
         collection=None
     ) -> DiscoveryResult:
         """
@@ -35,7 +36,8 @@ class DiscoveryService:
                 session_sequences=session_sequences,
                 min_length=min_length,
                 min_occurrences=min_occurrences,
-                similarity_threshold=similarity_threshold
+                similarity_threshold=similarity_threshold,
+                min_confidence=min_confidence,
             )
             return result
         except Exception as e:

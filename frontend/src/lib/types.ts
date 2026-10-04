@@ -20,12 +20,25 @@ export interface ActivityEvent {
   metadata?: EventMetadata;
 }
 
+export interface ConfidenceBreakdown {
+  repetition_support: number;
+  sequence_similarity: number;
+  action_diversity: number;
+  sequence_length: number;
+  session_consistency: number;
+  raw_signals?: Record<string, unknown>;
+}
+
 export interface DiscoveredWorkflow {
   label: string;
   sequence: string[];
   occurrences: number;
   similarity: number;
   session_ids: string[];
+  confidence?: number;
+  confidence_tier?: "high" | "medium" | "low";
+  confidence_breakdown?: ConfidenceBreakdown;
+  confidence_explanation?: string;
 }
 
 export interface DiscoveryResult {

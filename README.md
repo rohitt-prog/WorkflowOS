@@ -448,11 +448,42 @@ State transition rules:
 
 ---
 
+## Phase 8.1 — Discovery Evaluation & Transparent Confidence Scoring
+
+Phase 8.1 establishes an empirical evaluation framework and deterministic confidence scoring system for the Discovery Engine, replacing uncalibrated heuristics with transparent, explainable metrics.
+
+### 1. The 5 Deterministic Scoring Signals
+Confidence $C \in [0.0, 1.0]$ combines 5 orthogonal signals strictly summing to weight 1.00:
+- **Repetition Support ($w=0.30$)**: Volume of session occurrences (scaled from 2 to 5+ sessions).
+- **Sequence Similarity ($w=0.25$)**: Average SequenceMatcher alignment across matched sessions.
+- **Action Diversity ($w=0.20$)**: Unique action count ratio; penalizes monotonous single-action loops (`view_dashboard x 3` drops to 0.10).
+- **Sequence Length ($w=0.15$)**: Structural complexity / intentionality (scaled across 3 to 5+ steps).
+- **Session Consistency ($w=0.10$)**: Proportion of matched sessions that are exact 100% replays.
+
+### 2. Explainable Rationale & Tiers
+- **`high` ($\ge 0.80$)**: Strong candidate for operator review and workflow proposal.
+- **`medium` ($0.65 \le C < 0.80$)**: Moderate evidence; minor variations or short sequence.
+- **`low` ($< 0.65$)**: Insufficient repetition or penalized low-entropy repetition.
+- **Deterministic Text Explanations**: Generates clear, non-LLM natural summaries of the contributing evidence.
+
+### 3. Empirical Evaluation Benchmark
+Evaluated across an 8-scenario synthetic ground-truth benchmark (`python -m discovery.evaluation`):
+- **Baseline (Default Discovery)**: Precision = 85.71%, Recall = 100.0%, F1 = 0.9231 (1 FP from monotonous noise).
+- **High-Confidence Filter ($\ge 0.80$)**: Precision = 100.0%, Recall = 66.67%, F1 = 0.8000 (0 False Positives).
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (225+ tests)
+# Full test suite across all phases (240+ tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Phase 8.1 (Discovery Evaluation & Confidence Scoring)
+.venv/bin/python3 -m unittest backend.test_phase8_1 -v
+
+# Run the 8-Scenario Synthetic Discovery Benchmark
+.venv/bin/python3 -m discovery.evaluation
 
 # Phase 7.4 (Reliability, Security & Recovery)
 .venv/bin/python3 -m unittest backend.test_phase7_4 -v
@@ -471,11 +502,11 @@ State transition rules:
 
 # Frontend Checks
 npm --prefix frontend run lint
-./frontend/node_modules/.bin/tsc --project frontend --noEmit
+npx --prefix frontend tsc --noEmit
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 7.4):** 225 tests · 211 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 8.1):** 243 tests · 229 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 

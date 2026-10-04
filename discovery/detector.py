@@ -1,6 +1,7 @@
 import difflib
 import logging
 from typing import Dict, List, Optional, Tuple
+from discovery.confidence import calculate_pattern_confidence
 from discovery.models import DiscoveredWorkflow, DiscoveryResult
 
 logger = logging.getLogger(__name__)
@@ -75,10 +76,12 @@ class RepetitionDetector:
         min_length: int = 3,
         min_occurrences: int = 2,
         similarity_threshold: float = 0.8,
+        min_confidence: Optional[float] = None,
     ):
         self.min_length = min_length
         self.min_occurrences = min_occurrences
         self.similarity_threshold = similarity_threshold
+        self.min_confidence = min_confidence
 
     def detect(self, session_sequences: Dict[str, List[str]]) -> DiscoveryResult:
         """
@@ -86,6 +89,7 @@ class RepetitionDetector:
         - len(sequence) >= min_length
         - occurrences across distinct sessions >= min_occurrences
         - similarity >= similarity_threshold
+        - confidence >= min_confidence (if specified)
         """
         # Filter sessions by minimum required event count
         qualified_sessions = {
@@ -145,6 +149,17 @@ class RepetitionDetector:
                     4,
                 )
                 session_ids = [sid for sid, _ in matched_sessions]
+                sim_list = [sim for _, sim in matched_sessions]
+
+                confidence, breakdown, tier, explanation = calculate_pattern_confidence(
+                    sequence=canonical_seq,
+                    occurrences=len(matched_sessions),
+                    avg_similarity=avg_similarity,
+                    session_similarities=sim_list,
+                    min_length=self.min_length,
+                    min_occurrences=self.min_occurrences,
+                    similarity_threshold=self.similarity_threshold,
+                )
 
                 discovered_workflows.append(
                     DiscoveredWorkflow(
@@ -153,8 +168,24 @@ class RepetitionDetector:
                         occurrences=len(matched_sessions),
                         similarity=avg_similarity,
                         session_ids=session_ids,
+                        confidence=confidence,
+                        confidence_tier=tier,
+                        confidence_breakdown=breakdown,
+                        confidence_explanation=explanation,
                     )
                 )
+
+        # Optional confidence threshold filtering
+        if self.min_confidence is not None:
+            discovered_workflows = [
+                w for w in discovered_workflows if w.confidence >= self.min_confidence
+            ]
+
+        # Order candidates by confidence descending, occurrences descending, length descending
+        discovered_workflows.sort(
+            key=lambda w: (w.confidence, w.occurrences, len(w.sequence)),
+            reverse=True,
+        )
 
         detected = len(discovered_workflows) > 0
         logger.info(
@@ -169,6 +200,7 @@ def detect_repeated_workflows(
     min_length: int = 3,
     min_occurrences: int = 2,
     similarity_threshold: float = 0.8,
+    min_confidence: Optional[float] = None,
 ) -> DiscoveryResult:
     """
     Convenience function to run the RepetitionDetector.
@@ -177,5 +209,6 @@ def detect_repeated_workflows(
         min_length=min_length,
         min_occurrences=min_occurrences,
         similarity_threshold=similarity_threshold,
+        min_confidence=min_confidence,
     )
     return detector.detect(session_sequences)
