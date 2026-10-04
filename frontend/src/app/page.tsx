@@ -176,7 +176,10 @@ export default function WorkFlowOSApp() {
             />
           )}
           {activeView === "builder" && (
-            <BuilderView onExecutionComplete={fetchExecutions} />
+            <BuilderView
+              onExecutionComplete={fetchExecutions}
+              onNavigate={setActiveView}
+            />
           )}
           {activeView === "executions" && (
             <ExecutionsView

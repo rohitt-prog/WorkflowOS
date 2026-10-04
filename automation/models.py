@@ -1,3 +1,4 @@
+import uuid
 from enum import Enum
 from typing import List, Optional, Dict, Any, Set
 from pydantic import BaseModel, Field
@@ -114,7 +115,9 @@ class RetryPolicy(BaseModel):
     Retry configuration for transient failures on a workflow step.
     """
     max_retries: int = Field(default=0, ge=0, description="Max retry attempts after failure")
+    max_attempts: Optional[int] = Field(default=None, description="Total attempts including first attempt")
     backoff_seconds: float = Field(default=1.0, ge=0.0, description="Delay between retry attempts")
+    delay_seconds: Optional[float] = Field(default=None, description="Alias for backoff_seconds")
     retry_on_errors: List[str] = Field(
         default_factory=list,
         description="Optional list of error substrings that qualify for retry"
@@ -139,6 +142,7 @@ class WorkflowTriggerConfig(BaseModel):
     type: str = Field(default="manual", description="Trigger mechanism: 'manual', 'event', 'webhook', 'schedule'")
     application: Optional[str] = Field(default=None, description="Target application slug if event-driven")
     event_type: Optional[str] = Field(default=None, description="Triggering event type if event-driven")
+    event: Optional[str] = Field(default=None, description="Alias for event_type")
     description: Optional[str] = Field(default=None, description="Human description of trigger condition")
     conditions: List[StepCondition] = Field(default_factory=list, description="Optional filtering conditions")
 
@@ -173,12 +177,20 @@ class WorkflowStep(BaseModel):
     )
 
 
+def _generate_workflow_id() -> str:
+    """Generate a clean unique identifier for declarative workflows."""
+    return f"wf_{uuid.uuid4().hex[:12]}"
+
+
 class WorkflowDefinition(BaseModel):
     """
     Phase 6 Declarative Workflow Specification.
     Supports structured inputs, variables, triggers, conditional branching, and step policies.
     """
-    id: str = Field(..., description="Unique workflow definition ID")
+    id: Optional[str] = Field(
+        default_factory=_generate_workflow_id,
+        description="Unique workflow definition ID"
+    )
     name: str = Field(..., description="Human-readable workflow title")
     description: Optional[str] = Field(default=None, description="Detailed explanation of workflow")
     version: str = Field(default="1.0.0", description="Semantic version string")
@@ -187,6 +199,7 @@ class WorkflowDefinition(BaseModel):
     variables: Dict[str, Any] = Field(default_factory=dict, description="Initial default workflow variables")
     steps: List[WorkflowStep] = Field(default_factory=list, description="Ordered workflow steps")
     requires_approval: bool = Field(default=True, description="Safety gate: whether execution requires approval")
+    tags: List[str] = Field(default_factory=list, description="Optional workflow categorization tags")
     created_at: Optional[str] = Field(default=None, description="Creation timestamp")
     updated_at: Optional[str] = Field(default=None, description="Last update timestamp")
 

@@ -8,7 +8,7 @@ import {
   AutomationExecutionResponse,
   ApprovalStatus,
 } from "@/lib/types";
-import { API_BASE_URL, formatEventStep, getAppBadgeClass, getApplicationDisplayName } from "@/lib/utils";
+import { API_BASE_URL, formatEventStep, getAppBadgeClass, getApplicationDisplayName, formatApiErrorMessage } from "@/lib/utils";
 
 interface DiscoveryViewProps {
   discovery: DiscoveryResult | null;
@@ -63,8 +63,8 @@ export default function DiscoveryView({
           }),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || `Server returned ${res.status}`);
+          const err = await res.json().catch(() => null);
+          throw new Error(formatApiErrorMessage(err, `Server returned ${res.status}`));
         }
         const data = await res.json();
         if (data.success && data.workflow) {

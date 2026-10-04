@@ -39,16 +39,20 @@ _TEMPLATE_REGEX = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 
 
 def _get_nested_val(data: Any, path: str) -> Any:
-    """Safely retrieves a value from a nested dict/object using dot notation."""
+    """Safely retrieves a value from a nested dict/object/list using dot or bracket notation."""
     if not path:
         return data
-    parts = path.split(".")
+    normalized_path = re.sub(r"\[(\d+)\]", r".\1", path)
+    parts = normalized_path.split(".")
     curr = data
     for part in parts:
         if curr is None:
             return None
         if isinstance(curr, dict):
             curr = curr.get(part)
+        elif isinstance(curr, (list, tuple)) and part.isdigit():
+            idx = int(part)
+            curr = curr[idx] if 0 <= idx < len(curr) else None
         elif hasattr(curr, part):
             curr = getattr(curr, part)
         else:
@@ -234,8 +238,8 @@ class AutomationEngine:
             action_type = act.type.strip().lower()
 
             from integrations.registry import integration_registry
-            app_id = act.application.split(":", 1)[1].strip() if act.application.startswith("integration:") else act.application.strip()
-            adapter = integration_registry.get(app_id)
+            app_id = act.application.split(":", 1)[1].strip().lower() if act.application and act.application.startswith("integration:") else (act.application.strip().lower() if act.application else "")
+            adapter = integration_registry.get(app_id) if app_id else integration_registry.find_adapter_by_action(action_type)
 
             if adapter:
                 if action_type not in adapter.declared_action_names:
@@ -720,9 +724,12 @@ class AutomationEngine:
         # 2. Action Type & Parameter Schema Validation
         from integrations.registry import integration_registry
         for idx, step in enumerate(workflow.steps, start=1):
-            app_id = step.application.split(":", 1)[1].strip() if step.application.startswith("integration:") else step.application.strip()
-            adapter = integration_registry.get(app_id)
+            raw_app = step.application or ""
+            app_id = raw_app.split(":", 1)[1].strip().lower() if raw_app.startswith("integration:") else raw_app.strip().lower()
+            adapter = integration_registry.get(app_id) if app_id else integration_registry.find_adapter_by_action(step.type)
             if adapter:
+                if not step.application:
+                    step.application = adapter.id
                 if step.type not in adapter.declared_action_names:
                     err_msg = (
                         f"Workflow step {idx} '{step.type}' is not supported by integration '{app_id}'. "
@@ -902,7 +909,13 @@ class AutomationEngine:
         ]
 
         try:
-            await active_executor.start()
+            try:
+                await active_executor.start()
+            except Exception as start_err:
+                logger.warning(
+                    f"Action executor {type(active_executor).__name__} pre-start failed: {start_err}. "
+                    "Will attempt on-demand start for browser actions."
+                )
 
             while curr_idx < len(step_ids):
                 step = step_map[step_ids[curr_idx]]
@@ -956,8 +969,15 @@ class AutomationEngine:
                     parameters=resolved_params,
                 )
 
-                max_retries = step.retry_policy.max_retries if step.retry_policy else 0
-                backoff = step.retry_policy.backoff_seconds if step.retry_policy else 1.0
+                max_retries = 0
+                backoff = 1.0
+                if step.retry_policy:
+                    if getattr(step.retry_policy, "max_attempts", None) is not None:
+                        max_retries = max(0, step.retry_policy.max_attempts - 1)
+                    else:
+                        max_retries = getattr(step.retry_policy, "max_retries", 0)
+                    delay = getattr(step.retry_policy, "delay_seconds", None)
+                    backoff = delay if delay is not None else getattr(step.retry_policy, "backoff_seconds", 1.0)
                 attempts = 0
                 result: Optional[ExecutionActionResult] = None
 
@@ -1112,6 +1132,58 @@ class AutomationEngine:
                 requires_human_intervention=False,
                 failed_action=None,
                 failure_reason=None,
+                resume_available=False,
+                resume_count=resume_count,
+                resumed_at=resumed_at,
+                serialized_actions=serialized_actions,
+                serialized_workflow=workflow.model_dump(),
+                context=runtime_context,
+                inputs=merged_inputs,
+                variables=runtime_context.get("variables", {}),
+                step_results=step_results,
+                execution_logs=execution_logs,
+                results=results,
+                started_at=started_at,
+                completed_at=now_iso,
+                execution_time_seconds=elapsed,
+                applications=applications,
+                actions_detail=actions_detail,
+                all_actions=actions_detail,
+            )
+        except Exception as exc:
+            elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            execution_logs.append(f"Workflow execution failed with unexpected error: {str(exc)}")
+            logger.error(
+                f"Unexpected error running declarative steps for workflow '{workflow.name}': {exc}",
+                exc_info=True,
+            )
+            actions_detail = [
+                {
+                    "action": s.type,
+                    "action_id": s.id,
+                    "description": s.description or s.name or s.type,
+                    "application": s.application,
+                    "target": s.target or "",
+                    "status": "completed" if s.id in [r.step_id for r in step_results if r.status == "completed"]
+                              else ("failed" if (curr_idx < len(step_ids) and s.id == step_ids[curr_idx]) else "pending"),
+                    "message": next((r.logs[-1] for r in step_results if r.step_id == s.id), str(exc) if (curr_idx < len(step_ids) and s.id == step_ids[curr_idx]) else "Pending"),
+                }
+                for s in workflow.steps
+            ]
+            failed_step_type = step_ids[curr_idx] if curr_idx < len(step_ids) else None
+            return AutomationExecution(
+                execution_id=execution_id,
+                workflow_id=workflow.id,
+                workflow_name=workflow.name,
+                status=AutomationStatus.FAILED,
+                current_action=failed_step_type,
+                completed_actions=completed_actions,
+                total_actions=len(workflow.steps),
+                error=str(exc),
+                requires_human_intervention=False,
+                failed_action=failed_step_type,
+                failure_reason=str(exc),
                 resume_available=False,
                 resume_count=resume_count,
                 resumed_at=resumed_at,

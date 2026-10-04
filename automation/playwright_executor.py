@@ -185,13 +185,13 @@ class PlaywrightExecutor(ActionExecutor):
                 timestamp=now_iso,
             )
 
-        # Ensure browser is running
-        if not self.is_running:
-            await self.start()
-
         ctx = context or {}
 
         try:
+            # Ensure browser is running
+            if not self.is_running:
+                await self.start()
+
             if action.type == "open_email":
                 return await self._execute_open_email(action, ctx)
             elif action.type == "download_attachment":

@@ -127,8 +127,64 @@ class AutomationService:
         )
         self._workflows[template1.id] = template1
 
+        template2 = WorkflowDefinition(
+            id="wf_gmail_triage_pipeline",
+            name="Gmail Inbox Triage & Customer Lookup",
+            description="Reads recent unread emails from Gmail, extracts sender inquiries, and queries CRM.",
+            version="1.0.0",
+            trigger=WorkflowTriggerConfig(
+                type="manual",
+                application="gmail",
+                description="Manual trigger to inspect unread Gmail inquiries"
+            ),
+            inputs=[
+                WorkflowInputDefinition(
+                    name="query",
+                    type="string",
+                    default="is:unread",
+                    required=False,
+                    description="Gmail filter query"
+                ),
+                WorkflowInputDefinition(
+                    name="max_messages",
+                    type="integer",
+                    default=5,
+                    required=False,
+                    description="Maximum number of messages to fetch (1-20)"
+                ),
+            ],
+            steps=[
+                WorkflowStep(
+                    id="step_list_gmail",
+                    name="List Recent Gmail Messages",
+                    type="list_recent_messages",
+                    application="gmail",
+                    description="Fetch recent email headers and snippets from Gmail",
+                    parameters={"max_results": "{{inputs.max_messages}}", "query": "{{inputs.query}}"},
+                    output_mapping={"retrieved_count": "data.count"},
+                    retry_policy=RetryPolicy(max_retries=1, backoff_seconds=1.0),
+                ),
+                WorkflowStep(
+                    id="step_search_crm",
+                    name="Search CRM for Customer",
+                    type="search_customer",
+                    application="demo_crm",
+                    description="Query customer profile in CRM",
+                    parameters={"customer_name": "Rahul Sharma"},
+                    continue_on_failure=True,
+                ),
+            ],
+            requires_approval=True,
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+        self._workflows[template2.id] = template2
+
     def register_workflow(self, workflow: WorkflowDefinition) -> WorkflowDefinition:
         """Saves or updates a declarative workflow definition."""
+        if not workflow.id or not str(workflow.id).strip():
+            import uuid
+            workflow.id = f"wf_{uuid.uuid4().hex[:12]}"
         workflow.updated_at = datetime.now(timezone.utc).isoformat()
         if not workflow.created_at:
             workflow.created_at = workflow.updated_at

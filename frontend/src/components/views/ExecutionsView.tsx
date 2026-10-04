@@ -2,8 +2,7 @@
 
 import React, { useState } from "react";
 import { AutomationExecutionRecord, ActionDetail } from "@/lib/types";
-import { statusBadgeConfig, getApplicationDisplayName, getAppBadgeClass } from "@/lib/utils";
-import { API_BASE_URL } from "@/lib/utils";
+import { statusBadgeConfig, getApplicationDisplayName, getAppBadgeClass, API_BASE_URL, formatApiErrorMessage } from "@/lib/utils";
 
 interface ExecutionsViewProps {
   executions: AutomationExecutionRecord[];
@@ -37,8 +36,8 @@ function ExecutionDetailModal({
         }
       );
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Resume failed (${res.status})`);
+        const err = await res.json().catch(() => null);
+        throw new Error(formatApiErrorMessage(err, `Resume failed (${res.status})`));
       }
       onRefresh();
       onClose();
@@ -58,8 +57,8 @@ function ExecutionDetailModal({
         { method: "POST" }
       );
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Cancel failed (${res.status})`);
+        const err = await res.json().catch(() => null);
+        throw new Error(formatApiErrorMessage(err, `Cancel failed (${res.status})`));
       }
       onRefresh();
       onClose();

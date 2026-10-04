@@ -55,15 +55,33 @@ class IntegrationRegistry:
 
     def get(self, integration_id: str) -> Optional[BaseIntegrationAdapter]:
         """
-        Retrieves an integration adapter by ID or returns None.
+        Retrieves an integration adapter by ID (case-insensitive) or returns None.
         """
-        return self._adapters.get(integration_id)
+        if not integration_id:
+            return None
+        lower_id = integration_id.strip().lower()
+        if lower_id in self._adapters:
+            return self._adapters[lower_id]
+        for aid, adapter in self._adapters.items():
+            if aid.lower() == lower_id:
+                return adapter
+        return None
+
+    def find_adapter_by_action(self, action_name: str) -> Optional[BaseIntegrationAdapter]:
+        """Finds a registered adapter that declares the specified action name."""
+        if not action_name:
+            return None
+        norm_name = action_name.strip().lower()
+        for adapter in self._adapters.values():
+            if norm_name in [a.lower() for a in adapter.declared_action_names]:
+                return adapter
+        return None
 
     def get_or_raise(self, integration_id: str) -> BaseIntegrationAdapter:
         """
         Retrieves an integration adapter by ID or raises UnknownIntegrationError.
         """
-        adapter = self._adapters.get(integration_id)
+        adapter = self.get(integration_id)
         if not adapter:
             raise UnknownIntegrationError(f"Integration with ID '{integration_id}' is not registered.")
         return adapter

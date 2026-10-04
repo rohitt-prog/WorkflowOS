@@ -26,15 +26,21 @@ class IntegrationExecutor(ActionExecutor):
     def __init__(self, registry: Optional[IntegrationRegistry] = None):
         self.registry = registry or integration_registry
 
-    def _extract_integration_id(self, application: str) -> str:
-        """Extracts integration ID from application string (e.g. 'integration:mock_service' -> 'mock_service')."""
-        if application.startswith("integration:"):
-            return application.split(":", 1)[1].strip()
-        return application.strip()
+    def _extract_integration_id(self, application: str, action_type: Optional[str] = None) -> str:
+        """Extracts integration ID from application string or resolves from action_type."""
+        if application:
+            if application.startswith("integration:"):
+                return application.split(":", 1)[1].strip().lower()
+            return application.strip().lower()
+        if action_type:
+            adapter = self.registry.find_adapter_by_action(action_type)
+            if adapter:
+                return adapter.id
+        return ""
 
     def is_integration_action(self, action: AutomationAction) -> bool:
         """Determines if the given action targets a registered integration adapter."""
-        target_id = self._extract_integration_id(action.application)
+        target_id = self._extract_integration_id(action.application, action.type)
         return self.registry.get(target_id) is not None
 
     async def execute(
@@ -46,7 +52,7 @@ class IntegrationExecutor(ActionExecutor):
         Executes a workflow action step on an integration adapter.
         """
         now_iso = datetime.now(timezone.utc).isoformat()
-        integration_id = self._extract_integration_id(action.application)
+        integration_id = self._extract_integration_id(action.application, action.type)
         adapter = self.registry.get(integration_id)
 
         if not adapter:

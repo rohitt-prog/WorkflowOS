@@ -486,12 +486,6 @@ async def execute_integration_action_endpoint(
             detail=f"Integration '{integration_id}' not found.",
         )
 
-    if not adapter.is_connected:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Integration '{integration_id}' is disconnected. Connect it before executing actions.",
-        )
-
     if action_name not in adapter.declared_action_names:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -514,6 +508,12 @@ async def execute_integration_action_endpoint(
                 "Actions that mutate external state or are not declared safe for direct execution "
                 "must be executed within an approved workflow."
             ),
+        )
+
+    if not adapter.is_connected:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Integration '{integration_id}' is disconnected. Connect it before executing actions.",
         )
 
     # Validate parameters

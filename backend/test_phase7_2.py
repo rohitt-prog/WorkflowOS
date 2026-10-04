@@ -286,7 +286,7 @@ class TestGmailIntegrationAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(action_def.is_safe)
         self.assertFalse(action_def.is_mutating)
         self.assertFalse(action_def.is_destructive)
-        self.assertTrue(action_def.allow_direct_execution)
+        self.assertFalse(action_def.allow_direct_execution)
 
     async def test_connect_stores_credentials_and_preserves_refresh_token(self):
         adapter = GmailIntegrationAdapter(

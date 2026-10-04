@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { API_BASE_URL } from "@/lib/utils";
+import { API_BASE_URL, formatApiErrorMessage } from "@/lib/utils";
 import { IntegrationSummaryItem } from "@/lib/types";
 
 interface GmailMessagePreview {
@@ -107,10 +107,10 @@ export default function SettingsView() {
         });
         await fetchIntegrations();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => null);
         setActionNotice({
           integrationId: id,
-          message: err.detail || "Failed to connect integration.",
+          message: formatApiErrorMessage(err, "Failed to connect integration."),
           success: false,
         });
       }
@@ -144,10 +144,10 @@ export default function SettingsView() {
         });
         await fetchIntegrations();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => null);
         setActionNotice({
           integrationId: id,
-          message: err.detail || "Failed to disconnect.",
+          message: formatApiErrorMessage(err, "Failed to disconnect."),
           success: false,
         });
       }
@@ -192,7 +192,7 @@ export default function SettingsView() {
       } else {
         setActionNotice({
           integrationId: id,
-          message: data.detail || data.message || "Action execution failed.",
+          message: formatApiErrorMessage(data, "Action execution failed."),
           success: false,
         });
       }
@@ -468,22 +468,27 @@ export default function SettingsView() {
                           {isDisconnecting ? "Disconnecting..." : "Disconnect"}
                         </button>
 
-                        <button
-                          onClick={() =>
-                            handleTestAction(
-                              item.id,
-                              item.id === "gmail" ? "list_recent_messages" : "mock_echo"
-                            )
-                          }
-                          disabled={isTesting}
-                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] hover:bg-[#DBEAFE] transition cursor-pointer disabled:opacity-50"
-                        >
-                          {isTesting
-                            ? "Executing..."
-                            : item.id === "gmail"
-                            ? "Test list_recent_messages Action"
-                            : "Test mock_echo Action"}
-                        </button>
+                        {item.id === "gmail" ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-50 border border-slate-200 text-slate-600">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Requires Workflow Approval Gate
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              handleTestAction(
+                                item.id,
+                                "mock_echo"
+                              )
+                            }
+                            disabled={isTesting}
+                            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] hover:bg-[#DBEAFE] transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isTesting
+                              ? "Executing..."
+                              : "Test mock_echo Action"}
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -515,6 +520,7 @@ export default function SettingsView() {
             { phase: "Phase 6", label: "Declarative Workflow Engine & Modern Light UI Redesign", status: "complete" },
             { phase: "Phase 7.1", label: "Integration Foundation (Registry, Adapter Abstraction & Mock Adapter)", status: "complete" },
             { phase: "Phase 7.2", label: "Gmail OAuth 2.0 Integration & Read-Only Message Inspection", status: "complete" },
+            { phase: "Phase 7.3", label: "Gmail Declarative Workflow Engine Integration & History", status: "complete" },
           ].map(({ phase, label }) => (
             <div key={phase} className="flex items-center justify-between p-3 text-xs bg-white hover:bg-[#F8FAFC] transition">
               <div className="flex items-center gap-3">

@@ -115,7 +115,7 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
                 is_safe=True,
                 is_mutating=False,
                 is_destructive=False,
-                allow_direct_execution=True,
+                allow_direct_execution=False,
             ),
             handler=self._handle_list_recent_messages,
         )
