@@ -50,7 +50,7 @@ _BASIC_REGEX = re.compile(r"\bBasic\s+([a-zA-Z0-9_\-\.\+\/=]{8,})", re.IGNORECAS
 
 # Scrub token/key-value pairs without consuming unrelated words like 'the key of' or 'event key=Enter'
 _KEY_VAL_SECRET_REGEX = re.compile(
-    r"\b(token|access_token|refresh_token|secret|client_secret|password|api_key|apikey|private_key)\b(\s*[:=]\s*)(['\"]?)([a-zA-Z0-9_\-\.\+\/=]{6,})\3",
+    r"\b(token|access_token|refresh_token|secret|client_secret|password|api_key|apikey|private_key)\b(\s*[:=]\s*)(['\"]?)([a-zA-Z0-9_\-\.\+\/=!@#$%^&*]{4,})\3",
     re.IGNORECASE
 )
 
@@ -242,7 +242,8 @@ class EncryptedTokenStorage(CredentialStorage):
             )
             return None
         except Exception as e:
-            logger.error(f"[EncryptedTokenStorage] Decryption error for '{integration_id}': {e}")
+            safe_err = sanitize_log_message(str(e))
+            logger.error(f"[EncryptedTokenStorage] Decryption error for '{integration_id}': {safe_err}")
             return None
 
     async def delete_credential(self, integration_id: str) -> bool:

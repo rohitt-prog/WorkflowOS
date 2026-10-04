@@ -32,10 +32,21 @@ from integrations.credentials import (
 )
 from integrations.mock import MockTestIntegrationAdapter
 from integrations.executor import IntegrationExecutor
+from integrations.oauth import (
+    OAuthStateStore,
+    GoogleOAuthManager,
+    GMAIL_READONLY_SCOPE,
+    default_oauth_state_store,
+    default_google_oauth_manager,
+)
+from integrations.gmail import GmailIntegrationAdapter, get_oauth_token_storage
 
-# Automatically seed the default mock integration adapter into registry
+# Automatically seed the default mock and Gmail integration adapters into registry
 if not integration_registry.get("mock_service"):
     integration_registry.register(MockTestIntegrationAdapter())
+
+if not integration_registry.get("gmail"):
+    integration_registry.register(GmailIntegrationAdapter())
 
 __all__ = [
     "IntegrationStatus",
@@ -62,4 +73,11 @@ __all__ = [
     "CredentialMaskedException",
     "MockTestIntegrationAdapter",
     "IntegrationExecutor",
+    "OAuthStateStore",
+    "GoogleOAuthManager",
+    "GMAIL_READONLY_SCOPE",
+    "default_oauth_state_store",
+    "default_google_oauth_manager",
+    "GmailIntegrationAdapter",
+    "get_oauth_token_storage",
 ]

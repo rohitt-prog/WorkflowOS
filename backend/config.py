@@ -11,7 +11,7 @@ class Settings:
     MONGODB_DATABASE: str = os.getenv("MONGODB_DATABASE", "workflowos")
     
     # Server configuration
-    HOST: str = os.getenv("HOST", "0.0.0.0")
+    HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = int(os.getenv("PORT", "8000"))
     
     # CORS: Allowed origins for frontend access
@@ -28,7 +28,11 @@ class Settings:
     @property
     def cors_origins(self) -> List[str]:
         # Return unique list of configured origins
-        origins = [self.FRONTEND_ORIGIN.strip()]
+        origins = []
+        for raw in self.FRONTEND_ORIGIN.split(","):
+            cleaned = raw.strip()
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
         if "http://localhost:3000" not in origins:
             origins.append("http://localhost:3000")
         if "http://127.0.0.1:3000" not in origins:

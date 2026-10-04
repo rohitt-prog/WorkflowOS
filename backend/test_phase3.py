@@ -40,6 +40,7 @@ from ai.gemini_service import (
     WorkflowUnderstandingError,
 )
 from fastapi.testclient import TestClient
+from backend.config import settings
 from backend.main import app
 
 
@@ -240,8 +241,13 @@ class TestPhase1AndPhase2Regression(unittest.TestCase):
 
     def setUp(self):
         import backend.database as db_mod
-        db_mod._mongo_client = None
-        db_mod._database = None
+        try:
+            import mongomock_motor
+            db_mod._mongo_client = mongomock_motor.AsyncMongoMockClient()
+            db_mod._database = db_mod._mongo_client[settings.MONGODB_DATABASE]
+        except ImportError:
+            db_mod._mongo_client = None
+            db_mod._database = None
         self.client = TestClient(app)
 
     def tearDown(self):

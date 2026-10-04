@@ -4,10 +4,19 @@ import React, { useState, useEffect, useCallback } from "react";
 import { API_BASE_URL } from "@/lib/utils";
 import { IntegrationSummaryItem } from "@/lib/types";
 
+interface GmailMessagePreview {
+  id: string;
+  thread_id?: string;
+  from?: string;
+  subject?: string;
+  date?: string;
+  snippet?: string;
+}
+
 export default function SettingsView() {
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
-  // Phase 7.1: Integrations State
+  // Phase 7.1 & 7.2: Integrations State
   const [integrations, setIntegrations] = useState<IntegrationSummaryItem[]>([]);
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -15,7 +24,32 @@ export default function SettingsView() {
     integrationId: string;
     message: string;
     success: boolean;
-  } | null>(null);
+    data?: { messages?: GmailMessagePreview[]; count?: number; echoed_message?: string };
+  } | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const statusParam = params.get("status");
+      const integrationParam = params.get("integration");
+      const messageParam = params.get("message");
+
+      if (integrationParam === "gmail") {
+        if (statusParam === "connected") {
+          return {
+            integrationId: "gmail",
+            message: "Gmail successfully connected via Google OAuth 2.0.",
+            success: true,
+          };
+        } else if (statusParam === "error") {
+          return {
+            integrationId: "gmail",
+            message: messageParam ? decodeURIComponent(messageParam) : "Failed to connect Gmail via Google OAuth.",
+            success: false,
+          };
+        }
+      }
+    }
+    return null;
+  });
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -34,6 +68,13 @@ export default function SettingsView() {
       // Backend may be offline during initial boot
     } finally {
       setIntegrationsLoading(false);
+    }
+  }, []);
+
+  // Clean URL search query if redirected from OAuth callback
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("integration=gmail")) {
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
 
@@ -87,14 +128,18 @@ export default function SettingsView() {
   const handleDisconnect = async (id: string) => {
     setActionLoadingId(`disconnect_${id}`);
     setActionNotice(null);
+    const endpoint = id === "gmail"
+      ? `${API_BASE_URL}/api/integrations/gmail/disconnect`
+      : `${API_BASE_URL}/api/integrations/${id}/disconnect`;
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/integrations/${id}/disconnect`, {
+      const res = await fetch(endpoint, {
         method: "POST",
       });
       if (res.ok) {
         setActionNotice({
           integrationId: id,
-          message: "Integration disconnected.",
+          message: id === "gmail" ? "Gmail disconnected and local credentials purged." : "Integration disconnected.",
           success: true,
         });
         await fetchIntegrations();
@@ -120,20 +165,29 @@ export default function SettingsView() {
   const handleTestAction = async (id: string, actionName: string) => {
     setActionLoadingId(`test_${id}`);
     setActionNotice(null);
+    const testParams = actionName === "list_recent_messages"
+      ? { max_results: 5 }
+      : { message: "Test payload from WorkFlowOS Settings" };
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/integrations/${id}/actions/${actionName}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parameters: { message: "Test payload from WorkFlowOS Settings" },
-        }),
+        body: JSON.stringify({ parameters: testParams }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        let msg = `Executed '${actionName}' successfully.`;
+        if (actionName === "list_recent_messages" && data.data?.messages) {
+          msg = `Retrieved ${data.data.count} recent message(s) from Gmail.`;
+        } else if (data.data?.echoed_message) {
+          msg = `Executed '${actionName}': ${data.data.echoed_message}`;
+        }
         setActionNotice({
           integrationId: id,
-          message: `Executed '${actionName}': ${data.data?.echoed_message || data.message}`,
+          message: msg,
           success: true,
+          data: data.data,
         });
       } else {
         setActionNotice({
@@ -240,8 +294,14 @@ export default function SettingsView() {
                   {/* Adapter Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB] shrink-0 font-mono text-xs font-bold">
-                        {item.icon === "flask" ? "⚗" : "🔌"}
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 font-mono text-xs font-bold ${
+                        item.id === "gmail"
+                          ? "bg-red-50 border border-red-200 text-red-600"
+                          : item.icon === "flask"
+                          ? "bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB]"
+                          : "bg-slate-50 border border-slate-200 text-slate-700"
+                      }`}>
+                        {item.id === "gmail" ? "✉️" : item.icon === "flask" ? "⚗" : "🔌"}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
@@ -251,9 +311,13 @@ export default function SettingsView() {
                           <span className="text-[10px] font-mono text-[#64748B] bg-[#F1F5F9] px-1.5 py-0.5 rounded border border-[#E2E8F0]">
                             v{item.version}
                           </span>
-                          {item.is_mock && (
+                          {item.is_mock ? (
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
                               Mock / Non-Production
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                              Google Workspace OAuth 2.0
                             </span>
                           )}
                         </div>
@@ -284,8 +348,30 @@ export default function SettingsView() {
                     {item.description}
                   </p>
 
+                  {/* Gmail Scope & Approval Gate Disclosure */}
+                  {item.id === "gmail" && (
+                    <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3 space-y-2 text-[11px] text-[#475569]">
+                      <div className="flex items-center gap-1.5 font-semibold text-[#0F172A]">
+                        <span className="text-blue-600">🛡️</span>
+                        <span>Requested OAuth Permission Scope:</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 font-mono text-[10px] text-[#1D4ED8] bg-[#EFF6FF] px-2 py-1 rounded border border-[#DBEAFE]">
+                        https://www.googleapis.com/auth/gmail.readonly
+                      </div>
+                      <p className="text-[11px] text-[#64748B] leading-relaxed">
+                        Read-only access to view email message metadata (sender, subject, date) and brief snippets. Never reads full message bodies, downloads attachments, sends emails, or modifies mailboxes.
+                      </p>
+                      <div className="flex items-start gap-1.5 text-[10px] text-amber-800 bg-amber-50/70 border border-amber-200/60 p-2 rounded">
+                        <span className="shrink-0 mt-0.5">⚠️</span>
+                        <span>
+                          <strong>Operator Approval Gate:</strong> Connecting Gmail does not automatically authorize workflow execution. All automated workflows targeting Gmail require explicit human operator approval before execution.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Mock Disclaimer Alert */}
-                  {item.disclaimer && (
+                  {item.disclaimer && item.id !== "gmail" && (
                     <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5 flex items-start gap-2 text-[11px] text-[#64748B]">
                       <span className="text-amber-500 text-xs shrink-0 mt-0.5">⚠️</span>
                       <span className="leading-tight">{item.disclaimer}</span>
@@ -316,26 +402,62 @@ export default function SettingsView() {
                   {/* Action Notification Alert */}
                   {notice && (
                     <div
-                      className={`text-xs px-3 py-2 rounded-lg border ${
+                      className={`text-xs px-3 py-2 rounded-lg border space-y-2 ${
                         notice.success
                           ? "bg-emerald-50 text-emerald-800 border-emerald-200"
                           : "bg-red-50 text-red-800 border-red-200"
                       }`}
                     >
-                      {notice.message}
+                      <div>{notice.message}</div>
+                      {/* Render preview of recent messages if returned */}
+                      {notice.data?.messages && Array.isArray(notice.data.messages) && notice.data.messages.length > 0 && (
+                        <div className="space-y-1.5 pt-1 border-t border-emerald-200/60">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-900">
+                            Recent Messages Metadata ({notice.data.messages.length}):
+                          </span>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {notice.data.messages.map((m: GmailMessagePreview) => (
+                              <div
+                                key={m.id}
+                                className="bg-white/90 p-2 rounded border border-emerald-200/80 text-[11px] text-[#0F172A] space-y-0.5"
+                              >
+                                <div className="flex items-center justify-between gap-2 font-medium">
+                                  <span className="truncate">{m.subject || "(No Subject)"}</span>
+                                  <span className="text-[10px] text-[#64748B] font-mono shrink-0">{m.date}</span>
+                                </div>
+                                <div className="text-[10px] text-[#475569] truncate">From: {m.from}</div>
+                                {m.snippet && (
+                                  <div className="text-[10px] text-[#64748B] italic truncate">
+                                    &ldquo;{m.snippet}&rdquo;
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {/* Controls */}
                   <div className="flex items-center gap-2 pt-2 border-t border-[#F1F5F9]">
                     {!item.is_connected ? (
-                      <button
-                        onClick={() => handleConnect(item.id)}
-                        disabled={isConnecting}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition shadow-2xs cursor-pointer disabled:opacity-50"
-                      >
-                        {isConnecting ? "Connecting..." : "Connect Adapter"}
-                      </button>
+                      item.id === "gmail" ? (
+                        <a
+                          href={`${API_BASE_URL}/api/integrations/gmail/connect`}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg text-white transition shadow-2xs cursor-pointer inline-block bg-[#DC2626] hover:bg-[#B91C1C]"
+                        >
+                          Connect Gmail
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => handleConnect(item.id)}
+                          disabled={isConnecting}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition shadow-2xs cursor-pointer disabled:opacity-50"
+                        >
+                          {isConnecting ? "Connecting..." : "Connect Adapter"}
+                        </button>
+                      )
                     ) : (
                       <>
                         <button
@@ -347,11 +469,20 @@ export default function SettingsView() {
                         </button>
 
                         <button
-                          onClick={() => handleTestAction(item.id, "mock_echo")}
+                          onClick={() =>
+                            handleTestAction(
+                              item.id,
+                              item.id === "gmail" ? "list_recent_messages" : "mock_echo"
+                            )
+                          }
                           disabled={isTesting}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] hover:bg-[#DBEAFE] transition cursor-pointer disabled:opacity-50"
                         >
-                          {isTesting ? "Executing..." : "Test mock_echo Action"}
+                          {isTesting
+                            ? "Executing..."
+                            : item.id === "gmail"
+                            ? "Test list_recent_messages Action"
+                            : "Test mock_echo Action"}
                         </button>
                       </>
                     )}
@@ -383,6 +514,7 @@ export default function SettingsView() {
             { phase: "Phase 5", label: "Real macOS Desktop Activity Agent (NSWorkspace Native)", status: "complete" },
             { phase: "Phase 6", label: "Declarative Workflow Engine & Modern Light UI Redesign", status: "complete" },
             { phase: "Phase 7.1", label: "Integration Foundation (Registry, Adapter Abstraction & Mock Adapter)", status: "complete" },
+            { phase: "Phase 7.2", label: "Gmail OAuth 2.0 Integration & Read-Only Message Inspection", status: "complete" },
           ].map(({ phase, label }) => (
             <div key={phase} className="flex items-center justify-between p-3 text-xs bg-white hover:bg-[#F8FAFC] transition">
               <div className="flex items-center gap-3">

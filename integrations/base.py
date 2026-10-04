@@ -118,8 +118,8 @@ class BaseIntegrationAdapter(ABC):
                 return True
             else:
                 self._status = IntegrationStatus.ERROR
-                self._last_error = "Connection rejected by adapter"
-                logger.warning(f"[{self.id}] Connection failed.")
+                self._last_error = self._last_error or "Connection rejected by adapter"
+                logger.warning(f"[{self.id}] Connection failed: {self._last_error}")
                 return False
         except Exception as e:
             self._status = IntegrationStatus.ERROR
@@ -298,6 +298,26 @@ class BaseIntegrationAdapter(ABC):
                     timestamp=now_iso,
                 )
 
+        except IntegrationValidationError as e:
+            safe_msg = sanitize_log_message(str(e))
+            logger.error(f"[{self.id}] Action '{action_name}' validation error: {safe_msg}")
+            return IntegrationActionResult(
+                action_name=action_name,
+                success=False,
+                message=safe_msg,
+                error_code="VALIDATION_ERROR",
+                timestamp=now_iso,
+            )
+        except IntegrationConnectionError as e:
+            safe_msg = sanitize_log_message(str(e))
+            logger.error(f"[{self.id}] Action '{action_name}' connection error: {safe_msg}")
+            return IntegrationActionResult(
+                action_name=action_name,
+                success=False,
+                message=safe_msg,
+                error_code="CONNECTION_ERROR",
+                timestamp=now_iso,
+            )
         except Exception as e:
             safe_msg = sanitize_log_message(str(e))
             logger.error(f"[{self.id}] Action '{action_name}' execution error: {safe_msg}")

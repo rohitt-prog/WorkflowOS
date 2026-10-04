@@ -18,8 +18,10 @@ Validates:
 13. Pause, resume, and cancellation compatibility with integration steps.
 """
 
+import os
 import unittest
 import asyncio
+from unittest.mock import patch
 from typing import Dict, Any
 
 from fastapi.testclient import TestClient
@@ -298,8 +300,9 @@ class TestIntegrationFoundation(unittest.IsolatedAsyncioTestCase):
 
     def test_encrypted_token_storage_missing_key_fails(self):
         """EncryptedTokenStorage must reject initialization if key is missing and ephemeral is False."""
-        with self.assertRaises(CredentialStorageConfigurationError):
-            EncryptedTokenStorage(encryption_key=None, allow_ephemeral_dev_key=False)
+        with patch.dict(os.environ, {"WORKFLOWOS_CREDENTIAL_KEY": ""}):
+            with self.assertRaises(CredentialStorageConfigurationError):
+                EncryptedTokenStorage(encryption_key=None, allow_ephemeral_dev_key=False)
 
     def test_encrypted_token_storage_invalid_key_fails(self):
         """EncryptedTokenStorage must reject invalid/malformed encryption keys."""
@@ -308,8 +311,9 @@ class TestIntegrationFoundation(unittest.IsolatedAsyncioTestCase):
 
     def test_encrypted_token_storage_ephemeral_dev_mode(self):
         """EncryptedTokenStorage supports explicit ephemeral dev key for isolated testing."""
-        storage = EncryptedTokenStorage(allow_ephemeral_dev_key=True)
-        self.assertTrue(storage.is_ephemeral)
+        with patch.dict(os.environ, {"WORKFLOWOS_CREDENTIAL_KEY": ""}):
+            storage = EncryptedTokenStorage(allow_ephemeral_dev_key=True)
+            self.assertTrue(storage.is_ephemeral)
 
     # ── 6. REST API Endpoints ────────────────────────────────────────────────
 
