@@ -1,7 +1,11 @@
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from backend.models.event import EventCreate, EventResponse
 from backend.services.event_service import event_service
+from backend.privacy.service import privacy_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -13,6 +17,13 @@ router = APIRouter(prefix="/api/events", tags=["events"])
     description="Accepts a structured user activity event, validates fields, and stores it in MongoDB."
 )
 async def create_event(event_data: EventCreate):
+    # Phase 12 Privacy Gate: enforce collection state
+    if not privacy_service.is_collection_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Activity event collection is currently disabled by privacy policy."
+        )
+
     try:
         created = await event_service.create_event(event_data)
         return created

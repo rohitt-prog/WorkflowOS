@@ -10,6 +10,7 @@ from backend.routes.ai import router as ai_router
 from backend.routes.automation import router as automation_router
 from backend.routes.integrations import router as integrations_router
 from backend.routes.workflows import router as workflows_router
+from backend.routes.privacy import router as privacy_router
 
 
 # Configure logging
@@ -84,6 +85,7 @@ app.include_router(ai_router)
 app.include_router(automation_router)
 app.include_router(integrations_router)
 app.include_router(workflows_router)
+app.include_router(privacy_router)
 
 
 if __name__ == "__main__":

@@ -68,6 +68,7 @@
 | **Phase 9** | Adaptive Learning & Human Review Feedback Loop | ✅ Complete |
 | **Phase 10** | Intelligent Automation — Deterministic Strategy Planning | ✅ Complete |
 | **Phase 11** | Closed-Loop Intelligence — Execution Feedback & Strategy Adaptation | ✅ Complete |
+| **Phase 12** | Privacy & Safety — Sensitive Data Redaction & Data Governance | ✅ Complete |
 
 ---
 
@@ -868,11 +869,14 @@ User-controlled interruptions (`CANCELLED` or `PAUSED`) are distinguished from t
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (389 tests)
+# Full test suite across all phases (405 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
 
 # Or with pytest
 .venv/bin/python -m pytest -q
+
+# Phase 12 (Privacy & Safety - 16 test scenarios)
+.venv/bin/python -m pytest backend/test_phase12.py -v
 
 # Phase 11 (Closed-Loop Intelligence - 30 test scenarios)
 .venv/bin/python -m pytest backend/test_phase11.py -v
@@ -907,17 +911,35 @@ npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 11):** 389 tests · 375 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 12):** 405 tests · 391 passed · 14 skipped (live OAuth required) · 0 failures.
 
 
 ---
 
-## Privacy
+## Privacy & Safety (Phase 12)
 
-The Phase 5 desktop agent uses **macOS NSWorkspace APIs only** for application focus tracking:
-- ✅ Application name + bundle ID when you switch apps
-- ❌ No keystrokes, clipboard, file contents, or screen capture
-- ❌ No network calls outside your own backend (`localhost:8000` by default)
-- ❌ No data sent to external services (Gemini calls are made server-side from the backend)
+WorkFlowOS implements a deterministic, multi-layered privacy and safety system:
 
-The agent respects an allowlist/denylist in `agent/config.py` and can be stopped at any time with `python -m agent stop`.
+### 1. Data Minimization & Bounded Redaction
+- **Centralized Engine (`backend/privacy/redaction.py`)**: Recursively sanitizes dicts, lists, and strings without mutating caller structures.
+- **Sensitive Categories Redacted**:
+  - Authentication: passwords, tokens, API keys, session cookies, OAuth secrets, PEM private keys, JWTs.
+  - Financial: Credit card candidate numbers verified by **Luhn checksum algorithm** (`_is_luhn_valid`) to eliminate false positives on timestamps/order IDs.
+  - Platform Token Prefixes: deterministic scrubbing for `Bearer`, `ghp_`, `glpat-`, `ya29.`, `sk-`, `AIza`, `AKIA`.
+- **Workflow Intelligence Preserved**: Application names, structural action verbs (`open_email`, `search_customer`), non-sensitive targets, and business parameters are never destroyed.
+
+### 2. Event Ingestion & Execution Privacy
+- **Metadata Sanitization**: Incoming activity events are scrubbed before persistence to MongoDB Atlas.
+- **Execution & Log Scrubbing**: Execution errors, stack traces, and step result payloads are sanitized before outcome evaluation or response return.
+- **Defense in Depth**: Historical event reads through `GET /api/events` sanitize metadata defensively.
+
+### 3. User Governance & Collection Controls
+- **Collection State**: Controllable via `ACTIVITY_COLLECTION_ENABLED` env var and `/api/privacy/toggle` endpoint.
+- **Agent Privacy Gate**: When collection is disabled, native desktop OS events are dropped at the agent privacy gate before entering the pipeline (no normalizer, no buffer, no retries, no persistence).
+
+### 4. Event Retention Policy
+- **Configurable Retention Window**: Configured via `EVENT_RETENTION_DAYS` (default: 30 days).
+- **Safe Cleanup**: `/api/privacy/cleanup` supports deterministic `dry_run` estimation and safe ISO timestamp cutoff queries (`{"timestamp": {"$lt": cutoff_iso}}`) without deleting historical workflows or executions.
+
+### 5. Mandatory Safety Invariant
+- **Approval Gate**: `requires_approval = True` remains non-negotiable. Zero autonomous execution is introduced.

@@ -28,6 +28,10 @@ class Settings:
     # Security & Reliability Configuration (Phase 7.4)
     WORKFLOWOS_CREDENTIAL_KEY: str = os.getenv("WORKFLOWOS_CREDENTIAL_KEY", "")
     DEFAULT_ACTION_TIMEOUT: float = float(os.getenv("DEFAULT_ACTION_TIMEOUT", "30.0"))
+
+    # Privacy & Safety Configuration (Phase 12)
+    ACTIVITY_COLLECTION_ENABLED: bool = os.getenv("ACTIVITY_COLLECTION_ENABLED", "true").lower() in ("true", "1", "yes")
+    EVENT_RETENTION_DAYS: int = int(os.getenv("EVENT_RETENTION_DAYS", "30"))
     
     @property
     def cors_origins(self) -> List[str]:

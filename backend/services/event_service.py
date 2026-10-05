@@ -17,9 +17,18 @@ class EventService:
     async def create_event(self, event_data: EventCreate) -> EventResponse:
         """
         Store an activity event in MongoDB.
-        Preserves flexible metadata structure for future pipeline extensions.
+        Phase 12 Privacy: recursively redacts credentials and sensitive data from metadata
+        and target fields before database persistence.
         """
+        from backend.privacy.redaction import redact_sensitive_data
+
+        clean_metadata = redact_sensitive_data(event_data.metadata or {}, inplace=False)
+        clean_target = redact_sensitive_data(event_data.target, inplace=False) if event_data.target else None
+
         doc = event_data.model_dump()
+        doc["metadata"] = clean_metadata
+        doc["target"] = clean_target
+
         result = await self.collection.insert_one(doc)
         event_id = str(result.inserted_id)
         
@@ -31,8 +40,8 @@ class EventService:
             timestamp=event_data.timestamp,
             application=event_data.application,
             event_type=event_data.event_type,
-            target=event_data.target,
-            metadata=event_data.metadata or {}
+            target=clean_target,
+            metadata=clean_metadata
         )
 
     async def get_events(
@@ -44,7 +53,10 @@ class EventService:
         """
         Retrieve recent activity events with optional filtering.
         Sorted by timestamp in descending order (most recent first).
+        Guarantees sensitive data is never returned in API responses.
         """
+        from backend.privacy.redaction import redact_sensitive_data
+
         filter_query = {}
         if session_id:
             filter_query["session_id"] = session_id
@@ -57,6 +69,8 @@ class EventService:
         cursor = self.collection.find(filter_query).sort("timestamp", -1).limit(effective_limit)
         events = []
         async for doc in cursor:
+            raw_metadata = doc.get("metadata") or {}
+            raw_target = doc.get("target")
             events.append(
                 EventResponse(
                     id=str(doc["_id"]),
@@ -64,16 +78,18 @@ class EventService:
                     timestamp=str(doc.get("timestamp", "")),
                     application=doc.get("application", ""),
                     event_type=doc.get("event_type", ""),
-                    target=doc.get("target"),
-                    metadata=doc.get("metadata") or {}
+                    target=redact_sensitive_data(raw_target, inplace=False) if raw_target else None,
+                    metadata=redact_sensitive_data(raw_metadata, inplace=False)
                 )
             )
         return events
 
     async def get_event_by_id(self, event_id: str) -> Optional[EventResponse]:
         """
-        Retrieve a single event by its database ID.
+        Retrieve a single event by its database ID with privacy protection.
         """
+        from backend.privacy.redaction import redact_sensitive_data
+
         if not ObjectId.is_valid(event_id):
             return None
 
@@ -81,14 +97,30 @@ class EventService:
         if not doc:
             return None
 
+        raw_metadata = doc.get("metadata") or {}
+        raw_target = doc.get("target")
         return EventResponse(
             id=str(doc["_id"]),
             session_id=doc.get("session_id", ""),
             timestamp=str(doc.get("timestamp", "")),
             application=doc.get("application", ""),
             event_type=doc.get("event_type", ""),
-            target=doc.get("target"),
-            metadata=doc.get("metadata") or {}
+            target=redact_sensitive_data(raw_target, inplace=False) if raw_target else None,
+            metadata=redact_sensitive_data(raw_metadata, inplace=False)
+        )
+
+    async def cleanup_expired_events(
+        self,
+        dry_run: bool = False,
+        retention_days: Optional[int] = None
+    ) -> dict:
+        """
+        Phase 12: Safe retention-based cleanup of expired activity events.
+        """
+        from backend.privacy.service import privacy_service
+        return await privacy_service.cleanup_expired_events(
+            dry_run=dry_run,
+            retention_days=retention_days
         )
 
     async def delete_all_events(self) -> int:

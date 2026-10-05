@@ -148,6 +148,21 @@ class DesktopActivityAgent:
         if not activity:
             return None
 
+        # Phase 12 Privacy Gate: Consult centralized privacy_service as runtime authority.
+        # Fails closed: if privacy_service cannot be accessed or raises an exception, drop immediately.
+        try:
+            from backend.privacy.service import privacy_service
+            collection_enabled = privacy_service.is_collection_enabled()
+        except Exception:
+            logger.warning("[DesktopActivityAgent] Privacy service check failed; failing closed and dropping event.")
+            self.events_dropped += 1
+            return None
+
+        if not collection_enabled:
+            # Dropped at privacy gate: no normalization, no buffering, no retries, no persistence
+            self.events_dropped += 1
+            return None
+
         self.events_captured += 1
 
         # Step 2: Normalize and filter according to privacy policy
@@ -163,6 +178,19 @@ class DesktopActivityAgent:
         )
 
         if not event:
+            self.events_dropped += 1
+            return None
+
+        # Phase 12 Privacy: Sanitize metadata and target before buffering or streaming.
+        # Fails closed: if sanitization fails for any reason, drop immediately (no HTTP, no buffer, no retry).
+        try:
+            from backend.privacy.redaction import redact_sensitive_data
+            if event.metadata:
+                event.metadata = redact_sensitive_data(event.metadata, inplace=False)
+            if event.target:
+                event.target = redact_sensitive_data(event.target, inplace=False)
+        except Exception:
+            logger.warning("[DesktopActivityAgent] Sensitive data sanitization error; failing closed and dropping event.")
             self.events_dropped += 1
             return None
 
@@ -206,6 +234,13 @@ class DesktopActivityAgent:
         frontmost = self.collector.get_frontmost_app()
         frontmost_name = frontmost.get("name") if frontmost else None
 
+        collection_enabled = False
+        try:
+            from backend.privacy.service import privacy_service
+            collection_enabled = privacy_service.is_collection_enabled()
+        except Exception:
+            collection_enabled = False
+
         return {
             "state": self.state.value,
             "is_running": self.is_running,
@@ -219,6 +254,7 @@ class DesktopActivityAgent:
             "backend_connected": self.client.check_health(),
             "accessibility_granted": self.collector.accessibility_granted,
             "allowlist": self.config.allowlist,
+            "collection_enabled": collection_enabled,
             "include_window_title": self.config.include_window_title,
             "poll_interval_seconds": self.config.poll_interval_seconds,
             "current_frontmost_app": frontmost_name,

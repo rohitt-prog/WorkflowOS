@@ -25,36 +25,19 @@ class CredentialStorageConfigurationError(Exception):
     pass
 
 
-# Common keys containing sensitive secrets that must be redacted
-SENSITIVE_KEYS: Set[str] = {
-    "token",
-    "access_token",
-    "refresh_token",
-    "client_secret",
-    "secret",
-    "api_key",
-    "apikey",
-    "password",
-    "authorization",
-    "auth",
-    "private_key",
-    "credential",
-    "credentials",
-    "oauth_token",
-}
+from backend.privacy.redaction import (
+    SENSITIVE_KEY_NAMES as SENSITIVE_KEYS,
+    redact_sensitive_data,
+    sanitize_log_message as _privacy_sanitize_log,
+)
 
-# Regex to scrub bearer and basic authorization tokens from strings and logs
-# Matches standard Base64 characters including +, /, and = padding
+# Common regex patterns maintained for backwards-compatibility imports
 _BEARER_REGEX = re.compile(r"\bBearer\s+([a-zA-Z0-9_\-\.\+\/=]{8,})", re.IGNORECASE)
 _BASIC_REGEX = re.compile(r"\bBasic\s+([a-zA-Z0-9_\-\.\+\/=]{8,})", re.IGNORECASE)
-
-# Scrub token/key-value pairs without consuming unrelated words like 'the key of' or 'event key=Enter'
 _KEY_VAL_SECRET_REGEX = re.compile(
     r"\b(token|access_token|refresh_token|secret|client_secret|password|api_key|apikey|private_key)\b(\s*[:=]\s*)(['\"]?)([a-zA-Z0-9_\-\.\+\/=!@#$%^&*]{4,})\3",
     re.IGNORECASE
 )
-
-# Scrub high-entropy tokens with recognizable platform prefixes
 _KNOWN_TOKEN_PREFIX_REGEX = re.compile(
     r"\b(ghp_[a-zA-Z0-9_]{15,}|ya29\.[a-zA-Z0-9_\-]{15,}|sk-[a-zA-Z0-9_\-]{15,}|AKIA[0-9A-Z]{16})\b"
 )
@@ -64,35 +47,18 @@ def sanitize_credential_dict(data: Any) -> Any:
     """
     Recursively clones a dictionary or list, masking sensitive credentials with '[REDACTED]'.
     Ensures secrets are never exposed in execution results, telemetry, or API responses.
+    Delegates directly to Phase 12 centralized redact_sensitive_data engine.
     """
-    if isinstance(data, dict):
-        cleaned: Dict[str, Any] = {}
-        for k, v in data.items():
-            if str(k).lower() in SENSITIVE_KEYS or any(s in str(k).lower() for s in ("secret", "token", "password")):
-                cleaned[k] = "[REDACTED]"
-            else:
-                cleaned[k] = sanitize_credential_dict(v)
-        return cleaned
-    elif isinstance(data, list):
-        return [sanitize_credential_dict(item) for item in data]
-    return data
+    return redact_sensitive_data(data, inplace=False)
 
 
 def sanitize_log_message(message: str) -> str:
     """
     Redacts common bearer tokens, basic auth credentials, and key-value secret
-    patterns from log and error messages using best-effort regex matching.
-
-    NOTE: Regex-based redaction is a defense-in-depth safeguard and does not
-    guarantee that every arbitrary, unstructured secret format will be removed.
+    patterns from log and error messages using deterministic regex matching.
+    Delegates directly to Phase 12 centralized sanitize_log_message engine.
     """
-    if not isinstance(message, str):
-        return message
-    scrubbed = _BEARER_REGEX.sub("Bearer [REDACTED]", message)
-    scrubbed = _BASIC_REGEX.sub("Basic [REDACTED]", scrubbed)
-    scrubbed = _KEY_VAL_SECRET_REGEX.sub(r"\1\2\3[REDACTED]\3", scrubbed)
-    scrubbed = _KNOWN_TOKEN_PREFIX_REGEX.sub("[REDACTED]", scrubbed)
-    return scrubbed
+    return _privacy_sanitize_log(message)
 
 
 class CredentialMaskedException(Exception):

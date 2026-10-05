@@ -101,6 +101,11 @@ class AgentConfig:
         default_factory=lambda: os.getenv("AGENT_INCLUDE_WINDOW_TITLE", "false").lower() in ("true", "1", "yes")
     )
 
+    # Phase 12 Privacy: User control over activity collection (default True)
+    collection_enabled: bool = field(
+        default_factory=lambda: os.getenv("ACTIVITY_COLLECTION_ENABLED", "true").lower() in ("true", "1", "yes")
+    )
+
     # Backend request configuration
     request_timeout_seconds: float = field(
         default_factory=lambda: float(os.getenv("AGENT_REQUEST_TIMEOUT", "5.0"))
