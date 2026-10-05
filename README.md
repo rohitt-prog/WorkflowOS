@@ -64,6 +64,9 @@
 | **Phase 8.2** | Smarter Sequence Detection & Dynamic Local Alignment | ✅ Complete |
 | **Phase 8.3** | Pattern Ranking, Noise Reduction & Duplicate Detection | ✅ Complete |
 | **Phase 8.4** | Explainable Discovery & Empirical Verification | ✅ Complete |
+| **Phase 8.5** | Discovery Quality, Robustness & Semantic Grouping | ✅ Complete |
+| **Phase 9** | Adaptive Learning & Human Review Feedback Loop | ✅ Complete |
+| **Phase 10** | Intelligent Automation — Deterministic Strategy Planning | ✅ Complete |
 
 ---
 
@@ -659,11 +662,130 @@ Learning signals influence future recommendation ranking. **Learning must NEVER 
 
 ---
 
+## Phase 10 — Intelligent Automation
+
+### 1. Purpose
+
+Phase 10 implements an **Intelligent Automation Planner** that determines the most appropriate, reliable, and safest automation strategy for each workflow and each individual workflow action step. Rather than blindly executing every workflow with a single default strategy, WorkFlowOS deterministically inspects available repository capabilities, historical execution telemetry, and Phase 9 adaptive learning signals to produce an explainable, auditable automation plan.
+
+> [!IMPORTANT]
+> **Deterministic Heuristic Scores, Not Probabilities**:
+> All strategy suitability scores ($S \in [0.0, 1.0]$) in Phase 10 are deterministic heuristic utility scores computed from explicit capability declarations, reliability metrics, and learning state. They are **NOT** statistical probabilities or machine learning outputs.
+
+### 2. Architecture & Pipeline
+
+```text
+Discovery
+   ↓
+Confidence Scoring (Phase 8.1–8.2)
+   ↓
+Ranking & Noise Reduction (Phase 8.3–8.5)
+   ↓
+Adaptive Learning (Phase 9)
+   ↓
+Automation Planner (Phase 10)
+   ├── Step Capability Inspection (API, INTEGRATION, SEMANTIC_UI, BROWSER, MANUAL)
+   ├── Deterministic Strategy Scoring
+   ├── Failure-Aware Adjustment (unreliable priority loses to reliable alternative)
+   └── Safe Fallback Strategy Resolution
+   ↓
+Explainable Automation Plan
+   ↓
+Human Approval Gate (MANDATORY — approved=True)
+   ↓
+Workflow Execution Engine
+   ↓
+Execution Outcome Telemetry
+   ↓
+Adaptive Learning Update (Phase 9)
+```
+
+### 3. Strategy Hierarchy & Capability Registry
+
+WorkFlowOS organizes automation strategies into a deterministic architectural priority hierarchy:
+
+$$\text{API} \succ \text{INTEGRATION} \succ \text{SEMANTIC\_UI} \succ \text{BROWSER} \succ \text{MANUAL}$$
+
+The `StrategyCapabilityRegistry` evaluates actions against actual system capabilities without fake adapters:
+
+| Strategy | Description & Repository Capabilities |
+|---|---|
+| **`API`** | Direct API adapter execution (`allow_direct_execution=True`, safe read-only operations, or direct HTTP endpoints). High reliability, minimal latency, no browser required. |
+| **`INTEGRATION`** | Application adapters registered in `integration_registry` (e.g. Google Workspace Gmail, mock CRM). Handles approved mutating and read actions within workflow context. |
+| **`SEMANTIC_UI`** | Semantic accessibility automation. Maintained in the hierarchy but strictly marked unavailable unless a real accessibility provider is registered (no fake implementations). |
+| **`BROWSER`** | Playwright browser automation on web applications (`demo_email`, `demo_crm`, `demo_chat`) supporting canonical verbs (`open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`). |
+| **`MANUAL`** | Universal human-in-the-loop fallback for unsupported, ambiguous, or safety-restricted actions. |
+
+### 4. Deterministic Strategy Scoring
+
+For each workflow step and candidate strategy, the heuristic suitability score is calculated as:
+
+$$\text{Raw} = S_{\text{cap}} + S_{\text{prio}} + S_{\text{rel}} + S_{\text{learn}} + S_{\text{cred}} - P_{\text{fail}} - P_{\text{safe}}$$
+
+$$\text{Final Score} = \text{clamp}(\text{Raw}, 0.0, 1.0)$$
+
+Where:
+- **Capability Score ($S_{\text{cap}} \in [0.0, 0.30]$)**: $0.30$ for native capability match, $0.10$ for generic manual fallback, $0.00$ if unavailable.
+- **Priority Weight ($S_{\text{prio}} \in [0.0, 0.25]$)**: Architectural hierarchy baseline weight ($\text{API} = 0.25$, $\text{INTEGRATION} = 0.20$, $\text{SEMANTIC\_UI} = 0.15$, $\text{BROWSER} = 0.10$, $\text{MANUAL} = 0.00$).
+- **Reliability Score ($S_{\text{rel}} \in [0.0, 0.25]$)**: Historical execution success rate: $\frac{\text{successes}}{\text{runs}} \times 0.25$ (or cold-start neutral baseline).
+- **Learning Score ($S_{\text{learn}} \in [0.0, 0.15]$)**: Phase 9 adaptive learning signal: $L \times 0.10$ plus $+0.05$ bonus if `RECOMMENDED` or $-0.05$ penalty if `DEPRIORITIZED`.
+- **Credential Score ($S_{\text{cred}} \in [0.0, 0.10]$)**: $+0.10$ if no credentials required or credentials verified present and valid.
+- **Failure Penalty ($P_{\text{fail}} \in [0.0, 0.50]$)**: $\frac{\text{failures}}{\text{runs}} \times 0.40$, plus $+0.10$ if the most recent execution failed on this step.
+- **Safety Penalty ($P_{\text{safe}} \in [0.0, 0.50]$)**: Deductions for missing required credentials ($+0.25$), or mutating actions on UI without safe isolation ($+0.05$).
+
+### 5. Failure-Aware Strategy Selection
+
+Nominal priority does not override empirical reliability. If a higher-priority strategy has repeatedly failed:
+- **API (Poor History)**: 2 successes, 8 failures (80% failure rate) $\rightarrow \text{Score} = 0.43$
+- **Browser (Reliable History)**: 9 successes, 1 failure (10% failure rate) $\rightarrow \text{Score} = 0.74$
+
+The planner intelligently selects **`BROWSER`** despite API's higher nominal priority.
+
+### 6. Phase 9 Learning Integration
+
+- **Read-Only Consumption**: The planner reads `WorkflowLearningState` (`learning_score`, `recommendation_status`, `execution_count`, `successful_execution_count`, `failed_execution_count`) to bias suitability.
+- **Non-Mutating**: Phase 10 never mutates learning state directly; telemetry is updated only when the execution engine completes through existing Phase 9 services.
+- **Independence**: Phase 9 learning formula and Phase 8 confidence/ranking formulas remain completely unchanged.
+
+### 7. Safe Fallback Behavior
+
+Every automated step in the plan determines a valid secondary fallback strategy:
+- If `API` is selected, `BROWSER` or `INTEGRATION` serves as fallback.
+- If no automated fallback is viable, the system designates `MANUAL` (prompting human intervention).
+- Fallback paths and reasons are recorded in `StepPlan.fallback_strategy` and `StepPlan.fallback_reason`.
+
+### 8. Safety & Explainability
+
+- **Mandatory Approval Gate**: `requires_approval` is strictly set to `True` on every plan. The planner never executes workflows or grants self-approval.
+- **Credential Protection**: External secrets, tokens, and passwords are never included in plan serialization or human-readable explanations.
+- **Explainable Decisions**: Every selected strategy contains detailed justifications (`reason`, `selected_reasons`), and every rejected alternative provides transparent rejection rationale (`rejected_strategies`).
+
+### 9. REST APIs
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/workflows/{workflow_id}/automation-plan` | Generates a deterministic automation plan for a workflow |
+| `GET` | `/api/workflows/{workflow_id}/automation-plan` | Retrieves the automation plan for an existing workflow |
+
+### 10. Known Limitations
+
+- **No Computer Vision**: WorkFlowOS strictly avoids fake or simulated computer vision models.
+- **Semantic UI Inactive**: `SEMANTIC_UI` is defined in the strategy hierarchy but marked unavailable as no accessibility driver is installed in the current environment.
+- **Deterministic Heuristics**: Scoring uses rule-based heuristic weights rather than opaque machine learning models or probabilistic estimators.
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (338 tests)
+# Full test suite across all phases (359 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Or with pytest
+.venv/bin/python -m pytest -q
+
+# Phase 10 (Intelligent Automation - 21 test scenarios)
+.venv/bin/python3 -m unittest backend.test_phase10 -v
 
 # Phase 9 (Adaptive Learning & Feedback - 24 test scenarios)
 .venv/bin/python3 -m unittest backend.test_phase9 -v
@@ -692,7 +814,8 @@ npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 9):** 338 tests · 324 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 10):** 359 tests · 345 passed · 14 skipped (live OAuth required) · 0 failures.
+
 
 ---
 

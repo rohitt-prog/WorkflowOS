@@ -390,3 +390,67 @@ export interface IntegrationSummaryItem {
   last_error?: string | null;
   actions: IntegrationActionDef[];
 }
+
+// Phase 10 Intelligent Automation types
+export type AutomationStrategyType = "API" | "INTEGRATION" | "SEMANTIC_UI" | "BROWSER" | "MANUAL";
+
+export interface StrategyScoreBreakdown {
+  capability_score: number;
+  priority_score: number;
+  reliability_score: number;
+  learning_score: number;
+  credential_score: number;
+  failure_penalty: number;
+  safety_penalty: number;
+  raw_score: number;
+  final_score: number;
+}
+
+export interface StrategyCandidate {
+  strategy: AutomationStrategyType;
+  is_available: boolean;
+  score: number;
+  score_breakdown: StrategyScoreBreakdown;
+  selection_reasons: string[];
+  rejection_reason?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface StepPlan {
+  step_id: string;
+  action: string;
+  application: string;
+  description?: string | null;
+  selected_strategy: AutomationStrategyType;
+  score: number;
+  reason: string;
+  selected_reasons: string[];
+  rejected_strategies: Record<string, string>;
+  candidates: StrategyCandidate[];
+  fallback_strategy?: AutomationStrategyType | null;
+  fallback_reason?: string | null;
+  is_mutating: boolean;
+  requires_credentials: boolean;
+  credentials_available: boolean;
+}
+
+export interface AutomationPlan {
+  plan_id: string;
+  workflow_id: string;
+  workflow_name: string;
+  selected_strategy: AutomationStrategyType;
+  overall_score: number;
+  steps: StepPlan[];
+  requires_approval: boolean;
+  fallback_available: boolean;
+  explanation: Record<string, unknown>;
+  learning_state_summary?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AutomationPlanResponse {
+  workflow_id: string;
+  plan: AutomationPlan;
+  requires_approval: boolean;
+  message: string;
+}

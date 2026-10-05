@@ -8,6 +8,7 @@ import {
   AutomationExecutionResponse,
   ApprovalStatus,
   WorkflowLearningState,
+  AutomationPlan,
 } from "@/lib/types";
 import {
   API_BASE_URL,
@@ -72,6 +73,46 @@ export default function DiscoveryView({
     }
   }, []);
 
+  // Phase 10: Intelligent Automation Plan state & fetcher
+  const [automationPlan, setAutomationPlan] = useState<AutomationPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [expandedStepWhy, setExpandedStepWhy] = useState<Record<string, boolean>>({});
+
+  const toggleStepWhy = (stepId: string) => {
+    setExpandedStepWhy((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
+  };
+
+  const fetchAutomationPlan = useCallback(async (wf: DiscoveredWorkflow) => {
+    setPlanLoading(true);
+    const wfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/workflows/${wfId}/automation-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          steps: wf.sequence.map((stepVerb, idx) => ({
+            id: `step_${idx + 1}`,
+            action: stepVerb,
+            application: stepVerb.includes("email")
+              ? "demo_email"
+              : stepVerb.includes("customer")
+              ? "demo_crm"
+              : "demo_chat",
+          })),
+          workflow_name: wf.label,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAutomationPlan(data.plan);
+      }
+    } catch {
+      // Offline or error fallback
+    } finally {
+      setPlanLoading(false);
+    }
+  }, []);
+
   const handleReview = useCallback(
     async (wf: DiscoveredWorkflow) => {
       setReviewWorkflow(wf);
@@ -87,8 +128,11 @@ export default function DiscoveryView({
       setExecutionResult(null);
       setExecutionError(null);
       setApprovalStatus(approvals[wf.label] || "idle");
+      setAutomationPlan(null);
+      setExpandedStepWhy({});
 
       fetchLearningState(wf);
+      fetchAutomationPlan(wf);
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/ai/workflow/generate`, {
@@ -121,7 +165,7 @@ export default function DiscoveryView({
         setAiLoading(false);
       }
     },
-    [approvals, fetchLearningState]
+    [approvals, fetchLearningState, fetchAutomationPlan]
   );
 
   const submitFeedback = async (
@@ -286,6 +330,8 @@ export default function DiscoveryView({
     setExecutionResult(null);
     setExecutionError(null);
     setAiError(null);
+    setAutomationPlan(null);
+    setExpandedStepWhy({});
   };
 
   return (
@@ -847,7 +893,133 @@ export default function DiscoveryView({
                     </div>
                   </div>
 
+                  {/* Phase 10: Intelligent Automation Strategy Plan */}
+                  <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#4338CA]" />
+                        <h4 className="text-xs font-bold text-[#0F172A] tracking-tight uppercase">
+                          Intelligent Automation Strategy Plan
+                        </h4>
+                        {planLoading && (
+                          <span className="text-[10px] text-indigo-600 animate-pulse font-mono font-medium">Evaluating…</span>
+                        )}
+                      </div>
+                      {automationPlan && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono font-medium text-[#64748B]">Strategy:</span>
+                          <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {automationPlan.selected_strategy} (Score: {automationPlan.overall_score.toFixed(2)})
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {planLoading ? (
+                      <div className="py-4 text-center text-xs text-[#64748B]">
+                        Analyzing workflow steps and evaluating available automation strategies…
+                      </div>
+                    ) : automationPlan && automationPlan.steps.length > 0 ? (
+                      <div className="space-y-3">
+                        <div className="overflow-x-auto border border-[#E2E8F0] rounded-lg">
+                          <table className="w-full text-left font-mono text-[11px] border-collapse bg-white">
+                            <thead>
+                              <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] text-[10px] uppercase">
+                                <th className="py-2 px-3">Step</th>
+                                <th className="py-2 px-3">Strategy</th>
+                                <th className="py-2 px-3">Score</th>
+                                <th className="py-2 px-3">Fallback</th>
+                                <th className="py-2 px-3 text-right">Rationale</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#F1F5F9]">
+                              {automationPlan.steps.map((sp) => (
+                                <React.Fragment key={sp.step_id}>
+                                  <tr className="hover:bg-[#F8FAFC]/80 transition">
+                                    <td className="py-2 px-3 font-medium text-[#0F172A]">
+                                      {formatEventStep(sp.action)}
+                                    </td>
+                                    <td className="py-2 px-3">
+                                      <span
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                          sp.selected_strategy === "API"
+                                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                            : sp.selected_strategy === "INTEGRATION"
+                                            ? "bg-blue-100 text-blue-800 border border-blue-200"
+                                            : sp.selected_strategy === "BROWSER"
+                                            ? "bg-amber-100 text-amber-800 border border-amber-200"
+                                            : "bg-slate-100 text-slate-800 border border-slate-200"
+                                        }`}
+                                      >
+                                        {sp.selected_strategy}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 font-semibold text-[#0F172A]">
+                                      {sp.score.toFixed(2)}
+                                    </td>
+                                    <td className="py-2 px-3 text-[10px] text-[#64748B]">
+                                      {sp.fallback_strategy || "Manual"}
+                                    </td>
+                                    <td className="py-2 px-3 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleStepWhy(sp.step_id)}
+                                        className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                                      >
+                                        {expandedStepWhy[sp.step_id] ? "Hide Reason" : "Why this strategy?"}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                  {expandedStepWhy[sp.step_id] && (
+                                    <tr>
+                                      <td colSpan={5} className="bg-[#F8FAFC] p-3 text-xs text-[#334155] border-l-3 border-indigo-500">
+                                        <div className="space-y-1.5 font-sans">
+                                          <div className="font-semibold text-[#1E293B]">{sp.reason}</div>
+                                          {sp.selected_reasons.length > 0 && (
+                                            <div className="text-[11px] text-emerald-800 space-y-0.5">
+                                              {sp.selected_reasons.map((r, idx) => (
+                                                <div key={idx}>✓ {r}</div>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {Object.keys(sp.rejected_strategies).length > 0 && (
+                                            <div className="text-[11px] text-[#64748B] pt-1">
+                                              <span className="font-semibold text-[#475569]">Alternatives Evaluated:</span>
+                                              {Object.entries(sp.rejected_strategies).map(([strat, reason]) => (
+                                                <div key={strat} className="text-[#64748B] mt-0.5">
+                                                  • <span className="font-medium text-[#334155]">{strat}</span>: {reason}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="bg-[#F1F5F9] border border-[#E2E8F0] rounded-lg p-2.5 text-xs text-[#334155] flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <span>
+                            🛡️ <strong>Safety Model:</strong> Human approval gate is mandatory. Execution requires explicit confirmation.
+                          </span>
+                          <span className="text-[10px] font-mono text-[#64748B]">
+                            Deterministic Heuristic Plan (not probability)
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-[#64748B] italic">
+                        Select a workflow to generate an intelligent automation plan.
+                      </div>
+                    )}
+                  </div>
+
                   {/* Phase 9: Adaptive Learning & Recommendation Telemetry */}
+
                   <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-2.5">
                       <div className="flex items-center gap-2">
