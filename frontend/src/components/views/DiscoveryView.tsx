@@ -380,6 +380,149 @@ export default function DiscoveryView({
                       })}
                     </div>
                   </div>
+
+                  {/* Phase 8.4 Explainability Accordion: "Why was this detected?" */}
+                  <details className="group mt-3 border border-[#E2E8F0] rounded-xl bg-slate-50/60 p-3 text-xs transition">
+                    <summary className="font-semibold text-[#334155] flex items-center justify-between cursor-pointer select-none">
+                      <div className="flex items-center gap-2">
+                        <svg
+                          className="w-3.5 h-3.5 text-[#64748B] transition group-open:rotate-90"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span>Why was this detected?</span>
+                        <span className="text-[10px] font-mono font-normal px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                          Explainability Evidence
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-normal text-[#94A3B8]">
+                        Deterministic alignment & ranking metrics
+                      </span>
+                    </summary>
+
+                    <div className="mt-3 pt-3 border-t border-[#E2E8F0] space-y-3">
+                      {/* Detection Criteria */}
+                      <div>
+                        <div className="font-semibold text-[#0F172A] mb-1 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                          <span>Detection Criteria & Session Support</span>
+                        </div>
+                        <p className="text-[#475569] leading-relaxed">
+                          {wf.explanation?.detection_reason || `Qualified based on ${wf.occurrences} observed sessions meeting the discovery threshold.`}
+                        </p>
+                        {wf.explanation?.supporting_sessions && wf.explanation.supporting_sessions.length > 0 && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] text-[#64748B]">Supporting sessions:</span>
+                            {wf.explanation.supporting_sessions.map((s, idx) => (
+                              <span key={idx} className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white border border-[#CBD5E1] text-[#334155]">
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Alignment & Consistency Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                        <div className="bg-white border border-[#E2E8F0] rounded-lg p-2.5">
+                          <div className="font-semibold text-[#0F172A] mb-1">Sequence Alignment Fidelity</div>
+                          <p className="text-[#475569] mb-2">
+                            {wf.explanation?.sequence_evidence?.variations_summary || `Average alignment similarity: ${Math.round(wf.similarity * 100)}%`}
+                          </p>
+                          <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              {wf.explanation?.sequence_evidence?.exact_match_sessions_count ?? wf.occurrences} exact replays
+                            </span>
+                            {(wf.explanation?.sequence_evidence?.total_insertions_observed ?? 0) > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                {wf.explanation?.sequence_evidence?.total_insertions_observed} insertions tolerated
+                              </span>
+                            )}
+                            {(wf.explanation?.sequence_evidence?.total_transpositions_observed ?? 0) > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                                {wf.explanation?.sequence_evidence?.total_transpositions_observed} step swaps tolerated
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-[#E2E8F0] rounded-lg p-2.5">
+                          <div className="font-semibold text-[#0F172A] mb-1">Session Replay Consistency</div>
+                          <p className="text-[#475569] mb-2">
+                            {wf.explanation?.consistency_evidence?.consistency_description || `Consistency ratio: ${wf.explanation?.consistency_evidence?.exact_replay_percentage ?? 100}%`}
+                          </p>
+                          <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                              {wf.explanation?.sequence_evidence?.action_diversity_ratio ? `Action Diversity: ${Math.round(wf.explanation.sequence_evidence.action_diversity_ratio * 100)}%` : "High Diversity"}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              {wf.explanation?.quality_explanation?.split(":")[0] || `Quality: ${wf.quality_tier || "Standard"}`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Confidence & Ranking Factors */}
+                      {(wf.explanation?.confidence_factors || wf.explanation?.ranking_factors) && (
+                        <div className="bg-white border border-[#E2E8F0] rounded-lg p-2.5 space-y-2">
+                          <div className="font-semibold text-[#0F172A]">Key Scoring Drivers & Limiting Factors</div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                            {/* Strengths / Drivers */}
+                            <div>
+                              <span className="text-[#059669] font-medium block mb-1">Primary Positive Drivers:</span>
+                              <ul className="list-disc list-inside space-y-0.5 text-[#334155]">
+                                {wf.explanation?.confidence_factors?.primary_strengths?.map((str, idx) => (
+                                  <li key={idx}>{str}</li>
+                                ))}
+                                {wf.explanation?.ranking_factors?.primary_drivers?.map((drv, idx) => (
+                                  <li key={`r-${idx}`}>{drv}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            {/* Limiting Factors */}
+                            <div>
+                              <span className="text-[#D97706] font-medium block mb-1">Limiting Factors / Trade-offs:</span>
+                              {((wf.explanation?.confidence_factors?.limiting_factors?.length ?? 0) > 0 || (wf.explanation?.ranking_factors?.limiting_factors?.length ?? 0) > 0) ? (
+                                <ul className="list-disc list-inside space-y-0.5 text-[#475569]">
+                                  {wf.explanation?.confidence_factors?.limiting_factors?.map((lim, idx) => (
+                                    <li key={idx}>{lim}</li>
+                                  ))}
+                                  {wf.explanation?.ranking_factors?.limiting_factors?.map((lim, idx) => (
+                                    <li key={`r-${idx}`}>{lim}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <span className="text-[#64748B] italic">No significant limiting factors identified.</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Representative Rationale if applicable */}
+                      {wf.explanation?.representative_explanation && (
+                        <div className="text-[11px] text-[#475569] bg-blue-50/50 border border-blue-100 rounded-lg p-2">
+                          <strong className="text-blue-900">Representative Rationale:</strong> {wf.explanation.representative_explanation}
+                        </div>
+                      )}
+
+                      {/* Limitations Disclaimer */}
+                      {wf.explanation?.limitations && wf.explanation.limitations.length > 0 && (
+                        <div className="text-[10px] text-[#64748B] border-t border-[#E2E8F0] pt-2 space-y-0.5">
+                          {wf.explanation.limitations.map((limit, lIdx) => (
+                            <div key={lIdx} className="flex items-start gap-1">
+                              <span className="text-amber-500 font-bold">&bull;</span>
+                              <span>{limit}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 </div>
 
                 {/* Bottom Action Footer */}
@@ -430,9 +573,25 @@ export default function DiscoveryView({
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] font-mono text-[#64748B]">
+                      <div className="text-[11px] font-mono text-[#64748B] mb-1">
                         {sw.sequence.join(" \u2192 ")}
                       </div>
+                      {sw.explanation?.suppression_explanation && (
+                        <p className="text-[11px] text-[#475569] mt-1 leading-snug">
+                          {sw.explanation.suppression_explanation}
+                        </p>
+                      )}
+                      {sw.explanation?.suppression_evidence?.measured_value && (
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-[#64748B] font-mono">
+                          <span>Measured: <strong className="text-[#334155]">{sw.explanation.suppression_evidence.measured_value}</strong></span>
+                          {sw.explanation.suppression_evidence.threshold_criterion && (
+                            <>
+                              <span>&bull;</span>
+                              <span>Criterion: {sw.explanation.suppression_evidence.threshold_criterion}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 text-[11px] text-[#94A3B8] font-mono shrink-0">
                       <span>{sw.occurrences} sess</span>

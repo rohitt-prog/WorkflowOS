@@ -275,15 +275,7 @@ def assess_candidate_noise(
     length = len(sequence)
     unique_count = len(set(sequence))
 
-    # 1. Filter by explicit min_ranking_score threshold if configured
-    if min_ranking_score is not None and ranking_score < min_ranking_score:
-        return SuppressionReason.LOW_QUALITY_SCORE.value
-
-    # 2. Insufficient distinct session support
-    if occurrences < min_occurrences:
-        return SuppressionReason.INSUFFICIENT_DISTINCT_SESSIONS.value
-
-    # 3. Noise filtering (active when filter_noise=True or min_ranking_score is set)
+    # 1. Noise filtering (active when filter_noise=True or min_ranking_score is set)
     if filter_noise:
         # Monotonous repetition: single action loop (e.g. view_dashboard x 3)
         if unique_count <= 1 and length >= 2:
@@ -292,5 +284,13 @@ def assess_candidate_noise(
         # Low action diversity: severe lack of distinct verbs (e.g. 1 unique in 4+ steps)
         if length >= 3 and (unique_count / length) < 0.35:
             return SuppressionReason.LOW_ACTION_DIVERSITY.value
+
+    # 2. Insufficient distinct session support
+    if occurrences < min_occurrences:
+        return SuppressionReason.INSUFFICIENT_DISTINCT_SESSIONS.value
+
+    # 3. Filter by explicit min_ranking_score threshold if configured
+    if min_ranking_score is not None and ranking_score < min_ranking_score:
+        return SuppressionReason.LOW_QUALITY_SCORE.value
 
     return None

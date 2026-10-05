@@ -2,11 +2,13 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from discovery.confidence import ConfidenceBreakdown
 from discovery.ranking import RankingBreakdown
+from discovery.explanation import WorkflowExplanation
 
 class DiscoveredWorkflow(BaseModel):
     """
     Represents a detected repeated workflow candidate across user sessions.
     Enhanced in Phase 8.3 with pattern ranking, noise filtering, and duplicate tracking.
+    Enhanced in Phase 8.4 with structured, evidence-grounded explainability.
     """
     label: str = Field(
         default="Repeated Workflow",
@@ -87,6 +89,12 @@ class DiscoveredWorkflow(BaseModel):
         description="Reason for filtering or suppression: MONOTONOUS_REPETITION, OVERLAPPING_SHADOW, EXACT_DUPLICATE, etc."
     )
 
+    # Phase 8.4 Explainability fields
+    explanation: Optional[WorkflowExplanation] = Field(
+        default=None,
+        description="Structured deterministic explainability metadata grounded in observed evidence"
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -108,7 +116,12 @@ class DiscoveredWorkflow(BaseModel):
                 "rank": 1,
                 "ranking_score": 0.88,
                 "quality_tier": "exceptional",
-                "is_duplicate": False
+                "is_duplicate": False,
+                "explanation": {
+                    "summary": "Ranked #1 · 5-step workflow with 88/100 exceptional quality across 3 sessions (89% confidence).",
+                    "detection_reason": "Qualified as a repeated workflow across 3 distinct sessions with identical execution.",
+                    "supporting_sessions": ["session_001", "session_002", "session_003"]
+                }
             }
         }
     }

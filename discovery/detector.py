@@ -28,6 +28,7 @@ from discovery.ranking import (
     calculate_ranking_score,
     generate_ranking_explanation,
 )
+from discovery.explanation import build_workflow_explanation
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,7 @@ class RepetitionDetector:
 
         for pattern_tuple in candidate_patterns:
             pattern = list(pattern_tuple)
-            matched_sessions: List[Tuple[str, float]] = []
+            matched_sessions: List[Tuple[str, Any]] = []
 
             for sid, seq in qualified_sessions.items():
                 align_res = local_sequence_alignment(
@@ -265,17 +266,18 @@ class RepetitionDetector:
                 )
                 if align_res.is_match:
                     # Each session ID can only match ONCE per candidate pattern
-                    matched_sessions.append((sid, align_res.similarity))
+                    matched_sessions.append((sid, align_res))
 
             # Verify occurrence threshold across distinct sessions
             if len(matched_sessions) >= self.min_occurrences:
+                sim_list = [ar.similarity for _, ar in matched_sessions]
+                alignment_results = [ar for _, ar in matched_sessions]
                 avg_similarity = round(
-                    sum(sim for _, sim in matched_sessions) / len(matched_sessions),
+                    sum(sim_list) / len(sim_list),
                     4,
                 )
-                exact_count = sum(1 for _, sim in matched_sessions if sim >= 0.999)
+                exact_count = sum(1 for ar in alignment_results if ar.similarity >= 0.999)
                 session_ids = [sid for sid, _ in matched_sessions]
-                sim_list = [sim for _, sim in matched_sessions]
 
                 # Phase 8.1 Confidence Scoring
                 confidence, breakdown, tier, explanation = calculate_pattern_confidence(
@@ -309,6 +311,8 @@ class RepetitionDetector:
                     "similarity": avg_similarity,
                     "exact_count": exact_count,
                     "session_ids": session_ids,
+                    "alignment_results": alignment_results,
+                    "session_similarities": sim_list,
                     "confidence": confidence,
                     "confidence_tier": tier,
                     "confidence_breakdown": breakdown,
@@ -320,6 +324,7 @@ class RepetitionDetector:
                     "session_consistency": session_consistency,
                     "is_duplicate": False,
                     "representative_pattern_id": None,
+                    "representative_workflow": None,
                     "suppression_reason": None,
                 })
 
@@ -369,6 +374,7 @@ class RepetitionDetector:
                     cand["is_duplicate"] = True
                     cand["suppression_reason"] = SuppressionReason.EXACT_DUPLICATE.value
                     cand["representative_pattern_id"] = get_deterministic_label(acc["sequence"])
+                    cand["representative_workflow"] = acc
                     is_exact_dup = True
                     break
             if is_exact_dup:
@@ -379,10 +385,12 @@ class RepetitionDetector:
             is_redundant = False
             rep_label: Optional[str] = None
             rep_reason: Optional[str] = None
+            rep_workflow_dict: Optional[Dict[str, Any]] = None
 
             # Subsumption Case 1: Multi-parent complete session coverage across accepted super-sequences
             sub_covered_sessions = set()
             covering_label: Optional[str] = None
+            covering_acc: Optional[Dict[str, Any]] = None
             for acc in accepted_metadata:
                 a_seq = acc["sequence"]
                 a_sessions = set(acc["session_ids"])
@@ -390,6 +398,7 @@ class RepetitionDetector:
                     sub_covered_sessions.update(c_sessions & a_sessions)
                     if not covering_label:
                         covering_label = get_deterministic_label(a_seq)
+                        covering_acc = acc
 
             independent_outside_super = c_sessions - sub_covered_sessions
             if (
@@ -400,6 +409,7 @@ class RepetitionDetector:
                 is_redundant = True
                 rep_label = covering_label
                 rep_reason = SuppressionReason.OVERLAPPING_SHADOW.value
+                rep_workflow_dict = covering_acc
 
             if not is_redundant:
                 for acc in accepted_metadata:
@@ -419,6 +429,7 @@ class RepetitionDetector:
                             is_redundant = True
                             rep_label = get_deterministic_label(a_seq)
                             rep_reason = SuppressionReason.OVERLAPPING_SHADOW.value
+                            rep_workflow_dict = acc
                             break
 
                     # Subsumption Case 3: Near-duplicate variant with high alignment and session overlap
@@ -428,20 +439,24 @@ class RepetitionDetector:
                         is_redundant = True
                         rep_label = get_deterministic_label(a_seq)
                         rep_reason = SuppressionReason.SIMILAR_VARIANT_OVERLAP.value
+                        rep_workflow_dict = acc
                         break
 
                     # Subsumption Case 4: c_seq and a_seq share majority actions and sessions (shadow pattern)
-                    act_overlap = len(c_actions & a_actions) / len(c_actions)
-                    if act_overlap >= 0.60 and sess_overlap >= 0.60:
-                        is_redundant = True
-                        rep_label = get_deterministic_label(a_seq)
-                        rep_reason = SuppressionReason.OVERLAPPING_SHADOW.value
-                        break
+                    if len(c_seq) <= len(a_seq):
+                        act_overlap = len(c_actions & a_actions) / len(c_actions)
+                        if act_overlap >= 0.60 and sess_overlap >= 0.60:
+                            is_redundant = True
+                            rep_label = get_deterministic_label(a_seq)
+                            rep_reason = SuppressionReason.OVERLAPPING_SHADOW.value
+                            rep_workflow_dict = acc
+                            break
 
             if is_redundant:
                 cand["is_duplicate"] = True
                 cand["suppression_reason"] = rep_reason or SuppressionReason.OVERLAPPING_SHADOW.value
                 cand["representative_pattern_id"] = rep_label
+                cand["representative_workflow"] = rep_workflow_dict
                 suppressed_candidates.append(cand)
             else:
                 accepted_metadata.append(cand)
@@ -484,6 +499,32 @@ class RepetitionDetector:
                 breakdown=cand["ranking_breakdown"],
             )
 
+            # Phase 8.4 Structured Explainability Model
+            cand["explanation"] = build_workflow_explanation(
+                sequence=cand["sequence"],
+                occurrences=cand["occurrences"],
+                avg_similarity=cand["similarity"],
+                session_ids=cand["session_ids"],
+                confidence=cand["confidence"],
+                confidence_tier=cand["confidence_tier"],
+                confidence_breakdown=cand["confidence_breakdown"],
+                confidence_explanation=cand["confidence_explanation"],
+                rank=rank_idx,
+                ranking_score=cand["ranking_score"],
+                quality_tier=cand["quality_tier"],
+                ranking_breakdown=cand["ranking_breakdown"],
+                ranking_explanation=cand["ranking_explanation"],
+                alignment_results=cand.get("alignment_results"),
+                session_similarities=cand.get("session_similarities"),
+                is_duplicate=False,
+                suppression_reason=None,
+                representative_pattern_id=get_deterministic_label(cand["sequence"]),
+                min_length=self.min_length,
+                min_occurrences=self.min_occurrences,
+                similarity_threshold=self.similarity_threshold,
+                min_ranking_score=effective_min_ranking,
+            )
+
             accepted_workflows.append(
                 DiscoveredWorkflow(
                     label=get_deterministic_label(cand["sequence"]),
@@ -503,11 +544,39 @@ class RepetitionDetector:
                     is_duplicate=cand["is_duplicate"],
                     representative_pattern_id=cand["representative_pattern_id"],
                     suppression_reason=cand["suppression_reason"],
+                    explanation=cand["explanation"],
                 )
             )
 
         suppressed_workflows: List[DiscoveredWorkflow] = []
         for cand in suppressed_candidates:
+            # Phase 8.4 Structured Explainability Model for Suppressed Candidates
+            cand["explanation"] = build_workflow_explanation(
+                sequence=cand["sequence"],
+                occurrences=cand["occurrences"],
+                avg_similarity=cand["similarity"],
+                session_ids=cand["session_ids"],
+                confidence=cand["confidence"],
+                confidence_tier=cand["confidence_tier"],
+                confidence_breakdown=cand["confidence_breakdown"],
+                confidence_explanation=cand["confidence_explanation"],
+                rank=None,
+                ranking_score=cand["ranking_score"],
+                quality_tier=cand["quality_tier"],
+                ranking_breakdown=cand["ranking_breakdown"],
+                ranking_explanation=cand["ranking_explanation"],
+                alignment_results=cand.get("alignment_results"),
+                session_similarities=cand.get("session_similarities"),
+                is_duplicate=cand.get("is_duplicate", False),
+                suppression_reason=cand.get("suppression_reason"),
+                representative_pattern_id=cand.get("representative_pattern_id"),
+                representative_workflow=cand.get("representative_workflow"),
+                min_length=self.min_length,
+                min_occurrences=self.min_occurrences,
+                similarity_threshold=self.similarity_threshold,
+                min_ranking_score=effective_min_ranking,
+            )
+
             suppressed_workflows.append(
                 DiscoveredWorkflow(
                     label=get_deterministic_label(cand["sequence"]),
@@ -527,6 +596,7 @@ class RepetitionDetector:
                     is_duplicate=cand["is_duplicate"],
                     representative_pattern_id=cand["representative_pattern_id"],
                     suppression_reason=cand["suppression_reason"],
+                    explanation=cand["explanation"],
                 )
             )
 

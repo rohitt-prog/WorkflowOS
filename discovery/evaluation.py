@@ -901,11 +901,79 @@ def evaluate_discovery_engine(
     )
 
 
+def validate_workflow_explanations(workflows: List[DiscoveredWorkflow]) -> Dict[str, Any]:
+    """
+    Validates that each discovered workflow's structured explanation is present,
+    mathematically grounded in the underlying metrics, and free of hallucinated steps.
+    """
+    total = len(workflows)
+    validated = 0
+    checks_passed = 0
+    total_checks = 0
+
+    for wf in workflows:
+        if not wf.explanation:
+            continue
+        exp = wf.explanation
+
+        # Check 1: Session counts match
+        total_checks += 1
+        if exp.occurrence_evidence.distinct_sessions_observed == wf.occurrences:
+            checks_passed += 1
+
+        # Check 2: Sequence length matches
+        total_checks += 1
+        if exp.sequence_evidence.sequence_length == len(wf.sequence):
+            checks_passed += 1
+
+        # Check 3: Alignment score matches
+        total_checks += 1
+        if abs(exp.sequence_evidence.average_alignment_score - wf.similarity) < 0.001:
+            checks_passed += 1
+
+        # Check 4: Confidence score matches
+        total_checks += 1
+        if abs(exp.confidence_factors.score - wf.confidence) < 0.001:
+            checks_passed += 1
+
+        # Check 5: Ranking score matches
+        if wf.ranking_score is not None:
+            total_checks += 1
+            if abs(exp.ranking_factors.score - wf.ranking_score) < 0.001:
+                checks_passed += 1
+
+        # Check 6: Quality tier matches
+        if wf.quality_tier is not None:
+            total_checks += 1
+            if exp.ranking_factors.tier == wf.quality_tier:
+                checks_passed += 1
+
+        # Check 7: Canonical sequence matches exactly
+        total_checks += 1
+        if exp.sequence_evidence.canonical_sequence == wf.sequence:
+            checks_passed += 1
+
+        # Check 8: Limitations present
+        total_checks += 1
+        if len(exp.limitations) >= 2:
+            checks_passed += 1
+
+        validated += 1
+
+    return {
+        "workflows_evaluated": total,
+        "workflows_with_explanations": validated,
+        "checks_passed": checks_passed,
+        "total_checks": total_checks,
+        "explainability_validity_rate": (checks_passed / total_checks) if total_checks > 0 else 1.0,
+    }
+
+
 if __name__ == "__main__":
     complete_dataset = build_complete_benchmark_dataset()
 
     print("=========================================================================================")
-    print("      WORKFLOWOS DISCOVERY BENCHMARK: PHASE 8.1 vs PHASE 8.2 vs PHASE 8.3                ")
+    print("      WORKFLOWOS DISCOVERY BENCHMARK: PHASE 8.1 vs PHASE 8.2 vs PHASE 8.3 / 8.4          ")
     print("=========================================================================================")
 
     # 1. Baseline Phase 8.1 detector on full 24-scenario dataset
@@ -916,7 +984,7 @@ if __name__ == "__main__":
     p82_detector = RepetitionDetector(min_length=3, min_occurrences=2, similarity_threshold=0.8)
     report_p82 = evaluate_discovery_engine(detector=p82_detector, dataset=complete_dataset)
 
-    # 3. Phase 8.3 detector with ranking & noise reduction (filter_noise=True, min_ranking_score=0.70)
+    # 3. Phase 8.3/8.4 detector with ranking, noise reduction & explainability
     p83_ranked = RepetitionDetector(
         min_length=3,
         min_occurrences=2,
@@ -928,8 +996,8 @@ if __name__ == "__main__":
 
     print(f"Dataset Size: {len(complete_dataset)} Scenarios (8 P8.1 + 8 P8.2 + 8 P8.3)")
     print(f"")
-    print(f"Metric                    | Phase 8.1 Baseline | Phase 8.2 Smarter  | Phase 8.3 Ranked & Clean")
-    print(f"--------------------------|--------------------|--------------------|-------------------------")
+    print(f"Metric                    | Phase 8.1 Baseline | Phase 8.2 Smarter  | Phase 8.3/8.4 Ranked & Clean")
+    print(f"--------------------------|--------------------|--------------------|-----------------------------")
     print(f"Precision                 | {report_legacy.precision:.4f} ({report_legacy.precision*100:.1f}%)     | {report_p82.precision:.4f} ({report_p82.precision*100:.1f}%)     | {report_p83.precision:.4f} ({report_p83.precision*100:.1f}%)")
     print(f"Recall                    | {report_legacy.recall:.4f} ({report_legacy.recall*100:.1f}%)     | {report_p82.recall:.4f} ({report_p82.recall*100:.1f}%)    | {report_p83.recall:.4f} ({report_p83.recall*100:.1f}%)")
     print(f"F1 Score                  | {report_legacy.f1_score:.4f}             | {report_p82.f1_score:.4f}             | {report_p83.f1_score:.4f}")
@@ -941,31 +1009,45 @@ if __name__ == "__main__":
     print(f"Duplicates Suppressed     | {report_legacy.duplicate_suppressions:<18} | {report_p82.duplicate_suppressions:<18} | {report_p83.duplicate_suppressions}")
     print("=========================================================================================")
 
-    print("\nDetailed Scenario Breakdown (Phase 8.3 Ranked Detector):")
-    for d in report_p83.scenario_details:
-        status_str = "PASS" if (d["fp"] == 0 and d["fn"] == 0) else "WARN"
-        print(f"  [{status_str}] {d['scenario_id']:<45}: TP={d['tp']}, FP={d['fp']}, FN={d['fn']}, TN={d['tn']}")
+    # Explainability Audit across all discovered workflows
+    all_discovered_workflows: List[DiscoveredWorkflow] = []
+    for sc in complete_dataset:
+        res = p83_ranked.detect(sc.session_sequences, include_suppressed=True)
+        all_discovered_workflows.extend(res.workflows)
+
+    audit_res = validate_workflow_explanations(all_discovered_workflows)
+    print("\nPhase 8.4 Explainability Verification Audit:")
+    print(f"  Total Workflows Evaluated:          {audit_res['workflows_evaluated']}")
+    print(f"  Workflows With Valid Explanations:  {audit_res['workflows_with_explanations']}")
+    print(f"  Explainability Evidence Checks:     {audit_res['checks_passed']}/{audit_res['total_checks']} passed ({audit_res['explainability_validity_rate']*100:.1f}%)")
 
     print("\n-----------------------------------------------------------------------------------------")
-    print("Sample Phase 8.3 Ranked Discoveries with Utility Scores & Quality Tiers:")
+    print("Sample Phase 8.4 Explainable Discoveries with Evidence Breakdown:")
     for sc_id in [
-        "scenario_17_exact_duplicates",
+        "scenario_1_identical_repeated",
+        "scenario_10_interleaved_inserted_actions",
+        "scenario_12_adjacent_step_transpositions",
         "scenario_18_overlapping_shadow_subsequence",
-        "scenario_21_distinct_business_workflows",
-        "scenario_22_variable_support_ranking",
         "scenario_23_legitimate_repeated_actions",
     ]:
         matching_sc = next(s for s in complete_dataset if s.scenario_id == sc_id)
         res = p83_ranked.detect(matching_sc.session_sequences, include_suppressed=True)
         print(f"\nScenario: {matching_sc.name}")
         for wf in res.workflows:
-            print(f"  -> Discovered: {wf.label}")
-            print(f"     Rank:        #{wf.rank} | Score: {wf.ranking_score:.4f} ({wf.quality_tier})")
-            print(f"     Sequence:    {' -> '.join(wf.sequence)}")
-            print(f"     Explanation: {wf.ranking_explanation}")
+            print(f"  -> Discovered: {wf.label} (Rank #{wf.rank}, {wf.quality_tier})")
+            print(f"     Summary:          {wf.explanation.summary if wf.explanation else 'N/A'}")
+            print(f"     Detection Reason: {wf.explanation.detection_reason if wf.explanation else 'N/A'}")
+            if wf.explanation:
+                print(f"     Fidelity:         {wf.explanation.sequence_evidence.variations_summary}")
+                print(f"     Consistency:      {wf.explanation.consistency_evidence.consistency_description}")
+                print(f"     Drivers:          {', '.join(wf.explanation.ranking_factors.primary_drivers)}")
+                print(f"     Limitations:      {wf.explanation.limitations[0]}")
         if res.suppressed_workflows:
-            print(f"     [Suppressed Candidates]: {len(res.suppressed_workflows)}")
-            for sw in res.suppressed_workflows[:2]:
-                print(f"       * {sw.suppression_reason}: {' -> '.join(sw.sequence)} (rep: {sw.representative_pattern_id})")
+            for sw in res.suppressed_workflows[:1]:
+                print(f"     [Suppressed]:     {sw.label} ({sw.suppression_reason})")
+                if sw.explanation:
+                    print(f"       Rationale:      {sw.explanation.suppression_explanation}")
+                    if sw.explanation.suppression_evidence:
+                        print(f"       Measured:       {sw.explanation.suppression_evidence.measured_value} (criterion: {sw.explanation.suppression_evidence.threshold_criterion})")
     print("=========================================================================================")
 

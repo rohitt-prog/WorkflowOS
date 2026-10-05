@@ -38,6 +38,75 @@ export interface RankingBreakdown {
   raw_signals?: Record<string, unknown>;
 }
 
+export interface OccurrenceEvidence {
+  distinct_sessions_observed: number;
+  min_sessions_required: number;
+  threshold_satisfied: boolean;
+  repetition_description: string;
+}
+
+export interface SequenceEvidence {
+  canonical_sequence: string[];
+  sequence_length: number;
+  unique_actions_count: number;
+  action_diversity_ratio: number;
+  average_alignment_score: number;
+  exact_match_sessions_count: number;
+  approximate_match_sessions_count: number;
+  total_insertions_observed: number;
+  total_deletions_observed: number;
+  total_transpositions_observed: number;
+  variations_summary: string;
+}
+
+export interface ConsistencyEvidence {
+  exact_replay_percentage: number;
+  is_fully_consistent: boolean;
+  consistency_description: string;
+}
+
+export interface ConfidenceFactorBreakdown {
+  score: number;
+  tier: string;
+  primary_strengths: string[];
+  limiting_factors: string[];
+}
+
+export interface RankingFactorBreakdown {
+  score: number;
+  rank?: number | null;
+  tier: string;
+  primary_drivers: string[];
+  limiting_factors: string[];
+}
+
+export interface SuppressionEvidence {
+  is_suppressed: boolean;
+  suppression_reason?: string | null;
+  threshold_criterion?: string | null;
+  measured_value?: string | null;
+  representative_pattern_id?: string | null;
+  representative_rationale?: string | null;
+}
+
+export interface WorkflowExplanation {
+  summary: string;
+  detection_reason: string;
+  supporting_sessions: string[];
+  occurrence_evidence: OccurrenceEvidence;
+  sequence_evidence: SequenceEvidence;
+  consistency_evidence: ConsistencyEvidence;
+  confidence_explanation: string;
+  confidence_factors: ConfidenceFactorBreakdown;
+  ranking_explanation: string;
+  ranking_factors: RankingFactorBreakdown;
+  quality_explanation: string;
+  suppression_explanation?: string | null;
+  suppression_evidence?: SuppressionEvidence | null;
+  representative_explanation?: string | null;
+  limitations: string[];
+}
+
 export interface DiscoveredWorkflow {
   label: string;
   sequence: string[];
@@ -57,6 +126,8 @@ export interface DiscoveredWorkflow {
   is_duplicate?: boolean;
   representative_pattern_id?: string;
   suppression_reason?: string;
+  // Phase 8.4 Explainability fields
+  explanation?: WorkflowExplanation;
 }
 
 export interface DiscoveryResult {

@@ -63,6 +63,7 @@
 | **Phase 8.1** | Discovery Evaluation & Calibrated Confidence Scoring | ✅ Complete |
 | **Phase 8.2** | Smarter Sequence Detection & Dynamic Local Alignment | ✅ Complete |
 | **Phase 8.3** | Pattern Ranking, Noise Reduction & Duplicate Detection | ✅ Complete |
+| **Phase 8.4** | Explainable Discovery & Empirical Verification | ✅ Complete |
 
 ---
 
@@ -521,14 +522,40 @@ Evaluated via `.venv/bin/python -m discovery.evaluation`:
 - **Phase 8.1 Baseline**: Precision = 91.3%, Recall = 95.5%, F1 = 0.9333, Acc = 89.7%
 - **Phase 8.2 Smarter Detector**: Precision = 91.7%, Recall = **100.0%**, F1 = 0.9565, Acc = 93.1%
 - **Phase 8.3 Ranking & Noise Reduction**: Precision = **100.0%**, Recall = **100.0%**, F1 = **1.0000**, Acc = **100.0%**, Duplicates Suppressed = **123**
+- **Phase 8.4 Explainable Discovery**: Precision = **100.0%**, Recall = **100.0%**, F1 = **1.0000**, Acc = **100.0%**, Explainability Audit = **100.0%** (176/176 evidence checks passed)
+
+---
+
+## Phase 8.4 — Explainable Discovery & Empirical Verification
+
+Phase 8.4 equips WorkFlowOS with a deterministic, non-hallucinatory explainability engine that explains all discovery, confidence, ranking, and suppression decisions using computed evidence:
+
+### 1. Zero-Hallucination Architecture
+- **No LLM in Explanation Path**: Explanations are synthesized directly from actual computed metrics (session counts, alignment edit distances, entropy ratios, and deduplication overlaps).
+- **Distinction of Concepts**: Clearly delineates observed facts (timestamps, sessions), algorithmic measurements (alignment score, edit distances), and heuristic operational scores (ranking utility $R$).
+
+### 2. Structured Explainability Model (`WorkflowExplanation`)
+- **Detection Reason**: Explicit threshold qualification, exact vs. approximate replay counts, and tolerated structural variations (insertions, deletions, transpositions).
+- **Confidence & Ranking Drivers**: Itemized breakdown of positive drivers (e.g. high alignment, step savings) and limiting factors.
+- **Suppression Evidence**: Explicit rejection reasons (`monotonous_repeated_actions`, `marginal_ranking_score`, `insufficient_occurrences`, `overlapping_shadow`, `similar_variant_overlap`), measured values vs. criterion thresholds, and canonical representative references.
+
+### 3. Privacy-Safe Session Masking
+- Session identifiers are masked with salted SHA-256 prefixes (`s_a1b2c3d4...`), preventing exposure of raw session tokens.
+- Complete activity payloads, keystrokes, and authentication tokens are strictly excluded from explanation fields.
+
+### 4. Frontend Experience
+- Discovery cards include an expandable **"Why was this detected?"** accordion disclosing sequence fidelity, order consistency bars, scoring drivers, heuristic disclaimers, and suppressed candidate details.
 
 ---
 
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (296 tests)
+# Full test suite across all phases (300 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Phase 8.4 (Explainable Discovery & Empirical Validation)
+.venv/bin/python3 -m unittest backend.test_phase8_4 -v
 
 # Phase 8.3 (Pattern Ranking, Noise Reduction & Duplicate Detection)
 .venv/bin/python3 -m unittest backend.test_phase8_3 -v
@@ -539,7 +566,7 @@ Evaluated via `.venv/bin/python -m discovery.evaluation`:
 # Phase 8.1 (Discovery Evaluation & Confidence Scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run the 24-Scenario Synthetic Discovery Benchmark
+# Run the 24-Scenario Synthetic Discovery Benchmark with Explainability Audit
 .venv/bin/python3 -m discovery.evaluation
 
 # Phase 7.4 (Reliability, Security & Recovery)
@@ -563,7 +590,7 @@ frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 8.3):** 296 tests · 282 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 8.4):** 300 tests · 286 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 

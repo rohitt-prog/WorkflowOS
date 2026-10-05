@@ -1,8 +1,8 @@
-# WorkFlowOS — Discovery Module & Pattern Intelligence (Phases 2, 8.1, 8.2, & 8.3)
+# WorkFlowOS — Discovery Module & Pattern Intelligence (Phases 2, 8.1, 8.2, 8.3, & 8.4)
 
-The **Discovery** module observes recorded user activity events, identifies recurring workflows across user sessions, evaluates pattern quality against a deterministic ground-truth benchmark, calculates transparent confidence scores, ranks patterns by operational utility, suppresses noise, and detects duplicate variants.
+The **Discovery** module observes recorded user activity events, identifies recurring workflows across user sessions, evaluates pattern quality against a deterministic ground-truth benchmark, calculates transparent confidence scores, ranks patterns by operational utility, suppresses noise, detects duplicate variants, and generates fully grounded, explainable discovery decisions.
 
-Discovery is a deterministic system — no LLMs, probabilistic guessing, or external APIs are used in pattern matching, ranking, or duplicate detection.
+Discovery is a deterministic system — no LLMs, probabilistic guessing, or external APIs are used in pattern matching, ranking, duplicate detection, or explainability synthesis.
 
 ---
 
@@ -23,13 +23,15 @@ confidence.py    — Calculates 5 deterministic signals + composite confidence s
 ranking.py       — Evaluates automation utility ($R \in [0.0, 1.0]$), assigns quality tiers, suppresses noise,
                    and detects exact duplicates and overlapping variants
     ↓
-service.py       — Orchestrates sequence fetch + repetition detection + confidence scoring + ranking
+explanation.py   — Synthesizes fully grounded, non-hallucinatory WorkflowExplanation objects from empirical metrics
     ↓
-models.py        — Pydantic models: DiscoveredWorkflow, DiscoveryResult, ConfidenceBreakdown, RankingBreakdown
+service.py       — Orchestrates sequence fetch + repetition detection + confidence scoring + ranking + explanations
     ↓
-backend/routes/discovery.py  — GET /api/discovery/repeated (with min_confidence, min_ranking_score, filter_noise)
+models.py        — Pydantic models: DiscoveredWorkflow, DiscoveryResult, WorkflowExplanation, ConfidenceBreakdown, RankingBreakdown
     ↓
-evaluation.py    — Deterministic 24-scenario synthetic benchmark harness (Phase 8.1 vs 8.2 vs 8.3)
+backend/routes/discovery.py  — GET /api/discovery/repeated (with min_confidence, min_ranking_score, filter_noise, include_suppressed)
+    ↓
+evaluation.py    — Deterministic 24-scenario synthetic benchmark harness & explainability verification suite
 ```
 
 ---
@@ -39,13 +41,14 @@ evaluation.py    — Deterministic 24-scenario synthetic benchmark harness (Phas
 | File | Purpose |
 |------|---------|
 | `alignment.py` | Semi-global local alignment DP with Damerau transposition extension & pairwise LCS |
-| `detector.py` | `RepetitionDetector` class + `detect_repeated_workflows()` with local alignment and shadow pruning |
+| `detector.py` | `RepetitionDetector` class + `detect_repeated_workflows()` with local alignment, shadow pruning, and ranking |
 | `confidence.py` | Calibrated deterministic signal calculation, confidence scoring, and explanations |
 | `ranking.py` | Deterministic utility ranking, quality-tier categorization, noise suppression, and deduplication |
-| `models.py` | `DiscoveredWorkflow`, `DiscoveryResult`, `ConfidenceBreakdown`, and `RankingBreakdown` Pydantic models |
+| `explanation.py`| Structured, non-hallucinatory explainability engine generating empirical `WorkflowExplanation` records |
+| `models.py` | `DiscoveredWorkflow`, `DiscoveryResult`, `WorkflowExplanation`, `ConfidenceBreakdown`, and `RankingBreakdown` Pydantic models |
 | `sequence.py` | `build_session_sequences()` and `fetch_session_sequences()` with session isolation |
-| `service.py` | `DiscoveryService` — wires event retrieval, session extraction, detection, and ranking |
-| `evaluation.py` | Deterministic 24-scenario synthetic evaluation dataset and comparative benchmark runner |
+| `service.py` | `DiscoveryService` — wires event retrieval, session extraction, detection, ranking, and explanations |
+| `evaluation.py` | Deterministic 24-scenario synthetic evaluation dataset, explainability audit, and comparative benchmark runner |
 
 ---
 
@@ -159,6 +162,105 @@ When multiple candidates describe essentially the same workflow, deduplication s
 
 ---
 
+## Phase 8.4 — Explainable Discovery
+
+Phase 8.4 adds an explainability engine that explains discovery, confidence, ranking, and suppression decisions with 100% deterministic, grounded evidence.
+
+### 1. Architectural Philosophy: Zero Hallucination, 100% Grounded Evidence
+
+WorkFlowOS strictly separates observed evidence, algorithmic measurements, and heuristic utility scores:
+- **No LLM Hallucinations**: Explanations are synthesized directly from actual computed metrics (session counts, alignment edit distances, entropy scores, and deduplication overlap). No generative text models are involved in explanation synthesis.
+- **Empirical Grounding**: If the alignment algorithm observed 0 transpositions, the explanation reports 0 transpositions. If a sequence was suppressed for overlapping with a canonical parent, the exact overlap ratio and canonical ID are cited.
+- **Explicit Heuristic Disclaimer**: Confidence and utility scores are transparently labeled as operational heuristics—never misrepresented as calibrated statistical probabilities.
+
+---
+
+### 2. Structured Explainability Data Model
+
+The explainability model is represented by `WorkflowExplanation` in `discovery/explanation.py` and included in `DiscoveredWorkflow`:
+
+```python
+class WorkflowExplanation(BaseModel):
+    summary: str                           # High-level human-readable discovery summary
+    detection_reason: str                  # Empirical justification for qualifying as a repeated pattern
+    supporting_sessions_count: int         # Total distinct supporting sessions
+    supporting_session_ids: List[str]      # Privacy-masked session identifiers (e.g. "s_a1b2c3d4...")
+    occurrence_evidence: OccurrenceEvidence # Session count, qualification thresholds, and multi-session ratio
+    sequence_evidence: SequenceEvidence     # Exact vs approximate replay counts, insertions, deletions, transpositions
+    consistency_evidence: ConsistencyEvidence # Order consistency ratio, exact replay ratio, variation ratio
+    confidence_explanation: ConfidenceFactorBreakdown # Positive/negative drivers across 5 confidence signals
+    ranking_explanation: RankingFactorBreakdown       # Primary drivers, limiting factors, and utility breakdown
+    quality_explanation: str               # Human-readable justification for the assigned quality tier
+    suppression_explanation: Optional[SuppressionEvidence] = None # Detailed rationale if candidate was suppressed
+    representative_explanation: Optional[str] = None # Rationale if selected as canonical representative
+    limitations: List[str]                 # Transparent disclaimers regarding heuristic scoring and scope
+```
+
+#### Detailed Evidence Sub-Models:
+- **`OccurrenceEvidence`**: Captures `distinct_sessions_count`, `min_occurrences_threshold`, `total_session_pool_size`, and `session_support_ratio`.
+- **`SequenceEvidence`**: Captures `sequence_length`, `average_similarity`, `exact_replays`, `approximate_replays`, `total_insertions`, `total_deletions`, and `total_transpositions`.
+- **`ConsistencyEvidence`**: Tracks `order_consistency_ratio`, `exact_replay_ratio`, and `variation_ratio`.
+- **`ConfidenceFactorBreakdown`**: Lists explicit `positive_factors`, `negative_factors`, and `score_breakdown` mapping the 5 Phase 8.1 signals.
+- **`RankingFactorBreakdown`**: Lists `primary_drivers`, `limiting_factors`, and `signal_scores` explaining utility score $R \in [0.0, 1.0]$.
+- **`SuppressionEvidence`**: Tracks `suppression_reason`, `measured_threshold`, `actual_value`, and optional `canonical_representative_id`.
+
+---
+
+### 3. Detection & Sequence Evidence
+
+Detection explanations detail exactly why a sequence qualified:
+- **Threshold Confirmation**: Confirms that distinct sessions $\ge \text{min\_occurrences}$ (default: 2) and pattern length $\ge \text{min\_length}$ (default: 3).
+- **Exact vs. Approximate Replay**: Discloses how many sessions matched identically versus how many required local alignment tolerance.
+- **Structural Variations**: Pinpoints exact counts of intermediate noise insertions, omitted steps, or adjacent step transpositions observed during local alignment.
+
+*Example Output:*
+> *"Qualified as a repeated workflow because the 5-step sequence was observed in 3 distinct user sessions (configured threshold: >= 2) with local alignment similarity averaging 94% (1/3 exact replays with 2 tolerated inserted actions). The observed similarity exceeds the 80% alignment threshold."*
+
+---
+
+### 4. Confidence & Ranking Explanations
+
+- **Confidence Drivers**: Explains contributions from sequence repetition, multi-session consistency, step alignment, and length bonus. Distinguishes high-confidence flows with limited session counts (e.g. 2 sessions, 100% exact match) from flows with high session volume.
+- **Ranking Drivers**: Highlights which signals drove the utility score (e.g., high step savings, high action entropy) and which signals limited the score (e.g., lower session count or imperfect alignment).
+- **Quality Tier Rationale**: Explains whether a pattern is `exceptional`, `strong`, `moderate`, or `low` priority for automation.
+
+---
+
+### 5. Suppression & Duplicate Explanations
+
+When candidates are suppressed or deduplicated, full evidence is preserved when `include_suppressed=true`:
+- `monotonous_repeated_actions`: Reports unique action count and dominant verb percentage exceeding threshold.
+- `marginal_ranking_score`: Reports measured ranking utility score failing the 0.50 threshold.
+- `insufficient_occurrences`: Reports session count failing the required minimum.
+- `exact_duplicate`: Points to canonical representative ID that merged the redundant candidate.
+- `overlapping_shadow`: Reports the candidate sequence length, canonical parent length, and session overlap ratio ($\ge 70\%$).
+- `similar_variant_overlap`: Reports alignment similarity ($\ge 80\%$) and session overlap ($\ge 50\%$) that caused deduplication to the higher-confidence representative.
+
+*Example Shadow Suppression Output:*
+> *"Suppressed as an overlapping shadow of canonical workflow 'Customer Request Processing'. This 4-step sequence is a strict sub-slice of the longer workflow and lacks sufficient independent session executions outside it."*
+> - **Measured**: `4 steps (subsequence of 5-step workflow)`
+> - **Criterion**: `Session overlap < 70% with super-sequence OR >= 2 independent sessions`
+
+---
+
+### 6. Privacy & Sensitive Data Safeguards
+
+- **Session Masking**: Session identifiers are cryptographically hashed using SHA-256 and truncated to safe prefixed tokens (e.g. `s_4a8b1c9f...`), preventing exposure of internal user IDs or raw session keys.
+- **Zero Event Payload Exposure**: Explanations operate solely on action verbs, step indices, alignment edit distances, and normalized scores. Keystrokes, clipboard data, query strings, URLs, file names, and authentication credentials are strictly excluded.
+
+---
+
+### 7. Frontend Explainability Experience
+
+In the Next.js discovery interface (`DiscoveryView.tsx`):
+- **Concise Card View**: Displays rank, automation score, confidence, quality badge, sequence tags, and a 1-sentence detection summary.
+- **"Why was this detected?" Drawer**: An expandable accordion revealing:
+  - **Fidelity & Consistency**: Exact vs. approximate replay counts, observed insertions/deletions/transpositions, and session consistency bars.
+  - **Scoring Drivers & Limitations**: Green positive driver tags, amber limiting factor tags, and transparent heuristic scoring disclaimers.
+  - **Suppressed Candidates Inspector**: Toggleable view of suppressed patterns with color-coded rejection badges, measured vs. criterion metrics, and links to canonical representatives.
+
+---
+
 ## Deterministic Synthetic Evaluation Dataset
 
 `discovery/evaluation.py` defines 24 standardized test scenarios with explicit ground truth:
@@ -183,50 +285,56 @@ When multiple candidates describe essentially the same workflow, deduplication s
 15. `scenario_15_mixture_exact_and_local`: 4 sessions combining exact, embedded, and inserted actions.
 16. `scenario_16_similar_looking_distinct_workflows`: Workflows differing by a critical operational verb kept separate.
 
-### Phase 8.3 Ranking, Noise & Duplicate Scenarios (17–24)
-17. `scenario_17_exact_duplicates`: Multiple session pairs yielding duplicate candidate sequences; exactly one canonical retained.
-18. `scenario_18_overlapping_patterns`: 4-step workflow vs 3-step prefix shadow; shadow suppressed with representative pointer.
-19. `scenario_19_short_valid_workflows`: Concise 3-step high-frequency workflow across 5 sessions; retained with high rank.
-20. `scenario_20_frequent_common_action_noise`: Monotonous click loops across 6 sessions; suppressed as noise.
-21. `scenario_21_similar_distinct_workflows`: Same verbs applied in different business domains (`review_contract` vs `review_ticket`); both preserved.
-22. `scenario_22_support_volume_ranking`: Two valid workflows with different session adoption (7 sessions vs 2 sessions); 7-session flow ranks #1.
-23. `scenario_23_repeated_actions_in_valid_workflow`: Legitimate repetitive workflow (`inspect -> download -> review -> review -> approve`); preserved as valid.
-24. `scenario_24_marginal_rejection`: High-noise low-consistency candidate filtered out under noise filtering.
+### Phase 8.3 & 8.4 Ranking, Noise, Duplicate & Explainability Scenarios (17–24)
+17. `scenario_17_exact_duplicates`: Multiple session pairs yielding duplicate candidate sequences; exactly one canonical retained with duplicate link.
+18. `scenario_18_overlapping_patterns`: 4-step workflow vs 3-step prefix shadow; shadow suppressed with measured overlap evidence.
+19. `scenario_19_short_valid_workflows`: Concise 3-step high-frequency workflow across 5 sessions; retained with high rank and volume explanation.
+20. `scenario_20_frequent_common_action_noise`: Monotonous click loops across 6 sessions; suppressed as noise with entropy evidence.
+21. `scenario_21_similar_distinct_workflows`: Same verbs applied in different business domains (`review_contract` vs `review_ticket`); both preserved with distinct domain explanations.
+22. `scenario_22_support_volume_ranking`: Two valid workflows with different session adoption (7 sessions vs 2 sessions); 7-session flow ranks #1 with volume driver.
+23. `scenario_23_repeated_actions_in_valid_workflow`: Legitimate repetitive workflow (`inspect -> download -> review -> review -> approve`); preserved as valid with high-entropy explanation.
+24. `scenario_24_marginal_rejection`: High-noise low-consistency candidate filtered out under noise filtering with utility threshold evidence.
 
 ---
 
-## Comparative Benchmark Results (Phase 8.1 vs. Phase 8.2 vs. Phase 8.3)
+## Comparative Benchmark Results (Phase 8.1 vs. Phase 8.2 vs. Phase 8.3 vs. Phase 8.4)
 
 Evaluated across the 24-scenario benchmark dataset using `.venv/bin/python -m discovery.evaluation`:
 
-| Metric | Phase 8.1 Baseline | Phase 8.2 Smarter Detector | Phase 8.3 (Ranking & Noise Reduction) |
-|--------|--------------------|----------------------------|---------------------------------------|
-| **Precision** | 91.30% (0.9130) | 91.67% (0.9167) | **100.0%** (1.0000) |
-| **Recall** | 95.45% (0.9545) | **100.0%** (1.0000) | **100.0%** (1.0000) |
-| **F1 Score** | 0.9333 | 0.9565 | **1.0000** |
-| **True Positives (TP)** | 21 | **22** (All ground-truth found) | **22** (All ground-truth found) |
-| **False Positives (FP)** | 2 (Embedded noise & monotonous loops) | 2 (Monotonous loops) | **0** (All noise suppressed) |
-| **False Negatives (FN)** | 1 (Failed embedded noise) | **0** | **0** |
-| **True Negatives (TN)** | 5 | 5 | **7** |
-| **Accuracy** | 89.66% | 93.10% | **100.0%** |
-| **Duplicates Suppressed**| 0 | 114 | **123** (Exact, shadow, & variant deduplicated) |
+| Metric | Phase 8.1 Baseline | Phase 8.2 Smarter Detector | Phase 8.3 Ranking & Noise | Phase 8.4 Explainable Discovery |
+|--------|--------------------|----------------------------|---------------------------|---------------------------------|
+| **Precision** | 91.30% (0.9130) | 91.67% (0.9167) | **100.0%** (1.0000) | **100.0%** (1.0000) |
+| **Recall** | 95.45% (0.9545) | **100.0%** (1.0000) | **100.0%** (1.0000) | **100.0%** (1.0000) |
+| **F1 Score** | 0.9333 | 0.9565 | **1.0000** | **1.0000** |
+| **True Positives (TP)** | 21 | **22** (All ground-truth found) | **22** (All ground-truth found) | **22** (All ground-truth found) |
+| **False Positives (FP)** | 2 | 2 | **0** (All noise suppressed) | **0** (All noise suppressed) |
+| **False Negatives (FN)** | 1 | **0** | **0** | **0** |
+| **True Negatives (TN)** | 5 | 5 | **7** | **7** |
+| **Accuracy** | 89.66% | 93.10% | **100.0%** | **100.0%** |
+| **Duplicates Suppressed**| 0 | 114 | **123** | **123** |
+| **Explainability Audit** | N/A | N/A | N/A | **100.0%** (176/176 evidence checks passed) |
 
 ---
 
-## Limitations & Trade-offs
+## Limitations & Distinctions
 
-1. **Heuristic Ranking vs. Calibrated Probability**: The ranking score ($R \in [0.0, 1.0]$) represents a multi-factor operational utility heuristic; it is not a statistical probability of workflow correctness.
+1. **Observed Facts vs. Algorithmic Measurements vs. Heuristic Utility**:
+   - *Observed Facts*: Distinct session counts, exact sequence verbs, and timestamp chronological ordering.
+   - *Algorithmic Measurements*: Semi-global alignment similarity scores, edit distance insertions/deletions, and action entropy ratios.
+   - *Heuristic Interpretation*: Automation ranking utility ($R$) and confidence tier categorization. These represent operational prioritization weights, not statistically calibrated probabilities of workflow correctness.
 2. **Subsumption Session Overlap Cutoff**: Overlapping shadows require $\ge 70\%$ session overlap with the candidate super-sequence to be suppressed. Sub-sequences with independent utility across separate sessions are deliberately preserved.
-3. **Monotonous Noise Guard**: Actions repeated $> 50\%$ in a sequence are penalized, but structured workflows with intentional loops (e.g. multi-review flows) require distinct enclosing actions to maintain acceptable entropy.
-4. **Local Scale**: Candidate generation and deduplication scales comfortably up to hundreds of sessions ($<0.05$s execution). Massive enterprise session corpora ($>10,000$ daily sessions) will benefit from prefix tree or suffix array indexing in future phases.
+3. **No Safety Proof**: Deterministic explanations describe why a pattern was detected, but they do **not** constitute proof that automated execution of the workflow is safe or free of unintended side-effects. Human operator review and approval remains strictly mandatory.
 
 ---
 
 ## Reproducing Evaluation and Tests
 
 ```bash
-# Run the 24-scenario synthetic comparative benchmark (Phase 8.1 vs 8.2 vs 8.3)
+# Run the 24-scenario synthetic comparative benchmark with explainability validation
 .venv/bin/python3 -m discovery.evaluation
+
+# Run Phase 8.4 test suite (explainability, empirical validation, privacy safeguards)
+.venv/bin/python3 -m unittest backend.test_phase8_4 -v
 
 # Run Phase 8.3 test suite (ranking, noise reduction, duplicate detection)
 .venv/bin/python3 -m unittest backend.test_phase8_3 -v
@@ -237,10 +345,10 @@ Evaluated across the 24-scenario benchmark dataset using `.venv/bin/python -m di
 # Run Phase 8.1 regression test suite (confidence scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run full backend regression suite (282 tests, 0 failures)
+# Run full backend regression suite (300 tests, 0 failures)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
 
-# Run frontend lint, typecheck, and build
+# Run frontend lint, typecheck, and production build
 npm --prefix frontend run lint
 frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json
 npm --prefix frontend run build
