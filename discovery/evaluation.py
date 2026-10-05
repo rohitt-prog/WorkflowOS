@@ -666,6 +666,209 @@ def build_phase8_3_evaluation_dataset() -> List[EvaluationScenario]:
     return scenarios
 
 
+def build_phase8_5_evaluation_dataset() -> List[EvaluationScenario]:
+    """
+    Constructs the 9 deterministic evaluation scenarios introduced in Phase 8.5:
+    Category A (Scenario 25): Workflow with Optional Step Omission (download_attachment omitted in 1 session).
+    Category B (Scenario 26): Workflow with Intermediate Bounded Noise (tolerated non-workflow noise clicks).
+    Category C (Scenario 27): Workflow with Partial Support Tracking (partial execution session tracked).
+    Category D (Scenario 28): Variable Workflow Positions Across Sessions (start, middle, and end positions).
+    Category E (Scenario 29): Intra-Session Repetitions (multiple executions in a single session recorded).
+    Category F (Scenario 30): Generic Alternating Navigation Loop Suppressed (ping-pong noise rejected).
+    Category G (Scenario 31): Independent Subsequences Preserved (shorter workflow with independent sessions not suppressed).
+    Category H (Scenario 32): Similar Verbs on Distinct Entities Kept Separate (Customer Profile vs Product Catalog).
+    Category I (Scenario 33): Multiple Valid Workflows in Same Session (Order Fulfillment + Document Editing).
+    """
+    scenarios: List[EvaluationScenario] = []
+
+    canonical_5_step = [
+        "open_email",
+        "download_attachment",
+        "search_customer",
+        "update_customer",
+        "send_message",
+    ]
+
+    # Scenario 25: Category A - Optional Step Omission
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_25_optional_step_omission",
+            name="Workflow with Optional Step Omission",
+            description="5-step workflow where 1 session omits download_attachment; flow qualifies with optional_steps detected.",
+            session_sequences={
+                "session_2501": list(canonical_5_step),
+                "session_2502": ["open_email", "search_customer", "update_customer", "send_message"],
+                "session_2503": list(canonical_5_step),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=3, label="Customer Request Processing")
+            ],
+            category="optional_step",
+        )
+    )
+
+    # Scenario 26: Category B - Intermediate Bounded Noise
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_26_intermediate_bounded_noise",
+            name="Workflow with Bounded Intermediate Noise",
+            description="Sessions contain 1-2 extraneous navigation clicks between workflow steps; bounded noise tolerance preserves workflow.",
+            session_sequences={
+                "session_2601": ["open_email", "download_attachment", "view_notifications", "search_customer", "update_customer", "send_message"],
+                "session_2602": list(canonical_5_step),
+                "session_2603": ["open_email", "download_attachment", "search_customer", "click_settings", "update_customer", "send_message"],
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=3, label="Customer Request Processing")
+            ],
+            category="intermediate_noise",
+        )
+    )
+
+    # Scenario 27: Category C - Partial Execution Tracking
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_27_partial_execution_tracking",
+            name="Workflow with Partial Support Tracking",
+            description="2 full sessions and 1 session with partial execution (3/5 steps); flow qualifies on 2 full sessions, partial support tracked separately.",
+            session_sequences={
+                "session_2701": list(canonical_5_step),
+                "session_2702": list(canonical_5_step),
+                "session_2703": ["open_email", "download_attachment", "search_customer"],
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=2, label="Customer Request Processing")
+            ],
+            category="partial_execution",
+        )
+    )
+
+    # Scenario 28: Category D - Variable Workflow Positions Across Sessions
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_28_variable_workflow_positions",
+            name="Position-Independent Workflow Matching",
+            description="Canonical 5-step workflow occurs at start of session 1, middle of session 2, and end of session 3.",
+            session_sequences={
+                "session_2801": list(canonical_5_step) + ["cleanup_desk", "logout"],
+                "session_2802": ["init_system", "check_calendar"] + list(canonical_5_step) + ["save_session"],
+                "session_2803": ["login", "read_slack"] + list(canonical_5_step),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=3, label="Customer Request Processing")
+            ],
+            category="variable_positions",
+        )
+    )
+
+    # Scenario 29: Category E - Intra-Session Repetition Tracking
+    wf_doc_edit = ["open_document", "edit_document", "export_document"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_29_intra_session_repetition",
+            name="Intra-Session Repetition Tracking",
+            description="Document editing routine executed twice in session 1 and once in session 2; qualifies across 2 sessions, with 1 intra-session repetition recorded.",
+            session_sequences={
+                "session_2901": ["open_document", "edit_document", "export_document", "check_inbox", "open_document", "edit_document", "export_document"],
+                "session_2902": list(wf_doc_edit),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=wf_doc_edit, min_occurrences=2, label="Document Editing Routine")
+            ],
+            category="intra_session_repetition",
+        )
+    )
+
+    # Scenario 30: Category F - Generic Alternating Navigation Loop Suppressed
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_30_generic_alternating_navigation_loop",
+            name="Generic Alternating Navigation Loop Suppressed",
+            description="Alternating ping-pong navigation loop (open_tab, search_tab x 3) suppressed by noise reduction.",
+            session_sequences={
+                "session_3001": ["open_tab", "search_tab", "open_tab", "search_tab", "open_tab", "search_tab"],
+                "session_3002": ["open_tab", "search_tab", "open_tab", "search_tab", "open_tab", "search_tab"],
+                "session_3003": ["open_tab", "search_tab", "open_tab", "search_tab", "open_tab", "search_tab"],
+            },
+            expected_detected=False,
+            expected_workflows=[],
+            category="generic_repeated_noise",
+        )
+    )
+
+    # Scenario 31: Category G - Independent Subsequences Preserved
+    crm_short_3 = ["search_customer", "update_customer", "send_message"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_31_independent_subsequences_preserved",
+            name="Independent Subsequences Preserved",
+            description="Shorter 3-step routine occurs inside 5-step flow in sessions 1-2, but independently in sessions 3-4; both preserved.",
+            session_sequences={
+                "session_3101": list(canonical_5_step),
+                "session_3102": list(canonical_5_step),
+                "session_3103": list(crm_short_3),
+                "session_3104": list(crm_short_3),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=canonical_5_step, min_occurrences=2, label="Customer Request Processing"),
+                GroundTruthWorkflow(sequence=crm_short_3, min_occurrences=4, label="Customer Account Tier Update"),
+            ],
+            category="independent_subsequences",
+        )
+    )
+
+    # Scenario 32: Category H - Similar Verbs on Distinct Entities Kept Separate
+    wf_customer_profile = ["search_customer", "open_customer", "update_customer"]
+    wf_product_catalog = ["search_product", "open_product", "update_product"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_32_distinct_entity_sequences",
+            name="Similar Verbs on Distinct Entities Kept Separate",
+            description="Customer Profile Management vs Product Catalog Update; both maintained distinctly without merging.",
+            session_sequences={
+                "session_3201": list(wf_customer_profile),
+                "session_3202": list(wf_customer_profile),
+                "session_3203": list(wf_product_catalog),
+                "session_3204": list(wf_product_catalog),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=wf_customer_profile, min_occurrences=2, label="Customer Profile Management"),
+                GroundTruthWorkflow(sequence=wf_product_catalog, min_occurrences=2, label="Product Catalog Update"),
+            ],
+            category="distinct_entities",
+        )
+    )
+
+    # Scenario 33: Category I - Multiple Valid Workflows in Same Session
+    wf_order_fulfill = ["create_order", "process_payment", "pack_items", "dispatch_delivery"]
+    scenarios.append(
+        EvaluationScenario(
+            scenario_id="scenario_33_multiple_valid_workflows_same_session",
+            name="Multiple Valid Workflows in Same Sessions",
+            description="Order Fulfillment Routine and Document Editing Routine both executed within the same sessions.",
+            session_sequences={
+                "session_3301": list(wf_order_fulfill) + ["browse_catalog", "check_metrics", "read_slack", "export_log"] + list(wf_doc_edit),
+                "session_3302": list(wf_order_fulfill) + ["manage_settings", "zoom_meeting", "take_notes", "save_preferences"] + list(wf_doc_edit),
+            },
+            expected_detected=True,
+            expected_workflows=[
+                GroundTruthWorkflow(sequence=wf_order_fulfill, min_occurrences=2, label="Order Fulfillment Routine"),
+                GroundTruthWorkflow(sequence=wf_doc_edit, min_occurrences=2, label="Document Editing Routine"),
+            ],
+            category="multiple_workflows_same_session",
+        )
+    )
+
+    return scenarios
+
+
 def build_full_evaluation_dataset() -> List[EvaluationScenario]:
     """
     Combines Phase 8.1 regression scenarios (1-8) and Phase 8.2 scenarios (9-16).
@@ -678,11 +881,25 @@ def build_complete_benchmark_dataset() -> List[EvaluationScenario]:
     """
     Combines Phase 8.1 regression (1-8), Phase 8.2 (9-16), and Phase 8.3 (17-24).
     Total 24 deterministic evaluation scenarios.
+    Maintained for backward compatibility with Phase 8.3 / Phase 8.4 tests.
     """
     return (
         build_synthetic_evaluation_dataset()
         + build_phase8_2_evaluation_dataset()
         + build_phase8_3_evaluation_dataset()
+    )
+
+
+def build_phase8_5_benchmark_dataset() -> List[EvaluationScenario]:
+    """
+    Combines Phase 8.1 (1-8), Phase 8.2 (9-16), Phase 8.3 (17-24), and Phase 8.5 (25-33).
+    Total 33 deterministic evaluation scenarios.
+    """
+    return (
+        build_synthetic_evaluation_dataset()
+        + build_phase8_2_evaluation_dataset()
+        + build_phase8_3_evaluation_dataset()
+        + build_phase8_5_evaluation_dataset()
     )
 
 
@@ -773,6 +990,15 @@ class EvaluationReport:
     accuracy: float
     duplicate_suppressions: int = 0
     total_candidates_evaluated: int = 0
+    # Phase 8.5 robustness metrics:
+    exact_replay_count: int = 0
+    approximate_replay_count: int = 0
+    partial_support_count: int = 0
+    optional_step_count: int = 0
+    intra_session_repetition_count: int = 0
+    average_alignment_similarity: float = 0.0
+    candidates_before_filtering: int = 0
+    candidates_after_filtering: int = 0
     scenario_details: List[Dict[str, Any]] = field(default_factory=list)
 
 
@@ -804,6 +1030,15 @@ def evaluate_discovery_engine(
     tn = 0
     total_dup_suppressions = 0
     total_candidates = 0
+    total_exact_replays = 0
+    total_approx_replays = 0
+    total_partial_support = 0
+    total_optional_steps = 0
+    total_intra_reps = 0
+    total_sim_sum = 0.0
+    total_sim_count = 0
+    total_candidates_before = 0
+    total_candidates_after = 0
     scenario_details: List[Dict[str, Any]] = []
 
     for scenario in scenarios:
@@ -820,6 +1055,24 @@ def evaluate_discovery_engine(
             total_dup_suppressions += len(result.suppressed_workflows)
         if hasattr(result, "total_candidates_evaluated"):
             total_candidates += result.total_candidates_evaluated
+            total_candidates_before += result.total_candidates_evaluated
+
+        total_candidates_after += len(detected_workflows)
+
+        for det_wf in detected_workflows:
+            total_sim_sum += det_wf.similarity
+            total_sim_count += 1
+            total_partial_support += getattr(det_wf, "partial_support_count", 0)
+            total_optional_steps += len(getattr(det_wf, "optional_steps", []))
+            total_intra_reps += getattr(det_wf, "intra_session_repetitions", 0)
+
+            if det_wf.explanation and hasattr(det_wf.explanation, "sequence_evidence") and det_wf.explanation.sequence_evidence:
+                total_exact_replays += det_wf.explanation.sequence_evidence.exact_match_sessions_count
+                total_approx_replays += det_wf.explanation.sequence_evidence.approximate_match_sessions_count
+            elif det_wf.similarity >= 0.9999:
+                total_exact_replays += det_wf.occurrences
+            else:
+                total_approx_replays += det_wf.occurrences
 
         scen_tp = 0
         scen_fp = 0
@@ -884,6 +1137,7 @@ def evaluate_discovery_engine(
     f1 = round(2 * precision * recall / (precision + recall), 4) if (precision + recall) > 0 else 0.0
     total_decisions = tp + fp + fn + tn
     accuracy = round((tp + tn) / total_decisions, 4) if total_decisions > 0 else 0.0
+    avg_alignment = round(total_sim_sum / total_sim_count, 4) if total_sim_count > 0 else 0.0
 
     return EvaluationReport(
         total_scenarios=len(scenarios),
@@ -897,6 +1151,14 @@ def evaluate_discovery_engine(
         accuracy=accuracy,
         duplicate_suppressions=total_dup_suppressions,
         total_candidates_evaluated=total_candidates,
+        exact_replay_count=total_exact_replays,
+        approximate_replay_count=total_approx_replays,
+        partial_support_count=total_partial_support,
+        optional_step_count=total_optional_steps,
+        intra_session_repetition_count=total_intra_reps,
+        average_alignment_similarity=avg_alignment,
+        candidates_before_filtering=total_candidates_before,
+        candidates_after_filtering=total_candidates_after,
         scenario_details=scenario_details,
     )
 
@@ -970,21 +1232,21 @@ def validate_workflow_explanations(workflows: List[DiscoveredWorkflow]) -> Dict[
 
 
 if __name__ == "__main__":
-    complete_dataset = build_complete_benchmark_dataset()
+    benchmark_33 = build_phase8_5_benchmark_dataset()
 
-    print("=========================================================================================")
-    print("      WORKFLOWOS DISCOVERY BENCHMARK: PHASE 8.1 vs PHASE 8.2 vs PHASE 8.3 / 8.4          ")
-    print("=========================================================================================")
+    print("=================================================================================================================")
+    print("      WORKFLOWOS DISCOVERY BENCHMARK: PHASE 8.1 vs PHASE 8.2 vs PHASE 8.3/8.4 vs PHASE 8.5 ROBUST DISCOVERY      ")
+    print("=================================================================================================================")
 
-    # 1. Baseline Phase 8.1 detector on full 24-scenario dataset
+    # 1. Baseline Phase 8.1 detector on full 33-scenario dataset
     legacy_detector = LegacyPhase81Detector()
-    report_legacy = evaluate_discovery_engine(detector=legacy_detector, dataset=complete_dataset)
+    report_legacy = evaluate_discovery_engine(detector=legacy_detector, dataset=benchmark_33)
 
-    # 2. Phase 8.2 local alignment detector on full 24-scenario dataset
+    # 2. Phase 8.2 local alignment detector on full 33-scenario dataset
     p82_detector = RepetitionDetector(min_length=3, min_occurrences=2, similarity_threshold=0.8)
-    report_p82 = evaluate_discovery_engine(detector=p82_detector, dataset=complete_dataset)
+    report_p82 = evaluate_discovery_engine(detector=p82_detector, dataset=benchmark_33)
 
-    # 3. Phase 8.3/8.4 detector with ranking, noise reduction & explainability
+    # 3. Phase 8.3/8.4 detector with ranking & noise reduction
     p83_ranked = RepetitionDetector(
         min_length=3,
         min_occurrences=2,
@@ -992,62 +1254,77 @@ if __name__ == "__main__":
         filter_noise=True,
         min_ranking_score=0.70,
     )
-    report_p83 = evaluate_discovery_engine(detector=p83_ranked, dataset=complete_dataset)
+    report_p83 = evaluate_discovery_engine(detector=p83_ranked, dataset=benchmark_33)
 
-    print(f"Dataset Size: {len(complete_dataset)} Scenarios (8 P8.1 + 8 P8.2 + 8 P8.3)")
+    # 4. Phase 8.5 detector with robustness, optional steps, partial execution & intra-session reps
+    p85_detector = RepetitionDetector(
+        min_length=3,
+        min_occurrences=2,
+        similarity_threshold=0.8,
+        filter_noise=True,
+        min_ranking_score=0.70,
+    )
+    report_p85 = evaluate_discovery_engine(detector=p85_detector, dataset=benchmark_33)
+
+    print(f"Dataset Size: {len(benchmark_33)} Scenarios (8 P8.1 + 8 P8.2 + 8 P8.3 + 9 P8.5)")
     print(f"")
-    print(f"Metric                    | Phase 8.1 Baseline | Phase 8.2 Smarter  | Phase 8.3/8.4 Ranked & Clean")
-    print(f"--------------------------|--------------------|--------------------|-----------------------------")
-    print(f"Precision                 | {report_legacy.precision:.4f} ({report_legacy.precision*100:.1f}%)     | {report_p82.precision:.4f} ({report_p82.precision*100:.1f}%)     | {report_p83.precision:.4f} ({report_p83.precision*100:.1f}%)")
-    print(f"Recall                    | {report_legacy.recall:.4f} ({report_legacy.recall*100:.1f}%)     | {report_p82.recall:.4f} ({report_p82.recall*100:.1f}%)    | {report_p83.recall:.4f} ({report_p83.recall*100:.1f}%)")
-    print(f"F1 Score                  | {report_legacy.f1_score:.4f}             | {report_p82.f1_score:.4f}             | {report_p83.f1_score:.4f}")
-    print(f"True Positives (TP)       | {report_legacy.true_positives:<18} | {report_p82.true_positives:<18} | {report_p83.true_positives}")
-    print(f"False Positives (FP)      | {report_legacy.false_positives:<18} | {report_p82.false_positives:<18} | {report_p83.false_positives}")
-    print(f"False Negatives (FN)      | {report_legacy.false_negatives:<18} | {report_p82.false_negatives:<18} | {report_p83.false_negatives}")
-    print(f"True Negatives (TN)       | {report_legacy.true_negatives:<18} | {report_p82.true_negatives:<18} | {report_p83.true_negatives}")
-    print(f"Accuracy                  | {report_legacy.accuracy:.4f} ({report_legacy.accuracy*100:.1f}%)     | {report_p82.accuracy:.4f} ({report_p82.accuracy*100:.1f}%)     | {report_p83.accuracy:.4f} ({report_p83.accuracy*100:.1f}%)")
-    print(f"Duplicates Suppressed     | {report_legacy.duplicate_suppressions:<18} | {report_p82.duplicate_suppressions:<18} | {report_p83.duplicate_suppressions}")
-    print("=========================================================================================")
+    print(f"{'Metric':<32} | {'Phase 8.1':<12} | {'Phase 8.2':<12} | {'Phase 8.3/8.4':<14} | {'Phase 8.5':<12}")
+    print(f"{'-'*32}|{'-'*14}|{'-'*14}|{'-'*16}|{'-'*14}")
+    print(f"{'Precision':<32} | {report_legacy.precision:<12.4f} | {report_p82.precision:<12.4f} | {report_p83.precision:<14.4f} | {report_p85.precision:<12.4f}")
+    print(f"{'Recall':<32} | {report_legacy.recall:<12.4f} | {report_p82.recall:<12.4f} | {report_p83.recall:<14.4f} | {report_p85.recall:<12.4f}")
+    print(f"{'F1 Score':<32} | {report_legacy.f1_score:<12.4f} | {report_p82.f1_score:<12.4f} | {report_p83.f1_score:<14.4f} | {report_p85.f1_score:<12.4f}")
+    print(f"{'True Positives (TP)':<32} | {report_legacy.true_positives:<12} | {report_p82.true_positives:<12} | {report_p83.true_positives:<14} | {report_p85.true_positives:<12}")
+    print(f"{'False Positives (FP)':<32} | {report_legacy.false_positives:<12} | {report_p82.false_positives:<12} | {report_p83.false_positives:<14} | {report_p85.false_positives:<12}")
+    print(f"{'False Negatives (FN)':<32} | {report_legacy.false_negatives:<12} | {report_p82.false_negatives:<12} | {report_p83.false_negatives:<14} | {report_p85.false_negatives:<12}")
+    print(f"{'True Negatives (TN)':<32} | {report_legacy.true_negatives:<12} | {report_p82.true_negatives:<12} | {report_p83.true_negatives:<14} | {report_p85.true_negatives:<12}")
+    print(f"{'Accuracy':<32} | {report_legacy.accuracy:<12.4f} | {report_p82.accuracy:<12.4f} | {report_p83.accuracy:<14.4f} | {report_p85.accuracy:<12.4f}")
+    print(f"{'Duplicates Suppressed':<32} | {report_legacy.duplicate_suppressions:<12} | {report_p82.duplicate_suppressions:<12} | {report_p83.duplicate_suppressions:<14} | {report_p85.duplicate_suppressions:<12}")
+    print(f"{'-'*32}|{'-'*14}|{'-'*14}|{'-'*16}|{'-'*14}")
+    print(f"{'Exact Replay Count':<32} | {report_legacy.exact_replay_count:<12} | {report_p82.exact_replay_count:<12} | {report_p83.exact_replay_count:<14} | {report_p85.exact_replay_count:<12}")
+    print(f"{'Approximate Replay Count':<32} | {report_legacy.approximate_replay_count:<12} | {report_p82.approximate_replay_count:<12} | {report_p83.approximate_replay_count:<14} | {report_p85.approximate_replay_count:<12}")
+    print(f"{'Partial Support Count':<32} | {report_legacy.partial_support_count:<12} | {report_p82.partial_support_count:<12} | {report_p83.partial_support_count:<14} | {report_p85.partial_support_count:<12}")
+    print(f"{'Optional-Step Count':<32} | {report_legacy.optional_step_count:<12} | {report_p82.optional_step_count:<12} | {report_p83.optional_step_count:<14} | {report_p85.optional_step_count:<12}")
+    print(f"{'Intra-Session Repetitions':<32} | {report_legacy.intra_session_repetition_count:<12} | {report_p82.intra_session_repetition_count:<12} | {report_p83.intra_session_repetition_count:<14} | {report_p85.intra_session_repetition_count:<12}")
+    print(f"{'Avg Alignment Similarity':<32} | {report_legacy.average_alignment_similarity:<12.4f} | {report_p82.average_alignment_similarity:<12.4f} | {report_p83.average_alignment_similarity:<14.4f} | {report_p85.average_alignment_similarity:<12.4f}")
+    print(f"{'Candidates Before Filtering':<32} | {report_legacy.candidates_before_filtering:<12} | {report_p82.candidates_before_filtering:<12} | {report_p83.candidates_before_filtering:<14} | {report_p85.candidates_before_filtering:<12}")
+    print(f"{'Candidates After Filtering':<32} | {report_legacy.candidates_after_filtering:<12} | {report_p82.candidates_after_filtering:<12} | {report_p83.candidates_after_filtering:<14} | {report_p85.candidates_after_filtering:<12}")
+    print("=================================================================================================================")
 
     # Explainability Audit across all discovered workflows
     all_discovered_workflows: List[DiscoveredWorkflow] = []
-    for sc in complete_dataset:
-        res = p83_ranked.detect(sc.session_sequences, include_suppressed=True)
+    for sc in benchmark_33:
+        res = p85_detector.detect(sc.session_sequences, include_suppressed=True)
         all_discovered_workflows.extend(res.workflows)
 
     audit_res = validate_workflow_explanations(all_discovered_workflows)
-    print("\nPhase 8.4 Explainability Verification Audit:")
+    print("\nPhase 8.5 Explainability Verification Audit:")
     print(f"  Total Workflows Evaluated:          {audit_res['workflows_evaluated']}")
     print(f"  Workflows With Valid Explanations:  {audit_res['workflows_with_explanations']}")
     print(f"  Explainability Evidence Checks:     {audit_res['checks_passed']}/{audit_res['total_checks']} passed ({audit_res['explainability_validity_rate']*100:.1f}%)")
 
-    print("\n-----------------------------------------------------------------------------------------")
-    print("Sample Phase 8.4 Explainable Discoveries with Evidence Breakdown:")
+    print("\n-----------------------------------------------------------------------------------------------------------------")
+    print("Sample Phase 8.5 Robust Discoveries with Evidence Breakdown:")
     for sc_id in [
-        "scenario_1_identical_repeated",
-        "scenario_10_interleaved_inserted_actions",
-        "scenario_12_adjacent_step_transpositions",
-        "scenario_18_overlapping_shadow_subsequence",
-        "scenario_23_legitimate_repeated_actions",
+        "scenario_25_optional_step_omission",
+        "scenario_26_intermediate_bounded_noise",
+        "scenario_27_partial_execution_tracking",
+        "scenario_28_variable_workflow_positions",
+        "scenario_29_intra_session_repetition",
     ]:
-        matching_sc = next(s for s in complete_dataset if s.scenario_id == sc_id)
-        res = p83_ranked.detect(matching_sc.session_sequences, include_suppressed=True)
+        matching_sc = next(s for s in benchmark_33 if s.scenario_id == sc_id)
+        res = p85_detector.detect(matching_sc.session_sequences, include_suppressed=True)
         print(f"\nScenario: {matching_sc.name}")
         for wf in res.workflows:
             print(f"  -> Discovered: {wf.label} (Rank #{wf.rank}, {wf.quality_tier})")
             print(f"     Summary:          {wf.explanation.summary if wf.explanation else 'N/A'}")
             print(f"     Detection Reason: {wf.explanation.detection_reason if wf.explanation else 'N/A'}")
+            print(f"     Optional Steps:   {wf.optional_steps}")
+            print(f"     Partial Support:  {wf.partial_support_count} sessions")
+            print(f"     Intra-Session:    {wf.intra_session_repetitions} repetitions")
             if wf.explanation:
                 print(f"     Fidelity:         {wf.explanation.sequence_evidence.variations_summary}")
                 print(f"     Consistency:      {wf.explanation.consistency_evidence.consistency_description}")
                 print(f"     Drivers:          {', '.join(wf.explanation.ranking_factors.primary_drivers)}")
                 print(f"     Limitations:      {wf.explanation.limitations[0]}")
-        if res.suppressed_workflows:
-            for sw in res.suppressed_workflows[:1]:
-                print(f"     [Suppressed]:     {sw.label} ({sw.suppression_reason})")
-                if sw.explanation:
-                    print(f"       Rationale:      {sw.explanation.suppression_explanation}")
-                    if sw.explanation.suppression_evidence:
-                        print(f"       Measured:       {sw.explanation.suppression_evidence.measured_value} (criterion: {sw.explanation.suppression_evidence.threshold_criterion})")
-    print("=========================================================================================")
+    print("=================================================================================================================")
 

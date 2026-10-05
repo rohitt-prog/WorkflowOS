@@ -95,6 +95,26 @@ class DiscoveredWorkflow(BaseModel):
         description="Structured deterministic explainability metadata grounded in observed evidence"
     )
 
+    # Phase 8.5 Robustness & Evidence fields
+    optional_steps: List[str] = Field(
+        default_factory=list,
+        description="List of action verbs that were optional across supporting sessions",
+    )
+    partial_support_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of sessions exhibiting partial execution of this workflow",
+    )
+    partial_support_session_ids: List[str] = Field(
+        default_factory=list,
+        description="Safe identifiers of sessions that partially executed this workflow",
+    )
+    intra_session_repetitions: int = Field(
+        default=0,
+        ge=0,
+        description="Additional executions of this workflow observed within the same sessions",
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {

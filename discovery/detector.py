@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from discovery.alignment import (
     compute_longest_common_subsequence,
     local_sequence_alignment,
+    find_all_local_occurrences,
 )
 from discovery.confidence import calculate_pattern_confidence
 from discovery.models import DiscoveredWorkflow, DiscoveryResult
@@ -87,6 +88,16 @@ KNOWN_WORKFLOW_LABELS: Dict[Tuple[str, ...], str] = {
         "edit_document",
         "export_document",
     ): "Document Editing Routine",
+    (
+        "search_customer",
+        "open_customer",
+        "update_customer",
+    ): "Customer Profile Management",
+    (
+        "search_product",
+        "open_product",
+        "update_product",
+    ): "Product Catalog Update",
 }
 
 
@@ -257,16 +268,31 @@ class RepetitionDetector:
         for pattern_tuple in candidate_patterns:
             pattern = list(pattern_tuple)
             matched_sessions: List[Tuple[str, Any]] = []
+            partial_sessions: List[Tuple[str, Any]] = []
+            candidate_intra_repetitions = 0
 
             for sid, seq in qualified_sessions.items():
-                align_res = local_sequence_alignment(
+                # Phase 8.5: Find all non-overlapping occurrences within this session
+                occurrences = find_all_local_occurrences(
                     pattern=pattern,
                     target=seq,
                     similarity_threshold=self.similarity_threshold,
                 )
-                if align_res.is_match:
-                    # Each session ID can only match ONCE per candidate pattern
-                    matched_sessions.append((sid, align_res))
+                if occurrences:
+                    # Each session ID can only match ONCE for distinct-session occurrence qualification
+                    matched_sessions.append((sid, occurrences[0]))
+                    if len(occurrences) > 1:
+                        candidate_intra_repetitions += (len(occurrences) - 1)
+                else:
+                    # Check for partial support: session executed part of the workflow
+                    part_align = local_sequence_alignment(
+                        pattern=pattern,
+                        target=seq,
+                        similarity_threshold=self.similarity_threshold,
+                        min_coverage=0.70,
+                    )
+                    if part_align.is_partial_match:
+                        partial_sessions.append((sid, part_align))
 
             # Verify occurrence threshold across distinct sessions
             if len(matched_sessions) >= self.min_occurrences:
@@ -278,6 +304,17 @@ class RepetitionDetector:
                 )
                 exact_count = sum(1 for ar in alignment_results if ar.similarity >= 0.999)
                 session_ids = [sid for sid, _ in matched_sessions]
+                partial_session_ids = [sid for sid, _ in partial_sessions]
+
+                # Phase 8.5: Detect optional steps across supporting sessions
+                optional_steps: List[str] = []
+                num_matched = len(alignment_results)
+                for idx in range(len(pattern)):
+                    step_name = pattern[idx]
+                    sessions_missing = sum(1 for ar in alignment_results if idx in ar.missing_pattern_indices)
+                    if 0 < sessions_missing < num_matched:
+                        if step_name not in optional_steps:
+                            optional_steps.append(step_name)
 
                 # Phase 8.1 Confidence Scoring
                 confidence, breakdown, tier, explanation = calculate_pattern_confidence(
@@ -326,6 +363,11 @@ class RepetitionDetector:
                     "representative_pattern_id": None,
                     "representative_workflow": None,
                     "suppression_reason": None,
+                    # Phase 8.5 fields:
+                    "optional_steps": optional_steps,
+                    "partial_support_count": len(partial_sessions),
+                    "partial_support_session_ids": partial_session_ids,
+                    "intra_session_repetitions": candidate_intra_repetitions,
                 })
 
         # Initial sort by confidence & ranking:
@@ -499,7 +541,7 @@ class RepetitionDetector:
                 breakdown=cand["ranking_breakdown"],
             )
 
-            # Phase 8.4 Structured Explainability Model
+            # Phase 8.4 & 8.5 Structured Explainability Model
             cand["explanation"] = build_workflow_explanation(
                 sequence=cand["sequence"],
                 occurrences=cand["occurrences"],
@@ -523,6 +565,9 @@ class RepetitionDetector:
                 min_occurrences=self.min_occurrences,
                 similarity_threshold=self.similarity_threshold,
                 min_ranking_score=effective_min_ranking,
+                optional_steps=cand.get("optional_steps"),
+                partial_support_count=cand.get("partial_support_count", 0),
+                intra_session_repetitions=cand.get("intra_session_repetitions", 0),
             )
 
             accepted_workflows.append(
@@ -545,12 +590,16 @@ class RepetitionDetector:
                     representative_pattern_id=cand["representative_pattern_id"],
                     suppression_reason=cand["suppression_reason"],
                     explanation=cand["explanation"],
+                    optional_steps=cand.get("optional_steps", []),
+                    partial_support_count=cand.get("partial_support_count", 0),
+                    partial_support_session_ids=cand.get("partial_support_session_ids", []),
+                    intra_session_repetitions=cand.get("intra_session_repetitions", 0),
                 )
             )
 
         suppressed_workflows: List[DiscoveredWorkflow] = []
         for cand in suppressed_candidates:
-            # Phase 8.4 Structured Explainability Model for Suppressed Candidates
+            # Phase 8.4 & 8.5 Structured Explainability Model for Suppressed Candidates
             cand["explanation"] = build_workflow_explanation(
                 sequence=cand["sequence"],
                 occurrences=cand["occurrences"],
@@ -575,6 +624,9 @@ class RepetitionDetector:
                 min_occurrences=self.min_occurrences,
                 similarity_threshold=self.similarity_threshold,
                 min_ranking_score=effective_min_ranking,
+                optional_steps=cand.get("optional_steps"),
+                partial_support_count=cand.get("partial_support_count", 0),
+                intra_session_repetitions=cand.get("intra_session_repetitions", 0),
             )
 
             suppressed_workflows.append(
@@ -597,6 +649,10 @@ class RepetitionDetector:
                     representative_pattern_id=cand["representative_pattern_id"],
                     suppression_reason=cand["suppression_reason"],
                     explanation=cand["explanation"],
+                    optional_steps=cand.get("optional_steps", []),
+                    partial_support_count=cand.get("partial_support_count", 0),
+                    partial_support_session_ids=cand.get("partial_support_session_ids", []),
+                    intra_session_repetitions=cand.get("intra_session_repetitions", 0),
                 )
             )
 

@@ -295,43 +295,100 @@ In the Next.js discovery interface (`DiscoveryView.tsx`):
 23. `scenario_23_repeated_actions_in_valid_workflow`: Legitimate repetitive workflow (`inspect -> download -> review -> review -> approve`); preserved as valid with high-entropy explanation.
 24. `scenario_24_marginal_rejection`: High-noise low-consistency candidate filtered out under noise filtering with utility threshold evidence.
 
+### Phase 8.5 Discovery Quality & Robustness Scenarios (25–33)
+25. `scenario_25_optional_step_omission` (Category A): 5-step workflow where 1 session omits `download_attachment`; flow qualifies with `optional_steps` cleanly detected and explained.
+26. `scenario_26_intermediate_bounded_noise` (Category B): 1-2 extraneous navigation clicks inserted between steps; bounded noise tolerance preserves workflow while bounding consecutive noise to $\le 3$.
+27. `scenario_27_partial_execution_tracking` (Category C): 2 full sessions + 1 session executing only 3 of 5 steps; qualifies on 2 full sessions, with partial execution recorded in `partial_support_count` without inflating distinct session counts.
+28. `scenario_28_variable_workflow_positions` (Category D): Canonical 5-step workflow at prefix (s1), middle (s2), and suffix (s3); local alignment matches independently of absolute position offset.
+29. `scenario_29_intra_session_repetition` (Category E): Document editing executed twice in session 1 and once in session 2; qualifies across 2 distinct sessions, with `intra_session_repetitions = 1` recorded.
+30. `scenario_30_generic_alternating_navigation_loop` (Category F): Alternating ping-pong loop (`open_tab, search_tab` x 3); active noise reduction suppresses generic repetitive navigation.
+31. `scenario_31_independent_subsequences_preserved` (Category G): 3-step sub-slice appears inside 5-step flow in sessions 1-2, but independently in sessions 3-4; both are preserved without incorrect suppression.
+32. `scenario_32_distinct_entity_sequences` (Category H): Similar verbs applied to distinct entities (`Customer Profile Management` vs `Product Catalog Update`); preserved as two distinct business routines.
+33. `scenario_33_multiple_valid_workflows_same_session` (Category I): Order Fulfillment and Document Editing routines executed in the same sessions; neither swallows nor starves the other.
+
 ---
 
-## Comparative Benchmark Results (Phase 8.1 vs. Phase 8.2 vs. Phase 8.3 vs. Phase 8.4)
+## Phase 8.5 — Discovery Quality & Robustness Architecture
 
-Evaluated across the 24-scenario benchmark dataset using `.venv/bin/python -m discovery.evaluation`:
+Phase 8.5 focuses strictly on improving discovery fidelity when real user sessions contain optional steps, bounded noise, partial executions, variable positioning, and intra-session repetitions, while eliminating generic navigation false positives:
 
-| Metric | Phase 8.1 Baseline | Phase 8.2 Smarter Detector | Phase 8.3 Ranking & Noise | Phase 8.4 Explainable Discovery |
-|--------|--------------------|----------------------------|---------------------------|---------------------------------|
-| **Precision** | 91.30% (0.9130) | 91.67% (0.9167) | **100.0%** (1.0000) | **100.0%** (1.0000) |
-| **Recall** | 95.45% (0.9545) | **100.0%** (1.0000) | **100.0%** (1.0000) | **100.0%** (1.0000) |
-| **F1 Score** | 0.9333 | 0.9565 | **1.0000** | **1.0000** |
-| **True Positives (TP)** | 21 | **22** (All ground-truth found) | **22** (All ground-truth found) | **22** (All ground-truth found) |
-| **False Positives (FP)** | 2 | 2 | **0** (All noise suppressed) | **0** (All noise suppressed) |
-| **False Negatives (FN)** | 1 | **0** | **0** | **0** |
+### 1. Robust Temporal Matching with Bounded Noise
+- **Bounded Tolerance**: Intermediate insertions between workflow steps are tolerated up to `max_consecutive_insertions = 3`. This accommodates brief user distractions or UI notifications without allowing arbitrary unrelated work to be absorbed into a workflow.
+- **Penalization**: Insertions reduce alignment similarity via the semi-global DP ratio $\frac{2 \cdot \text{matches}}{m + \text{window\_len}}$. Stretches with $> 3$ consecutive extraneous actions fail alignment criteria (`is_match = False`).
+
+### 2. Deterministic Optional Step Detection
+- Traceback through the dynamic programming matrix records `matched_pattern_indices` and `missing_pattern_indices`.
+- Any pattern step present in at least one supporting session but missing in another is tagged as an optional step (`optional_steps`).
+- Does not use statistical guesswork; optional steps are grounded directly in the alignment traceback.
+
+### 3. Partial Workflow Execution Tracking
+- Distinguishes between **full replay** (similarity $\ge 0.80$, coverage $\ge 0.70$), **approximate replay** (similarity $\ge 0.80$ with tolerated insertions/transpositions), and **partial support** (coverage $\in [0.35, 0.80)$, similarity $\ge 0.40$).
+- Partial executions contribute supporting evidence (`partial_support_count`, `partial_support_session_ids`), but **never inflate the distinct-session qualification threshold** (`min_occurrences`).
+
+### 4. Intra-Session Repetition Modeling
+- Workflows repeating multiple times within a single session are identified via non-overlapping sub-window discovery (`find_all_local_occurrences`).
+- Distinct session support remains mandatory (`occurrences` tracks distinct session IDs only).
+- Additional executions are modeled separately as `intra_session_repetitions` and highlighted in explainability outputs.
+
+### 5. False Positive Suppression for Common Navigation Patterns
+- In addition to 1-action monotonous loops (`view_dashboard x 3`), Phase 8.5 suppresses 2-action alternating ping-pong cycles (`open_tab, search_tab, open_tab, search_tab`).
+- Legitimate workflows containing intentional step repetitions (e.g. document reviews with multiple review comments) maintain high entropy ($> 0.35$) and are explicitly preserved.
+
+### 6. Deterministic Representative Selection
+- Candidate sorting strictly enforces a deterministic 6-factor tie-break key:
+  $$(\text{confidence}, \text{ranking\_score}, \text{occurrences}, \text{length}, \text{exact\_count}, \text{tuple}(\text{sequence}))$$
+- Eliminates any non-deterministic ordering caused by Python hash seeds, dictionary iterations, or set traversals.
+
+---
+
+## Comparative Benchmark Results (Phase 8.1 vs. Phase 8.2 vs. Phase 8.3/8.4 vs. Phase 8.5)
+
+Evaluated across the full 33-scenario benchmark dataset using `.venv/bin/python -m discovery.evaluation`:
+
+| Metric | Phase 8.1 Baseline | Phase 8.2 Smarter Detector | Phase 8.3/8.4 Ranked & Clean | Phase 8.5 Discovery Quality & Robustness |
+|--------|--------------------|----------------------------|------------------------------|------------------------------------------|
+| **Precision** | 90.32% (0.9032) | 91.67% (0.9167) | **97.06%** (0.9706) | **97.06%** (0.9706) |
+| **Recall** | 84.85% (0.8485) | **100.0%** (1.0000) | **100.0%** (1.0000) | **100.0%** (1.0000) |
+| **F1 Score** | 0.8750 | 0.9565 | **0.9851** | **0.9851** |
+| **True Positives (TP)** | 28 | **33** | **33** | **33** |
+| **False Positives (FP)** | 3 | 3 | **1** | **1** |
+| **False Negatives (FN)** | 5 | **0** | **0** | **0** |
 | **True Negatives (TN)** | 5 | 5 | **7** | **7** |
-| **Accuracy** | 89.66% | 93.10% | **100.0%** | **100.0%** |
-| **Duplicates Suppressed**| 0 | 114 | **123** | **123** |
-| **Explainability Audit** | N/A | N/A | N/A | **100.0%** (176/176 evidence checks passed) |
+| **Accuracy** | 80.49% | 92.68% | **97.56%** | **97.56%** |
+| **Duplicates Suppressed**| 0 | 184 | **186** | **186** |
+| **Exact Replay Count** | 61 | 87 | 81 | **81** |
+| **Approximate Replay Count** | 22 | 10 | 10 | **10** |
+| **Partial Support Count** | 0 | 15 | 15 | **15** |
+| **Optional-Step Count** | 0 | 2 | 2 | **2** |
+| **Intra-Session Repetitions** | 0 | 1 | 1 | **1** |
+| **Avg Alignment Similarity** | 0.9842 | 0.9923 | 0.9918 | **0.9918** |
+| **Candidates Evaluated (Before/After)** | 64 / 31 | 220 / 36 | 220 / 34 | **220 / 34** |
+| **Explainability Audit** | N/A | N/A | 100.0% (272/272 checks) | **100.0%** (272/272 checks passed) |
 
 ---
 
-## Limitations & Distinctions
+## Synthetic Evaluation Disclaimer & Limitations
 
-1. **Observed Facts vs. Algorithmic Measurements vs. Heuristic Utility**:
-   - *Observed Facts*: Distinct session counts, exact sequence verbs, and timestamp chronological ordering.
-   - *Algorithmic Measurements*: Semi-global alignment similarity scores, edit distance insertions/deletions, and action entropy ratios.
-   - *Heuristic Interpretation*: Automation ranking utility ($R$) and confidence tier categorization. These represent operational prioritization weights, not statistically calibrated probabilities of workflow correctness.
-2. **Subsumption Session Overlap Cutoff**: Overlapping shadows require $\ge 70\%$ session overlap with the candidate super-sequence to be suppressed. Sub-sequences with independent utility across separate sessions are deliberately preserved.
-3. **No Safety Proof**: Deterministic explanations describe why a pattern was detected, but they do **not** constitute proof that automated execution of the workflow is safe or free of unintended side-effects. Human operator review and approval remains strictly mandatory.
+1. **Synthetic Nature of Benchmarks**:
+   - All 33 evaluation scenarios are **completely synthetic and deterministically constructed** to ensure repeatable regression testing.
+   - Benchmark precision, recall, and F1 scores reflect performance on structured synthetic event streams and **do not imply equivalent accuracy on uncurated, chaotic production activity streams**.
+2. **Heuristic Nature of Scoring**:
+   - Ranking utility ($R \in [0.0, 1.0]$) and confidence scores are operational heuristics prioritizing automation return-on-investment; they are **not calibrated Bayesian probabilities**.
+3. **Partial Execution Ambiguity**:
+   - A short sequence prefix can represent a legitimately abandoned workflow or an unrelated user task. WorkFlowOS requires at least `min_occurrences` full/approximate distinct sessions before associating partial execution evidence with a workflow.
+4. **Semantic Equivalence vs. String Verbs**:
+   - Discovery matches based on normalized action verb identifiers (e.g. `open_email`, `search_customer`). It does not perform semantic NLP inference across unstructured text or synonyms.
 
 ---
 
 ## Reproducing Evaluation and Tests
 
 ```bash
-# Run the 24-scenario synthetic comparative benchmark with explainability validation
+# Run the 33-scenario synthetic comparative benchmark with Phase 8.5 metrics
 .venv/bin/python3 -m discovery.evaluation
+
+# Run Phase 8.5 test suite (robustness, optional steps, partial execution, intra-session reps)
+.venv/bin/python3 -m unittest backend.test_phase8_5 -v
 
 # Run Phase 8.4 test suite (explainability, empirical validation, privacy safeguards)
 .venv/bin/python3 -m unittest backend.test_phase8_4 -v
@@ -345,11 +402,10 @@ Evaluated across the 24-scenario benchmark dataset using `.venv/bin/python -m di
 # Run Phase 8.1 regression test suite (confidence scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run full backend regression suite (300 tests, 0 failures)
+# Run full backend regression suite (314 tests, 0 failures)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
 
-# Run frontend lint, typecheck, and production build
+# Run frontend lint and production build
 npm --prefix frontend run lint
-frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json
 npm --prefix frontend run build
 ```

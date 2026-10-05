@@ -43,6 +43,8 @@ export interface OccurrenceEvidence {
   min_sessions_required: number;
   threshold_satisfied: boolean;
   repetition_description: string;
+  intra_session_repetitions?: number;
+  partial_support_count?: number;
 }
 
 export interface SequenceEvidence {
@@ -56,6 +58,8 @@ export interface SequenceEvidence {
   total_insertions_observed: number;
   total_deletions_observed: number;
   total_transpositions_observed: number;
+  optional_steps?: string[];
+  max_consecutive_noise_observed?: number;
   variations_summary: string;
 }
 
@@ -105,6 +109,11 @@ export interface WorkflowExplanation {
   suppression_evidence?: SuppressionEvidence | null;
   representative_explanation?: string | null;
   limitations: string[];
+  // Phase 8.5 fields
+  optional_steps?: string[];
+  partial_support_count?: number;
+  intra_session_repetitions?: number;
+  bounded_noise_tolerance?: string;
 }
 
 export interface DiscoveredWorkflow {
@@ -128,6 +137,11 @@ export interface DiscoveredWorkflow {
   suppression_reason?: string;
   // Phase 8.4 Explainability fields
   explanation?: WorkflowExplanation;
+  // Phase 8.5 Discovery Quality & Robustness fields
+  optional_steps?: string[];
+  partial_support_count?: number;
+  partial_support_session_ids?: string[];
+  intra_session_repetitions?: number;
 }
 
 export interface DiscoveryResult {

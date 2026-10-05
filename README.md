@@ -517,12 +517,12 @@ Workflows receive discrete quality tiers (`exceptional` $\ge 0.85$, `strong` $\g
 - **Similar Variants**: Variants sharing $\ge 80\%$ alignment similarity and $\ge 50\%$ session overlap are deduplicated to the highest-confidence representative.
 - **Independent Sequences**: Sub-sequences with $\ge \text{min\_occurrences}$ independent sessions outside the parent workflow are preserved.
 
-### 4. 24-Scenario Comparative Benchmark Results
-Evaluated via `.venv/bin/python -m discovery.evaluation`:
-- **Phase 8.1 Baseline**: Precision = 91.3%, Recall = 95.5%, F1 = 0.9333, Acc = 89.7%
-- **Phase 8.2 Smarter Detector**: Precision = 91.7%, Recall = **100.0%**, F1 = 0.9565, Acc = 93.1%
-- **Phase 8.3 Ranking & Noise Reduction**: Precision = **100.0%**, Recall = **100.0%**, F1 = **1.0000**, Acc = **100.0%**, Duplicates Suppressed = **123**
-- **Phase 8.4 Explainable Discovery**: Precision = **100.0%**, Recall = **100.0%**, F1 = **1.0000**, Acc = **100.0%**, Explainability Audit = **100.0%** (176/176 evidence checks passed)
+### 4. Comparative Benchmark Results (Phase 8.1 through Phase 8.5)
+Evaluated across the 33-scenario benchmark dataset via `.venv/bin/python -m discovery.evaluation`:
+- **Phase 8.1 Baseline**: Precision = 90.3%, Recall = 84.8%, F1 = 0.8750, Acc = 80.5%
+- **Phase 8.2 Smarter Detector**: Precision = 91.7%, Recall = **100.0%**, F1 = 0.9565, Acc = 92.7%
+- **Phase 8.3/8.4 Ranked & Clean**: Precision = **97.1%**, Recall = **100.0%**, F1 = **0.9851**, Acc = **97.6%**, Duplicates Suppressed = **186**
+- **Phase 8.5 Discovery Quality & Robustness**: Precision = **97.1%**, Recall = **100.0%**, F1 = **0.9851**, Acc = **97.6%**, Duplicates Suppressed = **186**, Optional Steps = 2, Partial Support = 15, Intra-Session Repetitions = 1, Explainability Audit = **100.0%** (272/272 evidence checks passed)
 
 ---
 
@@ -548,11 +548,28 @@ Phase 8.4 equips WorkFlowOS with a deterministic, non-hallucinatory explainabili
 
 ---
 
+## Phase 8.5 — Discovery Quality & Robustness
+
+Phase 8.5 enhances discovery quality under messy user behavior while eliminating generic noise false positives:
+
+1. **Robust Temporal Matching with Bounded Noise**: Up to 3 consecutive non-workflow insertions tolerated; stretches $>3$ are bounded and rejected.
+2. **Deterministic Optional Step Detection**: DP traceback dynamically identifies steps present in some sessions but omitted in others (`optional_steps`).
+3. **Partial Workflow Execution Support**: Sessions executing partial sequences (coverage $\in [0.35, 0.80)$) are tracked as `partial_support_count` without inflating distinct-session qualification counts.
+4. **Position-Independent Alignment**: Matches recurring routines regardless of whether they appear at session prefix, middle, or suffix.
+5. **Intra-Session Repetition Modeling**: Multiple executions within a single session are tracked separately (`intra_session_repetitions`) to prevent inflating multi-session support.
+6. **Common Action False Positive Suppression**: Suppresses 1-action monotonous loops (`view_dashboard x 3`) and 2-action alternating ping-pong loops (`open_tab, search_tab, open_tab, search_tab`) while preserving legitimate workflows containing repetitive steps.
+7. **Deterministic Representative Selection**: 6-factor tie-break key guarantees 100% reproducible canonical selections regardless of dictionary or hash set ordering.
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (300 tests)
+# Full test suite across all phases (314 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Phase 8.5 (Discovery Quality & Robustness)
+.venv/bin/python3 -m unittest backend.test_phase8_5 -v
 
 # Phase 8.4 (Explainable Discovery & Empirical Validation)
 .venv/bin/python3 -m unittest backend.test_phase8_4 -v
@@ -566,7 +583,7 @@ Phase 8.4 equips WorkFlowOS with a deterministic, non-hallucinatory explainabili
 # Phase 8.1 (Discovery Evaluation & Confidence Scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run the 24-Scenario Synthetic Discovery Benchmark with Explainability Audit
+# Run the 33-Scenario Synthetic Discovery Benchmark with Phase 8.5 Metrics
 .venv/bin/python3 -m discovery.evaluation
 
 # Phase 7.4 (Reliability, Security & Recovery)
@@ -586,11 +603,10 @@ Phase 8.4 equips WorkFlowOS with a deterministic, non-hallucinatory explainabili
 
 # Frontend Checks
 npm --prefix frontend run lint
-frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 8.4):** 300 tests · 286 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 8.5):** 314 tests · 300 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 

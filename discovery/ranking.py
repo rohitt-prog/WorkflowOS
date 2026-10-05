@@ -281,6 +281,10 @@ def assess_candidate_noise(
         if unique_count <= 1 and length >= 2:
             return SuppressionReason.MONOTONOUS_REPETITION.value
 
+        # Alternating 2-action ping-pong loop (e.g. open_tab, search_tab, open_tab, search_tab)
+        if length >= 4 and unique_count == 2 and all(sequence[i] == sequence[i % 2] for i in range(length)):
+            return SuppressionReason.MONOTONOUS_REPETITION.value
+
         # Low action diversity: severe lack of distinct verbs (e.g. 1 unique in 4+ steps)
         if length >= 3 and (unique_count / length) < 0.35:
             return SuppressionReason.LOW_ACTION_DIVERSITY.value

@@ -55,6 +55,16 @@ class OccurrenceEvidence(BaseModel):
         ...,
         description="Human-readable summary of repetition volume and threshold satisfaction"
     )
+    intra_session_repetitions: int = Field(
+        default=0,
+        ge=0,
+        description="Additional executions of this workflow observed within the same sessions"
+    )
+    partial_support_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of sessions showing partial workflow execution"
+    )
 
 
 class SequenceEvidence(BaseModel):
@@ -109,6 +119,15 @@ class SequenceEvidence(BaseModel):
         default=0,
         ge=0,
         description="Total adjacent step swaps across all matched sessions"
+    )
+    optional_steps: List[str] = Field(
+        default_factory=list,
+        description="List of action verbs that were optional across supporting sessions"
+    )
+    max_consecutive_noise_observed: int = Field(
+        default=0,
+        ge=0,
+        description="Maximum consecutive intermediate noise steps observed"
     )
     variations_summary: str = Field(
         ...,
@@ -283,6 +302,24 @@ class WorkflowExplanation(BaseModel):
         default_factory=list,
         description="Explicit uncertainties, empirical scope boundaries, and heuristic disclaimers"
     )
+    optional_steps: List[str] = Field(
+        default_factory=list,
+        description="List of action verbs that were optional across supporting sessions"
+    )
+    partial_support_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of sessions exhibiting partial execution of this workflow"
+    )
+    intra_session_repetitions: int = Field(
+        default=0,
+        ge=0,
+        description="Additional executions of this workflow observed within the same sessions"
+    )
+    bounded_noise_tolerance: str = Field(
+        default="Max 3 consecutive intermediate noise actions tolerated",
+        description="Explanation of bounded intermediate noise tolerance"
+    )
 
 
 def mask_session_id(session_id: str) -> str:
@@ -312,9 +349,13 @@ def synthesize_detection_reason(
     exact_count: int,
     insertions: int,
     transpositions: int,
+    optional_steps: Optional[List[str]] = None,
+    intra_session_repetitions: int = 0,
+    partial_support_count: int = 0,
 ) -> str:
     """
     Synthesizes an evidence-grounded explanation of why this sequence qualified.
+    Enhanced in Phase 8.5 with optional steps, intra-session repetition, and partial support evidence.
     """
     length = len(sequence)
     sim_pct = int(round(avg_similarity * 100))
@@ -328,17 +369,24 @@ def synthesize_detection_reason(
             var_parts.append(f"{insertions} tolerated inserted actions")
         if transpositions > 0:
             var_parts.append(f"{transpositions} adjacent step order swaps")
+        if optional_steps:
+            var_parts.append(f"optional steps: {', '.join(optional_steps)}")
         var_text = f" with {', '.join(var_parts)}" if var_parts else ""
         match_desc = (
             f"local alignment similarity averaging {sim_pct}% "
             f"({exact_count}/{occurrences} exact replays{var_text})"
         )
 
-    return (
+    reason = (
         f"Qualified as a repeated workflow because the {length}-step sequence was observed "
         f"in {occurrences} distinct user sessions (configured threshold: >= {min_occurrences}) "
         f"with {match_desc}. The observed similarity exceeds the {min_sim_pct}% alignment threshold."
     )
+    if intra_session_repetitions > 0:
+        reason += f" Additionally, {intra_session_repetitions} intra-session repetition(s) were observed within the sessions."
+    if partial_support_count > 0:
+        reason += f" {partial_support_count} session(s) demonstrated partial workflow completion."
+    return reason
 
 
 def synthesize_sequence_evidence(
@@ -347,13 +395,18 @@ def synthesize_sequence_evidence(
     session_similarities: Optional[List[float]],
     avg_similarity: float,
     occurrences: int,
+    optional_steps_override: Optional[List[str]] = None,
 ) -> SequenceEvidence:
     """
     Extracts structural sequence metrics and alignment variation evidence.
+    Enhanced in Phase 8.5 with optional-step extraction and max consecutive noise tracking.
     """
     length = len(sequence)
     unique_count = len(set(sequence))
     diversity_ratio = round(unique_count / length, 4) if length > 0 else 0.0
+
+    detected_optional_steps: List[str] = []
+    max_consec_noise = 0
 
     if alignment_results:
         exact_count = sum(1 for ar in alignment_results if ar.similarity >= 0.999)
@@ -361,6 +414,16 @@ def synthesize_sequence_evidence(
         tot_ins = sum(ar.insertions for ar in alignment_results)
         tot_del = sum(ar.deletions for ar in alignment_results)
         tot_trans = sum(ar.transpositions for ar in alignment_results)
+        max_consec_noise = max((ar.max_consecutive_insertions for ar in alignment_results), default=0)
+
+        # Detect optional steps: steps that were executed in at least 1 session but omitted in at least 1 session
+        num_sessions = len(alignment_results)
+        for idx in range(length):
+            step_name = sequence[idx]
+            sessions_missing = sum(1 for ar in alignment_results if idx in ar.missing_pattern_indices)
+            if 0 < sessions_missing < num_sessions:
+                if step_name not in detected_optional_steps:
+                    detected_optional_steps.append(step_name)
     elif session_similarities:
         exact_count = sum(1 for s in session_similarities if s >= 0.999)
         approx_count = len(session_similarities) - exact_count
@@ -374,6 +437,8 @@ def synthesize_sequence_evidence(
         tot_del = 0
         tot_trans = 0
 
+    final_optional_steps = optional_steps_override if optional_steps_override is not None else detected_optional_steps
+
     if exact_count == occurrences:
         var_summary = "Zero structural variations observed across all supporting sessions (100% exact sequence match)."
     else:
@@ -384,6 +449,8 @@ def synthesize_sequence_evidence(
             parts.append(f"{tot_trans} adjacent step transpositions")
         if tot_del > 0:
             parts.append(f"{tot_del} omitted steps")
+        if final_optional_steps:
+            parts.append(f"optional steps: {', '.join(final_optional_steps)}")
         if not parts:
             parts.append("minor character/verb alignment variances")
         var_summary = (
@@ -401,6 +468,8 @@ def synthesize_sequence_evidence(
         total_insertions_observed=tot_ins,
         total_deletions_observed=tot_del,
         total_transpositions_observed=tot_trans,
+        optional_steps=final_optional_steps,
+        max_consecutive_noise_observed=max_consec_noise,
         variations_summary=var_summary,
     )
 
@@ -695,9 +764,12 @@ def synthesize_limitations(
     occurrences: int,
     avg_similarity: float,
     approx_count: int,
+    partial_count: int = 0,
+    intra_session_count: int = 0,
 ) -> List[str]:
     """
     Generates explicit limitations and empirical boundary disclaimers.
+    Enhanced in Phase 8.5 with partial execution and intra-session repetition bounds.
     """
     limits = [
         "Heuristic Ranking: The utility score (0.0 - 1.0) is an operational prioritization heuristic based on observed volume and structure, not a calibrated statistical probability.",
@@ -706,6 +778,14 @@ def synthesize_limitations(
     if approx_count > 0:
         limits.append(
             f"Local Alignment Tolerances: {approx_count} supporting sessions exhibited structural variations (insertions or step reorderings); human operator review should confirm whether omitted or extra steps are non-essential."
+        )
+    if partial_count > 0:
+        limits.append(
+            f"Partial Execution Evidence: {partial_count} session(s) executed parts of this workflow; partial runs provide supporting frequency evidence but do not count toward the distinct-session threshold."
+        )
+    if intra_session_count > 0:
+        limits.append(
+            f"Intra-Session Repetitions: {intra_session_count} repetitions occurred within the same sessions; intra-session frequency reflects user habit but requires multi-session validation."
         )
     return limits
 
@@ -735,10 +815,15 @@ def build_workflow_explanation(
     min_occurrences: int = 2,
     similarity_threshold: float = 0.80,
     min_ranking_score: Optional[float] = None,
+    optional_steps: Optional[List[str]] = None,
+    partial_support_count: int = 0,
+    intra_session_repetitions: int = 0,
+    bounded_noise_tolerance: str = "Max 3 consecutive intermediate noise actions tolerated",
 ) -> WorkflowExplanation:
     """
     Assembles the complete WorkflowExplanation object.
     Fully deterministic, evidence-grounded, and testable.
+    Enhanced in Phase 8.5 with optional steps, partial support, and intra-session repetition metrics.
     """
     safe_sessions = [mask_session_id(s) for s in session_ids]
     length = len(sequence)
@@ -750,7 +835,10 @@ def build_workflow_explanation(
         session_similarities=session_similarities,
         avg_similarity=avg_similarity,
         occurrences=occurrences,
+        optional_steps_override=optional_steps,
     )
+
+    final_optional_steps = optional_steps if optional_steps is not None else seq_ev.optional_steps
 
     # 2. Occurrence Evidence
     occ_ev = OccurrenceEvidence(
@@ -760,6 +848,8 @@ def build_workflow_explanation(
         repetition_description=(
             f"Observed across {occurrences} distinct user sessions (satisfies >= {min_occurrences} requirement)."
         ),
+        intra_session_repetitions=intra_session_repetitions,
+        partial_support_count=partial_support_count,
     )
 
     # 3. Consistency Evidence
@@ -787,6 +877,9 @@ def build_workflow_explanation(
         exact_count=seq_ev.exact_match_sessions_count,
         insertions=seq_ev.total_insertions_observed,
         transpositions=seq_ev.total_transpositions_observed,
+        optional_steps=final_optional_steps,
+        intra_session_repetitions=intra_session_repetitions,
+        partial_support_count=partial_support_count,
     )
 
     # 5. Confidence Factors
@@ -852,6 +945,8 @@ def build_workflow_explanation(
         occurrences=occurrences,
         avg_similarity=avg_similarity,
         approx_count=seq_ev.approximate_match_sessions_count,
+        partial_count=partial_support_count,
+        intra_session_count=intra_session_repetitions,
     )
 
     return WorkflowExplanation(
@@ -870,4 +965,8 @@ def build_workflow_explanation(
         suppression_evidence=supp_ev,
         representative_explanation=rep_expl,
         limitations=limits,
+        optional_steps=final_optional_steps,
+        partial_support_count=partial_support_count,
+        intra_session_repetitions=intra_session_repetitions,
+        bounded_noise_tolerance=bounded_noise_tolerance,
     )

@@ -424,6 +424,17 @@ export default function DiscoveryView({
                             ))}
                           </div>
                         )}
+                        {/* Phase 8.5: Optional Steps Evidence */}
+                        {wf.optional_steps && wf.optional_steps.length > 0 && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-amber-800">Optional steps detected:</span>
+                            {wf.optional_steps.map((optStep, idx) => (
+                              <span key={idx} className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800">
+                                {optStep}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Alignment & Consistency Grid */}
@@ -445,6 +456,18 @@ export default function DiscoveryView({
                             {(wf.explanation?.sequence_evidence?.total_transpositions_observed ?? 0) > 0 && (
                               <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
                                 {wf.explanation?.sequence_evidence?.total_transpositions_observed} step swaps tolerated
+                              </span>
+                            )}
+                            {/* Phase 8.5: Partial Support Badge */}
+                            {(wf.partial_support_count ?? 0) > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200">
+                                {wf.partial_support_count} partial execution(s)
+                              </span>
+                            )}
+                            {/* Phase 8.5: Intra-Session Repetitions Badge */}
+                            {(wf.intra_session_repetitions ?? 0) > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 border border-cyan-200">
+                                +{wf.intra_session_repetitions} intra-session rep(s)
                               </span>
                             )}
                           </div>
