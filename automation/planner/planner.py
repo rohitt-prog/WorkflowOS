@@ -128,6 +128,15 @@ class AutomationPlanner:
             logger.warning(f"[AutomationPlanner] Could not retrieve learning state for {workflow_id}: {le}")
             learning_state = None
 
+        # Phase 11: Consume Closed-Loop Strategy Evidence
+        strategy_evidence_map: Dict[Tuple[str, str], Any] = {}
+        try:
+            evidence_records = await self.learning_service.get_strategy_evidence(workflow_id)
+            for ev in evidence_records:
+                strategy_evidence_map[(ev.step_action.lower(), ev.strategy.upper())] = ev
+        except Exception as ee:
+            logger.warning(f"[AutomationPlanner] Could not retrieve strategy evidence for {workflow_id}: {ee}")
+
         # 3. Analyze each step and score candidate strategies
         step_plans: List[StepPlan] = []
         strategy_counts: Dict[str, int] = {}
@@ -146,6 +155,7 @@ class AutomationPlanner:
                 learning_state=learning_state,
                 context=ctx,
                 strategy_override=strategy_override.get(step_id) if strategy_override else None,
+                evidence_map=strategy_evidence_map,
             )
             step_plans.append(step_plan)
             strat_val = step_plan.selected_strategy.value
@@ -234,6 +244,7 @@ class AutomationPlanner:
         learning_state: Optional[WorkflowLearningState],
         context: Dict[str, Any],
         strategy_override: Optional[str] = None,
+        evidence_map: Optional[Dict[Tuple[str, str], Any]] = None,
     ) -> StepPlan:
         """Plans a single workflow action step."""
         step_ctx = dict(context)
@@ -258,11 +269,40 @@ class AutomationPlanner:
             req_creds = cap_info.get("requires_credentials", False)
             creds_avail = cap_info.get("credentials_available", True)
 
-            # Step-specific strategy metrics
+            # Phase 11: Step-specific strategy metrics from evidence map or context history
+            strat_key_pfx = strategy.value.lower()
+            ev = None
+            if evidence_map:
+                ev = evidence_map.get((action.lower(), strategy.value.upper()))
+
+            succ = history.get(f"{strat_key_pfx}_successes")
+            if succ is None and ev:
+                succ = ev.successes
+            fail = history.get(f"{strat_key_pfx}_failures")
+            if fail is None and ev:
+                fail = ev.failures
+            last_failed = history.get(f"{strat_key_pfx}_last_failed")
+            if last_failed is None and ev:
+                last_failed = (ev.last_outcome == "FAILED")
+            rec_succ = history.get(f"{strat_key_pfx}_recent_successes")
+            if rec_succ is None and ev:
+                rec_succ = ev.recent_successes
+            rec_fail = history.get(f"{strat_key_pfx}_recent_failures")
+            if rec_fail is None and ev:
+                rec_fail = ev.recent_failures
+            fallback_cnt = history.get(f"{strat_key_pfx}_fallback_count")
+            if fallback_cnt is None and ev:
+                fallback_cnt = ev.fallback_count
+
             strat_history = {
-                f"{strategy.value.lower()}_successes": history.get(f"{strategy.value.lower()}_successes"),
-                f"{strategy.value.lower()}_failures": history.get(f"{strategy.value.lower()}_failures"),
-                f"{strategy.value.lower()}_last_failed": history.get(f"{strategy.value.lower()}_last_failed", False),
+                f"{strat_key_pfx}_successes": succ,
+                f"{strat_key_pfx}_failures": fail,
+                f"{strat_key_pfx}_last_failed": bool(last_failed),
+                f"{strat_key_pfx}_recent_successes": rec_succ,
+                f"{strat_key_pfx}_recent_failures": rec_fail,
+                "recent_successes": rec_succ,
+                "recent_failures": rec_fail,
+                "fallback_count": fallback_cnt,
             }
 
             candidate = self.scorer.score_strategy(
@@ -359,6 +399,22 @@ class AutomationPlanner:
 
         # Concise primary justification
         reason = self._build_step_justification(selected_candidate, action, application)
+
+        # Phase 11: Check if an adaptation occurred due to failure of a higher architectural priority candidate
+        adapted_from = None
+        for cand in candidates:
+            if cand.strategy != selected_candidate.strategy and cand.score_breakdown.priority_score > selected_candidate.score_breakdown.priority_score:
+                if cand.score_breakdown.failure_penalty > 0.15 or cand.metadata.get("recent_failures", 0) > 0:
+                    adapted_from = cand
+                    break
+
+        if adapted_from:
+            adaptation_note = (
+                f"{selected_candidate.strategy.value.capitalize()} was selected because the {adapted_from.strategy.value} "
+                f"strategy has repeated recent failures for this workflow step."
+            )
+            selected_reasons.insert(0, adaptation_note)
+            reason = f"{selected_candidate.strategy.value.capitalize()} was selected because the {adapted_from.strategy.value} strategy has repeated recent failures for this workflow step."
 
         fallback_strat = fallback_candidate.strategy if fallback_candidate else None
         fallback_reason = (

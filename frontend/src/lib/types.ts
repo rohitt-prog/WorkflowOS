@@ -454,3 +454,72 @@ export interface AutomationPlanResponse {
   requires_approval: boolean;
   message: string;
 }
+
+// ============================================================================
+// Phase 11: Closed-Loop Intelligence Types
+// ============================================================================
+
+export interface StrategyOutcomeEvidence {
+  workflow_id: string;
+  step_action: string;
+  strategy: string;
+  attempts: number;
+  successes: number;
+  failures: number;
+  success_rate: number;
+  recent_outcomes: string[];
+  recent_successes: number;
+  recent_failures: number;
+  fallback_count: number;
+  last_outcome?: string | null;
+  last_failure_category?: string | null;
+  last_error_message?: string | null;
+  average_duration?: number | null;
+  updated_at: string;
+}
+
+export interface StepOutcome {
+  step_id: string;
+  action: string;
+  application: string;
+  strategy: string;
+  status: 'SUCCESS' | 'FAILED' | 'PARTIAL' | 'CANCELLED' | 'PAUSED' | 'NOT_EXECUTED';
+  duration_seconds?: number | null;
+  retries: number;
+  is_fallback: boolean;
+  primary_strategy?: string | null;
+  failure_category?: string | null;
+  error_message?: string | null;
+}
+
+export interface WorkflowExecutionOutcome {
+  workflow_id: string;
+  execution_id: string;
+  status: 'SUCCESS' | 'FAILED' | 'PARTIAL' | 'CANCELLED' | 'PAUSED';
+  started_at: string;
+  completed_at?: string | null;
+  duration_seconds?: number | null;
+  total_steps: number;
+  completed_steps: number;
+  failed_steps_count: number;
+  unexecuted_steps_count: number;
+  failed_step?: string | null;
+  failure_category?: string | null;
+  fallback_used: boolean;
+  step_outcomes: StepOutcome[];
+  error_message?: string | null;
+}
+
+export interface ClosedLoopSummary {
+  workflow_id: string;
+  workflow_name: string;
+  total_executions: number;
+  successful_executions: number;
+  failed_executions: number;
+  partial_executions: number;
+  cancelled_executions: number;
+  paused_executions: number;
+  strategy_evidence: StrategyOutcomeEvidence[];
+  adaptations: string[];
+  explanation: string;
+}

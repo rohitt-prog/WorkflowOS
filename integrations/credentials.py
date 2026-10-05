@@ -54,6 +54,11 @@ _KEY_VAL_SECRET_REGEX = re.compile(
     re.IGNORECASE
 )
 
+# Scrub high-entropy tokens with recognizable platform prefixes
+_KNOWN_TOKEN_PREFIX_REGEX = re.compile(
+    r"\b(ghp_[a-zA-Z0-9_]{15,}|ya29\.[a-zA-Z0-9_\-]{15,}|sk-[a-zA-Z0-9_\-]{15,}|AKIA[0-9A-Z]{16})\b"
+)
+
 
 def sanitize_credential_dict(data: Any) -> Any:
     """
@@ -86,6 +91,7 @@ def sanitize_log_message(message: str) -> str:
     scrubbed = _BEARER_REGEX.sub("Bearer [REDACTED]", message)
     scrubbed = _BASIC_REGEX.sub("Basic [REDACTED]", scrubbed)
     scrubbed = _KEY_VAL_SECRET_REGEX.sub(r"\1\2\3[REDACTED]\3", scrubbed)
+    scrubbed = _KNOWN_TOKEN_PREFIX_REGEX.sub("[REDACTED]", scrubbed)
     return scrubbed
 
 

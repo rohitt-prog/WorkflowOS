@@ -97,12 +97,50 @@ class StrategyScorer:
             failures = 0
         total_runs = successes + failures
 
+        # Phase 11: Extract recency-weighted metrics if available
+        recent_succ = hist.get(f"{strategy.value.lower()}_recent_successes")
+        if recent_succ is None:
+            recent_succ = hist.get("recent_successes")
+        recent_fail = hist.get(f"{strategy.value.lower()}_recent_failures")
+        if recent_fail is None:
+            recent_fail = hist.get("recent_failures")
+
+        raw_fallback = hist.get(f"{strategy.value.lower()}_fallback_count")
+        if raw_fallback is None:
+            raw_fallback = hist.get("fallback_count", 0)
+        try:
+            fallback_count = int(raw_fallback or 0)
+        except (ValueError, TypeError):
+            fallback_count = 0
+
         if total_runs > 0:
             success_rate = successes / total_runs
-            reliability_score = round(success_rate * 0.25, 4)
-            selection_reasons.append(
-                f"Historical reliability: {successes}/{total_runs} successful runs ({success_rate*100:.1f}%)"
-            )
+            # Blend historical rate with bounded recent rate if recent telemetry is available
+            if recent_succ is not None and recent_fail is not None and (recent_succ + recent_fail) > 0:
+                recent_rate = recent_succ / (recent_succ + recent_fail)
+                effective_rate = round(0.60 * success_rate + 0.40 * recent_rate, 4)
+            else:
+                effective_rate = success_rate
+
+            base_reliability = round(effective_rate * 0.25, 4)
+
+            # Phase 11: Success Reinforcement (bounded +0.02 bonus for consistent recent successes)
+            reinforcement_bonus = 0.0
+            if recent_succ is not None and recent_succ >= 3 and (recent_fail or 0) == 0:
+                reinforcement_bonus = 0.02
+                selection_reasons.append(
+                    f"Strong recent reliability reinforcement ({recent_succ} consecutive recent successes)"
+                )
+            elif fallback_count > 0 and successes > failures:
+                selection_reasons.append(
+                    f"Demonstrated fallback reliability ({fallback_count} successful fallback runs)"
+                )
+            else:
+                selection_reasons.append(
+                    f"Historical reliability: {successes}/{total_runs} successful runs ({success_rate*100:.1f}%)"
+                )
+
+            reliability_score = round(min(0.25, base_reliability + reinforcement_bonus), 4)
         else:
             reliability_score = COLD_START_RELIABILITY.get(strategy, 0.10)
             if is_available and strategy != AutomationStrategyType.MANUAL:
@@ -147,6 +185,10 @@ class StrategyScorer:
             last_failed = hist.get(f"{strategy.value.lower()}_last_failed", hist.get("last_failed", False))
             if last_failed:
                 failure_penalty = round(min(0.50, failure_penalty + 0.10), 4)
+            # Phase 11: Recency weighting on repeated recent failures
+            if recent_fail is not None and recent_fail > 0:
+                rec_penalty = round(min(0.15, recent_fail * 0.05), 4)
+                failure_penalty = round(min(0.50, failure_penalty + rec_penalty), 4)
         elif learning_state and learning_state.last_failed_step == action:
             # Step recently failed in workflow learning state
             failure_penalty = 0.05
@@ -216,6 +258,9 @@ class StrategyScorer:
                 "total_runs": total_runs,
                 "successes": successes,
                 "failures": failures,
+                "recent_successes": recent_succ if recent_succ is not None else 0,
+                "recent_failures": recent_fail if recent_fail is not None else 0,
+                "fallback_count": fallback_count,
             }
         )
 

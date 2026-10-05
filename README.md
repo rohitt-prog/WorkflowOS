@@ -67,6 +67,7 @@
 | **Phase 8.5** | Discovery Quality, Robustness & Semantic Grouping | ✅ Complete |
 | **Phase 9** | Adaptive Learning & Human Review Feedback Loop | ✅ Complete |
 | **Phase 10** | Intelligent Automation — Deterministic Strategy Planning | ✅ Complete |
+| **Phase 11** | Closed-Loop Intelligence — Execution Feedback & Strategy Adaptation | ✅ Complete |
 
 ---
 
@@ -775,14 +776,106 @@ Every automated step in the plan determines a valid secondary fallback strategy:
 
 ---
 
+## Phase 11 — Closed-Loop Intelligence
+
+### 1. Purpose
+
+Phase 11 completes the closed feedback loop of WorkFlowOS by feeding actual execution outcomes back into adaptive learning and future automation planning. Rather than relying solely on static architectural priorities or initial capability declarations, WorkFlowOS tracks empirical reliability per workflow, action step, and automation strategy—enabling failure-aware adaptation and success reinforcement while preserving deterministic safety constraints.
+
+```text
+Workflow Discovery
+   ↓
+Adaptive Learning / History (Phase 9)
+   ↓
+Automation Planner (Phase 10)
+   ↓
+Human Approval Gate (HitL — mandatory)
+   ↓
+Execution Engine
+   ↓
+Outcome Capture & Deterministic Evaluation (Phase 11)
+   ↓
+Strategy Outcome Evidence (workflow + step + strategy)
+   ↓
+Adaptive Closed-Loop Feedback → Future Planning Refinement
+```
+
+### 2. Deterministic Outcome Evaluation & Failure Taxonomy
+
+Execution results are automatically captured upon completion, failure, cancellation, or pause. A deterministic evaluator inspects step results and categorizes failures without external AI or LLM dependencies using a bounded 11-category taxonomy:
+
+| Failure Category | Classification Criteria |
+|---|---|
+| `TIMEOUT` | Request, connection, or execution timeout |
+| `AUTHENTICATION` | Missing, expired, or invalid credentials or tokens |
+| `AUTHORIZATION` | Insufficient permissions, forbidden access |
+| `NETWORK` | DNS failure, connection refused, network unreachable |
+| `VALIDATION` | Invalid step inputs, schema validation errors |
+| `TARGET_NOT_FOUND` | Missing DOM element, selector error, or entity not found |
+| `UNSUPPORTED_ACTION`| Requested action verb not implemented by strategy adapter |
+| `RATE_LIMIT` | 429 Too Many Requests, rate limit exceeded |
+| `INTEGRATION_ERROR` | Upstream SaaS integration or third-party adapter failure |
+| `BROWSER_ERROR` | Playwright or browser session crash, page navigation error |
+| `UNKNOWN` | Uncategorized errors (safe fallback) |
+
+> [!NOTE]
+> **Zero Credential Exposure**: Raw error messages are rigorously sanitized prior to outcome persistence. Passwords, API keys, bearer tokens, OAuth secrets, and authorization headers are strictly redacted.
+
+### 3. Strategy Outcome Evidence
+
+Empirical execution history is indexed by `workflow_id + step_action + strategy`. Each evidence record tracks:
+- **Total Attempts, Successes, Failures**: Lifetime frequency counters.
+- **Success Rate ($[0.0, 1.0]$)**: Historical ratio of successful attempts to total attempts.
+- **Bounded Recency Window (10 outcomes)**: Sliding window tracking recent success and failure trends.
+- **Recent Successes & Recent Failures**: Recency-focused outcome metrics.
+- **Fallback Usage**: Frequency of fallback execution invocations.
+- **Average Duration**: Mean execution time in seconds for the strategy.
+
+### 4. Failure-Aware Adaptation & Recency Weighting
+
+The Phase 10 strategy scoring engine dynamically consumes strategy outcome evidence:
+
+- **Recency Blending**: Combined reliability is computed as $0.60 \times \text{historical\_rate} + 0.40 \times \text{recent\_rate}$.
+- **Success Reinforcement**: Proven strategies gain a bounded reinforcement bonus ($+0.02$ per success, capped at $+0.25$).
+- **Failure Penalty**: Repeated recent failures trigger a progressive deduction (up to $-0.15$), allowing alternative reliable strategies to overtake nominal architectural priorities.
+- **Deterministic Explanations**: When an adaptation occurs, the planner generates transparent explanations such as:
+  > *"Browser was selected because the API strategy has repeated recent failures for this workflow step."*
+
+### 5. Fallback Learning
+
+When a primary strategy fails and a secondary fallback strategy succeeds:
+1. Negative evidence is attributed to the primary strategy.
+2. Positive evidence is attributed to the fallback strategy.
+3. Fallback occurrence counter is incremented.
+
+This ensures future planning adapts to avoid repeatedly selecting an unreliable primary strategy.
+
+### 6. Interruption Handling (Cancelled & Paused)
+
+User-controlled interruptions (`CANCELLED` or `PAUSED`) are distinguished from technical runtime failures. They are recorded in execution telemetry without unfairly penalizing strategy reliability.
+
+### 7. REST APIs
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/workflows/{workflow_id}/strategy-evidence` | Returns empirical strategy evidence across all steps |
+| `GET` | `/api/workflows/{workflow_id}/closed-loop-summary` | Returns a concise closed-loop summary with adaptation insights |
+| `GET` | `/api/workflows/{workflow_id}/outcomes` | Returns historical execution outcome records |
+| `POST` | `/api/workflows/{workflow_id}/evaluate-outcome` | Evaluates an execution record and updates closed-loop evidence |
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (359 tests)
+# Full test suite across all phases (389 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
 
 # Or with pytest
 .venv/bin/python -m pytest -q
+
+# Phase 11 (Closed-Loop Intelligence - 30 test scenarios)
+.venv/bin/python -m pytest backend/test_phase11.py -v
 
 # Phase 10 (Intelligent Automation - 21 test scenarios)
 .venv/bin/python3 -m unittest backend.test_phase10 -v
@@ -814,7 +907,7 @@ npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 10):** 359 tests · 345 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 11):** 389 tests · 375 passed · 14 skipped (live OAuth required) · 0 failures.
 
 
 ---

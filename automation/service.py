@@ -60,13 +60,18 @@ class AutomationService:
                 "Execution remains available in memory cache."
             )
 
-        # Phase 9: Record execution outcome in learning service
+        # Phase 9 & Phase 11: Record execution outcome in learning service and closed-loop telemetry
         try:
-            if execution.status in (AutomationStatus.COMPLETED, AutomationStatus.FAILED, AutomationStatus.PAUSED):
+            if execution.status in (
+                AutomationStatus.COMPLETED,
+                AutomationStatus.FAILED,
+                AutomationStatus.PAUSED,
+                AutomationStatus.CANCELLED,
+            ):
                 from backend.learning.service import learning_service
-                await learning_service.record_execution_outcome(execution)
+                await learning_service.record_closed_loop_outcome(execution)
         except Exception as le:
-            logger.warning(f"[AutomationService] Learning outcome recording failed for {execution.execution_id}: {le}")
+            logger.warning(f"[AutomationService] Closed-loop outcome recording failed for {execution.execution_id}: {le}")
 
     async def _on_progress_update(self, execution: AutomationExecution) -> None:
         """Invoked by engine on step progression for durable intermediate status."""

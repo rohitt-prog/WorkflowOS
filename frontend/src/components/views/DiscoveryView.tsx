@@ -9,6 +9,7 @@ import {
   ApprovalStatus,
   WorkflowLearningState,
   AutomationPlan,
+  ClosedLoopSummary,
 } from "@/lib/types";
 import {
   API_BASE_URL,
@@ -113,6 +114,26 @@ export default function DiscoveryView({
     }
   }, []);
 
+  // Phase 11: Closed-Loop Intelligence state & fetcher
+  const [closedLoopSummary, setClosedLoopSummary] = useState<ClosedLoopSummary | null>(null);
+  const [closedLoopLoading, setClosedLoopLoading] = useState(false);
+
+  const fetchClosedLoopSummary = useCallback(async (wf: DiscoveredWorkflow) => {
+    setClosedLoopLoading(true);
+    const wfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/workflows/${wfId}/closed-loop-summary`);
+      if (res.ok) {
+        const data = await res.json();
+        setClosedLoopSummary(data);
+      }
+    } catch {
+      // Offline or error fallback
+    } finally {
+      setClosedLoopLoading(false);
+    }
+  }, []);
+
   const handleReview = useCallback(
     async (wf: DiscoveredWorkflow) => {
       setReviewWorkflow(wf);
@@ -129,10 +150,12 @@ export default function DiscoveryView({
       setExecutionError(null);
       setApprovalStatus(approvals[wf.label] || "idle");
       setAutomationPlan(null);
+      setClosedLoopSummary(null);
       setExpandedStepWhy({});
 
       fetchLearningState(wf);
       fetchAutomationPlan(wf);
+      fetchClosedLoopSummary(wf);
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/ai/workflow/generate`, {
@@ -165,7 +188,7 @@ export default function DiscoveryView({
         setAiLoading(false);
       }
     },
-    [approvals, fetchLearningState, fetchAutomationPlan]
+    [approvals, fetchLearningState, fetchAutomationPlan, fetchClosedLoopSummary]
   );
 
   const submitFeedback = async (
@@ -265,6 +288,8 @@ export default function DiscoveryView({
         setApprovalStatus("approved");
         if (reviewWorkflow) {
           fetchLearningState(reviewWorkflow);
+          fetchAutomationPlan(reviewWorkflow);
+          fetchClosedLoopSummary(reviewWorkflow);
         }
         onExecutionComplete();
       } else {
@@ -295,6 +320,11 @@ export default function DiscoveryView({
       const data: AutomationExecutionResponse = await res.json();
       setExecutionResult(data);
       if (data.status === "completed") {
+        if (reviewWorkflow) {
+          fetchLearningState(reviewWorkflow);
+          fetchAutomationPlan(reviewWorkflow);
+          fetchClosedLoopSummary(reviewWorkflow);
+        }
         onExecutionComplete();
       }
     } catch (e: unknown) {
@@ -316,6 +346,11 @@ export default function DiscoveryView({
       );
       const data: AutomationExecutionResponse = await res.json();
       setExecutionResult(data);
+      if (reviewWorkflow) {
+        fetchLearningState(reviewWorkflow);
+        fetchAutomationPlan(reviewWorkflow);
+        fetchClosedLoopSummary(reviewWorkflow);
+      }
       onExecutionComplete();
     } catch (e: unknown) {
       setExecutionError(e instanceof Error ? e.message : "Cancel failed");
@@ -1014,6 +1049,135 @@ export default function DiscoveryView({
                     ) : (
                       <div className="text-xs text-[#64748B] italic">
                         Select a workflow to generate an intelligent automation plan.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Phase 11: Closed-Loop Intelligence & Strategy Evidence */}
+                  <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#059669]" />
+                        <h4 className="text-xs font-bold text-[#0F172A] tracking-tight uppercase">
+                          Closed-Loop Intelligence & Strategy Evidence
+                        </h4>
+                        {closedLoopLoading && (
+                          <span className="text-[10px] text-emerald-600 animate-pulse font-mono font-medium">Syncing telemetry…</span>
+                        )}
+                      </div>
+                      {closedLoopSummary && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-[#64748B]">Total Runs:</span>
+                          <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            {closedLoopSummary.total_executions} runs ({closedLoopSummary.successful_executions} passed, {closedLoopSummary.failed_executions} failed)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {closedLoopLoading ? (
+                      <div className="py-3 text-center text-xs text-[#64748B]">
+                        Loading closed-loop historical outcomes and evidence…
+                      </div>
+                    ) : closedLoopSummary ? (
+                      <div className="space-y-3">
+                        {/* Execution Outcomes Metric Grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] text-center">
+                            <div className="text-[10px] uppercase font-mono text-[#64748B]">Total Executions</div>
+                            <div className="text-base font-bold text-[#0F172A] font-mono">{closedLoopSummary.total_executions}</div>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200 text-center">
+                            <div className="text-[10px] uppercase font-mono text-emerald-700">Successful</div>
+                            <div className="text-base font-bold text-emerald-800 font-mono">{closedLoopSummary.successful_executions}</div>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-rose-50/60 border border-rose-200 text-center">
+                            <div className="text-[10px] uppercase font-mono text-rose-700">Failed / Partial</div>
+                            <div className="text-base font-bold text-rose-800 font-mono">
+                              {closedLoopSummary.failed_executions + closedLoopSummary.partial_executions}
+                            </div>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-slate-100 border border-slate-200 text-center">
+                            <div className="text-[10px] uppercase font-mono text-slate-600">Cancelled / Paused</div>
+                            <div className="text-base font-bold text-slate-800 font-mono">
+                              {closedLoopSummary.cancelled_executions + closedLoopSummary.paused_executions}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Strategy Outcome Evidence Table */}
+                        {closedLoopSummary.strategy_evidence.length > 0 ? (
+                          <div className="overflow-x-auto border border-[#E2E8F0] rounded-lg">
+                            <table className="w-full text-left font-mono text-[11px] border-collapse bg-white">
+                              <thead>
+                                <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B] text-[10px] uppercase">
+                                  <th className="py-2 px-3">Step Action</th>
+                                  <th className="py-2 px-3">Strategy</th>
+                                  <th className="py-2 px-3">Attempts</th>
+                                  <th className="py-2 px-3">Successes</th>
+                                  <th className="py-2 px-3">Failures</th>
+                                  <th className="py-2 px-3">Success Rate</th>
+                                  <th className="py-2 px-3">Last Outcome</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#F1F5F9]">
+                                {closedLoopSummary.strategy_evidence.map((ev, idx) => (
+                                  <tr key={idx} className="hover:bg-[#F8FAFC]/80 transition">
+                                    <td className="py-2 px-3 font-medium text-[#0F172A]">{formatEventStep(ev.step_action)}</td>
+                                    <td className="py-2 px-3">
+                                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                        {ev.strategy}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 text-[#334155]">{ev.attempts}</td>
+                                    <td className="py-2 px-3 text-emerald-700 font-semibold">{ev.successes}</td>
+                                    <td className="py-2 px-3 text-rose-700 font-semibold">{ev.failures}</td>
+                                    <td className="py-2 px-3 font-semibold text-[#0F172A]">{(ev.success_rate * 100).toFixed(0)}%</td>
+                                    <td className="py-2 px-3">
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                          ev.last_outcome === "SUCCESS"
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : ev.last_outcome === "FAILED"
+                                            ? "bg-rose-100 text-rose-800"
+                                            : "bg-slate-100 text-slate-700"
+                                        }`}
+                                      >
+                                        {ev.last_outcome || "NONE"}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-[#64748B] italic py-1">
+                            No strategy execution telemetry recorded yet. Telemetry will accumulate after execution runs.
+                          </div>
+                        )}
+
+                        {/* Adaptation Explanation */}
+                        {closedLoopSummary.adaptations.length > 0 && (
+                          <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg space-y-1">
+                            <div className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                              <span>⚡</span> <span>Closed-Loop Adaptation Insights</span>
+                            </div>
+                            <div className="text-xs text-amber-800 space-y-1 font-sans">
+                              {closedLoopSummary.adaptations.map((note, idx) => (
+                                <div key={idx}>• {note}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="text-[11px] text-[#64748B] font-sans">
+                          {closedLoopSummary.explanation}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-[#64748B] italic">
+                        Select a workflow to inspect closed-loop strategy evidence.
                       </div>
                     )}
                   </div>
