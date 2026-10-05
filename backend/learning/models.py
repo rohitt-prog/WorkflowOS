@@ -61,6 +61,7 @@ class WorkflowFeedback(BaseModel):
     )
     rejection_reason: Optional[str] = Field(
         default=None,
+        max_length=2000,
         description="Optional human-provided explanation for rejection"
     )
     timestamp: str = Field(
@@ -69,6 +70,7 @@ class WorkflowFeedback(BaseModel):
     )
     session_id: Optional[str] = Field(
         default=None,
+        max_length=256,
         description="Optional session context where review occurred"
     )
     metadata: Optional[Dict[str, Any]] = Field(
@@ -85,6 +87,7 @@ class WorkflowFeedbackRequest(BaseModel):
     )
     rejection_reason: Optional[str] = Field(
         default=None,
+        max_length=2000,
         description="Explanation when decision is 'reject'"
     )
     original_workflow: Optional[Dict[str, Any]] = Field(
@@ -97,6 +100,7 @@ class WorkflowFeedbackRequest(BaseModel):
     )
     session_id: Optional[str] = Field(
         default=None,
+        max_length=256,
         description="Optional session context"
     )
     metadata: Optional[Dict[str, Any]] = Field(

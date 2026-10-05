@@ -17,9 +17,10 @@ async def create_event(event_data: EventCreate):
         created = await event_service.create_event(event_data)
         return created
     except Exception as e:
+        logger.error("Failed to record event", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to record event: {str(e)}"
+            detail="Failed to record event. Please try again."
         )
 
 @router.get(
@@ -41,9 +42,10 @@ async def get_events(
         )
         return events
     except Exception as e:
+        logger.error("Failed to retrieve events", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve events: {str(e)}"
+            detail="Failed to retrieve events. Please try again."
         )
 
 @router.get(

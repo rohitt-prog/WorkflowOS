@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -12,7 +13,11 @@ from backend.learning.service import learning_service
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled pattern for workflow_id character-set validation
+_WORKFLOW_ID_RE = re.compile(r"[a-zA-Z0-9_\-\.]+")
+
 router = APIRouter(prefix="/api/workflows", tags=["workflows", "learning"])
+
 
 
 @router.post(
@@ -38,10 +43,21 @@ async def submit_workflow_feedback_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A non-empty workflow_id is required.",
         )
+    _wid = workflow_id.strip()
+    if len(_wid) > 128:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workflow_id must not exceed 128 characters.",
+        )
+    if not _WORKFLOW_ID_RE.fullmatch(_wid):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workflow_id contains invalid characters. Use only letters, digits, underscores, hyphens, and dots.",
+        )
 
     try:
         feedback, updated_state = await learning_service.record_feedback(
-            workflow_id=workflow_id.strip(),
+            workflow_id=_wid,
             request=request,
         )
         return WorkflowFeedbackResponse(
@@ -54,7 +70,7 @@ async def submit_workflow_feedback_endpoint(
         logger.error(f"Error submitting feedback for workflow {workflow_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to record feedback: {str(e)}",
+            detail="Failed to record feedback. Please try again.",
         )
 
 
@@ -77,10 +93,20 @@ async def get_feedback_history_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A non-empty workflow_id is required.",
         )
-
+    _wid = workflow_id.strip()
+    if len(_wid) > 128:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workflow_id must not exceed 128 characters.",
+        )
+    if not _WORKFLOW_ID_RE.fullmatch(_wid):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workflow_id contains invalid characters. Use only letters, digits, underscores, hyphens, and dots.",
+        )
     try:
         return await learning_service.get_feedback_history(
-            workflow_id=workflow_id.strip(),
+            workflow_id=_wid,
             limit=limit,
             skip=skip,
         )
@@ -88,7 +114,7 @@ async def get_feedback_history_endpoint(
         logger.error(f"Error retrieving feedback history for {workflow_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve feedback history: {str(e)}",
+            detail="Failed to retrieve feedback history. Please try again.",
         )
 
 
@@ -110,13 +136,24 @@ async def get_workflow_learning_endpoint(workflow_id: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A non-empty workflow_id is required.",
         )
+    _wid = workflow_id.strip()
+    if len(_wid) > 128:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workflow_id must not exceed 128 characters.",
+        )
+    if not _WORKFLOW_ID_RE.fullmatch(_wid):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="workflow_id contains invalid characters. Use only letters, digits, underscores, hyphens, and dots.",
+        )
 
     try:
-        state = await learning_service.get_learning_state(workflow_id.strip())
+        state = await learning_service.get_learning_state(_wid)
         return state
     except Exception as e:
         logger.error(f"Error retrieving learning state for {workflow_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve learning state: {str(e)}",
+            detail="Failed to retrieve learning state. Please try again.",
         )

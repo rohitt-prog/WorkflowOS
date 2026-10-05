@@ -75,5 +75,5 @@ async def get_repeated_workflows(
         logger.error(f"Failed to detect repeated workflows: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to detect repeated workflows: {str(e)}"
+            detail="Failed to detect repeated workflows. Please try again."
         )

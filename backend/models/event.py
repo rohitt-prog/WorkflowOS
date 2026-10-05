@@ -6,11 +6,11 @@ class EventCreate(BaseModel):
     Input schema for registering a user activity event.
     Keeps schema flexible to accommodate arbitrary application metadata.
     """
-    session_id: str = Field(..., min_length=1, description="Identifier for user's work session")
-    timestamp: str = Field(..., min_length=1, description="ISO 8601 formatted timestamp string")
-    application: str = Field(..., min_length=1, description="Source application identifier, e.g. demo_email")
-    event_type: str = Field(..., min_length=1, description="Action or event type, e.g. open_email")
-    target: Optional[str] = Field(None, description="Optional target resource or entity")
+    session_id: str = Field(..., min_length=1, max_length=256, description="Identifier for user's work session")
+    timestamp: str = Field(..., min_length=1, max_length=64, description="ISO 8601 formatted timestamp string")
+    application: str = Field(..., min_length=1, max_length=128, description="Source application identifier, e.g. demo_email")
+    event_type: str = Field(..., min_length=1, max_length=128, description="Action or event type, e.g. open_email")
+    target: Optional[str] = Field(None, max_length=512, description="Optional target resource or entity")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arbitrary custom event metadata")
 
     model_config = {

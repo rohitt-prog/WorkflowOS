@@ -23,6 +23,15 @@ logger = logging.getLogger("workflowos")
 async def lifespan(app: FastAPI):
     # Startup: ensure indexes are initialized and safely restore execution state
     logger.info("Starting up WorkFlowOS backend...")
+
+    # SEC-05: Reject wildcard FRONTEND_ORIGIN to prevent cookie-bearing cross-origin leaks
+    _raw_origin = settings.FRONTEND_ORIGIN
+    if "*" in _raw_origin.split(","):
+        raise RuntimeError(
+            "SECURITY: FRONTEND_ORIGIN must not contain '*'. "
+            "Set it to explicit origin(s) such as 'http://localhost:3000'."
+        )
+
     await init_indexes()
     try:
         from automation.service import automation_service
@@ -59,7 +68,8 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    # Explicit header allowlist — avoids exposing arbitrary custom headers cross-origin
+    allow_headers=["Content-Type", "Accept", "Authorization", "X-Request-ID"],
 )
 
 # Health endpoint
