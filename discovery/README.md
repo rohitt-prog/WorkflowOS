@@ -381,6 +381,43 @@ Evaluated across the full 33-scenario benchmark dataset using `.venv/bin/python 
 
 ---
 
+## Phase 9 — Adaptive Learning Signal in Discovery
+
+Phase 9 integrates feedback and execution telemetry downstream of Phase 8 without altering Phase 8 confidence or ranking calculations:
+
+```
+Discovery Candidate
+       ↓
+Phase 8 Confidence  (Calibrated pattern strength in [0.0, 1.0])
+       ↓
+Phase 8 Ranking     (Composite automation utility score R in [0.0, 1.0])
+       ↓
+Phase 9 Learning    (Bounded score L in [0.0, 1.0] from human review & execution telemetry)
+       ↓
+Recommendation Decision (NEW | LEARNING | RECOMMENDED | DEPRIORITIZED)
+```
+
+### Deterministic Learning Score Formula
+
+$$L = \text{clamp}\Big(0.50 + 0.10 \cdot A + 0.08 \cdot E_{\text{edit}} + 0.15 \cdot X_{\text{succ}} + 0.05 \cdot C_{\text{rec}} - 0.20 \cdot R - 0.15 \cdot X_{\text{fail}} - 0.05 \cdot I,\ 0.0,\ 1.0\Big)$$
+
+- $A$: Operator approval count ($+0.10$ each)
+- $E_{\text{edit}}$: Edit and approve count ($+0.08$ each)
+- $X_{\text{succ}}$: Successful execution count ($+0.15$ each)
+- $C_{\text{rec}}$: Successful recovery count ($+0.05$ each)
+- $R$: Rejection count ($-0.20$ each)
+- $X_{\text{fail}}$: Failed execution count ($-0.15$ each)
+- $I$: Intervention required count ($-0.05$ each)
+
+### Recommendation Status Rules
+
+- **NEW**: Total interactions $= 0$. Preserves discovery of new candidates without suppression.
+- **RECOMMENDED**: $L \ge 0.70$, $A + E_{\text{edit}} \ge 1$, $X_{\text{succ}} \ge 1$, and positive signals outweigh negative signals.
+- **DEPRIORITIZED**: $L < 0.40$, or ($R \ge 2$ with no successful executions), or ($X_{\text{fail}} \ge 2$ with 0 successes). Reversible upon future positive evidence.
+- **LEARNING**: Active evidence accumulating between initial candidate and decisive status.
+
+---
+
 ## Reproducing Evaluation and Tests
 
 ```bash

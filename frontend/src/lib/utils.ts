@@ -259,3 +259,30 @@ export function formatApiErrorMessage(
   return sanitizeErrorMessage(fallbackMessage);
 }
 
+/**
+ * Deterministically extracts or derives canonical workflow ID from sequence.
+ */
+export function getWorkflowCanonicalId(sequence?: string[], explicitId?: string): string {
+  if (explicitId && explicitId.trim().length > 0) {
+    return explicitId.trim();
+  }
+  if (!sequence || sequence.length === 0) {
+    return "wf_unknown";
+  }
+  const normalized = sequence.map((s) => s.trim().toLowerCase());
+  const joined = normalized.join(",");
+  if (joined === "open_email,download_attachment,search_customer,update_customer,send_message") {
+    return "wf_customer_support_pipeline";
+  }
+  if (joined === "list_recent_messages,search_customer") {
+    return "wf_gmail_triage_pipeline";
+  }
+  let hash = 0;
+  const str = normalized.join("->");
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return `wf_${Math.abs(hash).toString(16).padStart(8, "0")}`;
+}
+

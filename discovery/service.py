@@ -45,6 +45,28 @@ class DiscoveryService:
                 filter_noise=filter_noise,
                 include_suppressed=include_suppressed,
             )
+
+            # Step 3: Phase 9 Adaptive Learning integration
+            try:
+                from backend.learning.service import learning_service, derive_workflow_id_from_sequence
+                for wf in result.workflows:
+                    wf_id = derive_workflow_id_from_sequence(wf.sequence, wf.label)
+                    wf.workflow_id = wf_id
+                    state = await learning_service.get_learning_state(wf_id)
+                    wf.learning_score = state.learning_score
+                    wf.recommendation_status = state.recommendation_status.value
+                    wf.learning_explanation = state.learning_explanation
+
+                for wf in result.suppressed_workflows:
+                    wf_id = derive_workflow_id_from_sequence(wf.sequence, wf.label)
+                    wf.workflow_id = wf_id
+                    state = await learning_service.get_learning_state(wf_id)
+                    wf.learning_score = state.learning_score
+                    wf.recommendation_status = state.recommendation_status.value
+                    wf.learning_explanation = state.learning_explanation
+            except Exception as le:
+                logger.warning(f"Could not attach learning signals to discovered workflows: {le}")
+
             return result
         except Exception as e:
             logger.error(f"Error during workflow discovery: {e}", exc_info=True)

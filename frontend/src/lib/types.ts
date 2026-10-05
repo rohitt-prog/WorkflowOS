@@ -142,6 +142,48 @@ export interface DiscoveredWorkflow {
   partial_support_count?: number;
   partial_support_session_ids?: string[];
   intra_session_repetitions?: number;
+  // Phase 9 Adaptive Learning & Feedback fields
+  workflow_id?: string;
+  learning_score?: number;
+  recommendation_status?: RecommendationStatus;
+  learning_explanation?: string;
+  learning_state?: WorkflowLearningState;
+}
+
+export type RecommendationStatus = "NEW" | "LEARNING" | "RECOMMENDED" | "DEPRIORITIZED";
+
+export type FeedbackDecision = "approve" | "reject" | "edit_approve";
+
+export interface WorkflowFeedback {
+  feedback_id: string;
+  workflow_id: string;
+  decision: FeedbackDecision;
+  original_workflow?: Record<string, unknown> | null;
+  edited_workflow?: Record<string, unknown> | null;
+  rejection_reason?: string | null;
+  timestamp: string;
+  session_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface WorkflowLearningState {
+  workflow_id: string;
+  approval_count: number;
+  rejection_count: number;
+  edit_count: number;
+  execution_count: number;
+  successful_execution_count: number;
+  failed_execution_count: number;
+  intervention_count: number;
+  recovery_count: number;
+  learning_score: number;
+  recommendation_status: RecommendationStatus;
+  learning_explanation: string;
+  last_feedback?: Record<string, unknown> | null;
+  last_execution_status?: string | null;
+  last_failed_step?: string | null;
+  last_failure_reason?: string | null;
+  updated_at: string;
 }
 
 export interface DiscoveryResult {

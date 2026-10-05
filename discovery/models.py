@@ -115,6 +115,26 @@ class DiscoveredWorkflow(BaseModel):
         description="Additional executions of this workflow observed within the same sessions",
     )
 
+    # Phase 9: Adaptive Learning & Feedback fields
+    workflow_id: Optional[str] = Field(
+        default=None,
+        description="Canonical persistent workflow ID mapping to learning state"
+    )
+    learning_score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Deterministic bounded learning score (0.0 - 1.0) derived from feedback & execution history"
+    )
+    recommendation_status: Optional[str] = Field(
+        default=None,
+        description="Deterministic recommendation status: 'NEW', 'LEARNING', 'RECOMMENDED', or 'DEPRIORITIZED'"
+    )
+    learning_explanation: Optional[str] = Field(
+        default=None,
+        description="Deterministic explanation of current recommendation status"
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {

@@ -548,6 +548,7 @@ Phase 8.4 equips WorkFlowOS with a deterministic, non-hallucinatory explainabili
 
 ---
 
+
 ## Phase 8.5 — Discovery Quality & Robustness
 
 Phase 8.5 enhances discovery quality under messy user behavior while eliminating generic noise false positives:
@@ -562,11 +563,110 @@ Phase 8.5 enhances discovery quality under messy user behavior while eliminating
 
 ---
 
+## Phase 9 — Adaptive Learning & Feedback
+
+Phase 9 completes the canonical WorkFlowOS loop:
+**OBSERVE → UNDERSTAND → DETECT REPETITION → GENERATE WORKFLOW → USER APPROVAL → AUTOMATE → LEARN**
+
+It implements a deterministic, explainable learning and feedback loop that learns from human review decisions and execution telemetry to dynamically adapt future workflow recommendations.
+
+> [!IMPORTANT]
+> **Deterministic Signals — No Opaque AI**:
+> Phase 9 uses deterministic, explainable mathematical formulas and discrete state machines.
+> It does **NOT** use machine learning, neural networks, embeddings, vector databases, or an LLM for feedback interpretation.
+
+### 1. Conceptual Ranking Pipeline
+
+Phase 8 confidence and ranking formulas remain completely untouched. Phase 9 introduces an independent downstream learning signal:
+
+```
+Discovery Candidate
+       ↓
+Phase 8 Confidence  (Calibrated pattern strength in [0.0, 1.0])
+       ↓
+Phase 8 Ranking     (Composite automation utility score R in [0.0, 1.0])
+       ↓
+Phase 9 Learning    (Bounded score L in [0.0, 1.0] from human feedback & execution telemetry)
+       ↓
+Recommendation Decision (NEW | LEARNING | RECOMMENDED | DEPRIORITIZED)
+```
+
+### 2. Feedback Model & Storage
+
+- **Storage**: Persisted in MongoDB Atlas (`workflow_feedback` collection) with in-memory caching fallback.
+- **Indexes**: `workflow_id` (1), `timestamp` (-1), `decision` (1).
+- **Supported Decisions**:
+  - `approve`: Workflow approved by human operator.
+  - `reject`: Workflow dismissed or rejected (with structured `rejection_reason`).
+  - `edit_approve`: Workflow approved with human parameter/action modifications (`edited_workflow`).
+
+### 3. Workflow Learning State
+
+- **Storage**: Persisted in MongoDB Atlas (`workflow_learning_state` collection, unique index on `workflow_id`).
+- **Telemetry Signals**:
+  - `approval_count`, `rejection_count`, `edit_count`
+  - `execution_count`, `successful_execution_count`, `failed_execution_count`
+  - `intervention_count`, `recovery_count`
+  - `last_feedback`, `last_execution_status`, `last_failed_step`, `last_failure_reason`
+  - `learning_score`: Bounded score in $[0.0, 1.0]$.
+  - `recommendation_status`: `NEW`, `LEARNING`, `RECOMMENDED`, or `DEPRIORITIZED`.
+  - `learning_explanation`: Deterministic human-readable explanation.
+
+### 4. Execution Telemetry Integration
+
+Directly adapts existing `AutomationExecution` records produced by `automation_service`:
+- **Success (`completed`)**: `execution_count += 1`, `successful_execution_count += 1`.
+- **Failure (`failed`)**: `execution_count += 1`, `failed_execution_count += 1`.
+- **Human Intervention (`paused` / `requires_human_intervention=True`)**: `intervention_count += 1`.
+- **System Recovery (`resume_count > 0` or `recovery_attempts > 0` and completed)**: `recovery_count += 1`.
+- **Idempotency**: Execution outcome processing is indexed by execution ID and status milestone to prevent double counting.
+
+### 5. Learning Score Formula
+
+$$L = \text{clamp}\Big(0.50 + 0.10 \cdot A + 0.08 \cdot E_{\text{edit}} + 0.15 \cdot X_{\text{succ}} + 0.05 \cdot C_{\text{rec}} - 0.20 \cdot R - 0.15 \cdot X_{\text{fail}} - 0.05 \cdot I,\ 0.0,\ 1.0\Big)$$
+
+- **Prior Baseline**: Neutral $0.50$.
+- **Positive Weights**: Approval ($+0.10$), Edit & Approve ($+0.08$), Successful execution ($+0.15$), Recovery ($+0.05$).
+- **Negative Weights**: Rejection ($-0.20$), Failed execution ($-0.15$), Operator intervention ($-0.05$).
+- **Bounds**: Strictly clamped to $[0.0, 1.0]$.
+
+### 6. Recommendation Status & Reversibility
+
+- **`NEW`**: No human review or execution history recorded ($A + R + E_{\text{edit}} + X = 0$).
+- **`RECOMMENDED`**: $L \ge 0.70$, $A + E_{\text{edit}} \ge 1$, $X_{\text{succ}} \ge 1$, and positive signals outweigh negative signals.
+- **`DEPRIORITIZED`**: $L < 0.40$, or ($R \ge 2$ with no successful executions), or ($X_{\text{fail}} \ge 2$ with 0 successes).
+- **`LEARNING`**: Active operational evidence accumulating.
+- **Reversibility**: Workflows are never permanently deleted or suppressed. If an updated or fixed workflow accumulates new approvals and successful executions, its score recalculates upward and smoothly transitions back to `RECOMMENDED`.
+
+### 7. REST APIs
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/workflows/{workflow_id}/feedback` | Submit operator review (`approve`, `reject`, `edit_approve`) |
+| `GET` | `/api/workflows/{workflow_id}/feedback` | Audit history of feedback records |
+| `GET` | `/api/workflows/{workflow_id}/learning` | Retrieve persistent learning state and explanation |
+
+### 8. Security Guarantee
+
+Learning signals influence future recommendation ranking. **Learning must NEVER bypass human approval or trigger autonomous execution.** Execution remains strictly gated by explicit operator approval (`approved=True`).
+
+### 9. Limitations
+
+- **Deterministic & Heuristic**: Learning scores and status transitions are rule-based, not calibrated probabilities.
+- **Single-User Trust Model**: Designed for local operator review; no multi-tenant cross-user federation.
+- **Evidence Dependent**: Learning accuracy depends directly on the completeness of recorded telemetry.
+- **Zero Autonomous Execution**: WorkFlowOS will never autonomously execute workflows regardless of high learning scores.
+
+---
+
 ## Running Tests
 
 ```bash
-# Full test suite across all phases (314 tests)
+# Full test suite across all phases (338 tests)
 .venv/bin/python3 -m unittest discover -s backend -p "test_*.py" -v
+
+# Phase 9 (Adaptive Learning & Feedback - 24 test scenarios)
+.venv/bin/python3 -m unittest backend.test_phase9 -v
 
 # Phase 8.5 (Discovery Quality & Robustness)
 .venv/bin/python3 -m unittest backend.test_phase8_5 -v
@@ -583,30 +683,16 @@ Phase 8.5 enhances discovery quality under messy user behavior while eliminating
 # Phase 8.1 (Discovery Evaluation & Confidence Scoring)
 .venv/bin/python3 -m unittest backend.test_phase8_1 -v
 
-# Run the 33-Scenario Synthetic Discovery Benchmark with Phase 8.5 Metrics
-.venv/bin/python3 -m discovery.evaluation
-
 # Phase 7.4 (Reliability, Security & Recovery)
 .venv/bin/python3 -m unittest backend.test_phase7_4 -v
 
-# Phase 7.3 (Gmail Workflow Integration)
-.venv/bin/python3 -m unittest backend.test_phase7_3 -v
-
-# Phase 7.2 (Gmail OAuth & Credential Storage)
-.venv/bin/python3 -m unittest backend.test_phase7_2 -v
-
-# Phase 7.1 (Integration Foundation)
-.venv/bin/python3 -m unittest backend.test_phase7_1 -v
-
-# Phase 6 (Declarative Engine)
-.venv/bin/python3 -m unittest backend.test_phase6 -v
-
 # Frontend Checks
 npm --prefix frontend run lint
+./frontend/node_modules/.bin/tsc --project frontend/tsconfig.json --noEmit
 npm --prefix frontend run build
 ```
 
-**Test Results (Phase 8.5):** 314 tests · 300 passed · 14 skipped (live OAuth required) · 0 failures.
+**Test Results (Phase 9):** 338 tests · 324 passed · 14 skipped (live OAuth required) · 0 failures.
 
 ---
 

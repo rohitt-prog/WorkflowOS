@@ -7,8 +7,16 @@ import {
   WorkflowProposal,
   AutomationExecutionResponse,
   ApprovalStatus,
+  WorkflowLearningState,
 } from "@/lib/types";
-import { API_BASE_URL, formatEventStep, getAppBadgeClass, getApplicationDisplayName, formatApiErrorMessage } from "@/lib/utils";
+import {
+  API_BASE_URL,
+  formatEventStep,
+  getAppBadgeClass,
+  getApplicationDisplayName,
+  formatApiErrorMessage,
+  getWorkflowCanonicalId,
+} from "@/lib/utils";
 
 interface DiscoveryViewProps {
   discovery: DiscoveryResult | null;
@@ -27,6 +35,16 @@ export default function DiscoveryView({
 }: DiscoveryViewProps) {
   const [reviewWorkflow, setReviewWorkflow] = useState<DiscoveredWorkflow | null>(null);
   const [proposal, setProposal] = useState<WorkflowProposal | null>(null);
+  const [editedProposal, setEditedProposal] = useState<WorkflowProposal | null>(null);
+  const [isEditingWorkflow, setIsEditingWorkflow] = useState(false);
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState("");
+  const [learningState, setLearningState] = useState<WorkflowLearningState | null>(null);
+  const [learningLoading, setLearningLoading] = useState(false);
+  const [feedbackSuccessMsg, setFeedbackSuccessMsg] = useState<string | null>(null);
+  const [feedbackErrorMsg, setFeedbackErrorMsg] = useState<string | null>(null);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [approvals, setApprovals] = useState<Record<string, "approved" | "rejected">>({});
@@ -38,15 +56,39 @@ export default function DiscoveryView({
   const [testCustomer, setTestCustomer] = useState("Rahul");
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("idle");
 
+  const fetchLearningState = useCallback(async (wf: DiscoveredWorkflow) => {
+    setLearningLoading(true);
+    const wfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/workflows/${wfId}/learning`);
+      if (res.ok) {
+        const data = await res.json();
+        setLearningState(data);
+      }
+    } catch {
+      // Offline or error fallback
+    } finally {
+      setLearningLoading(false);
+    }
+  }, []);
+
   const handleReview = useCallback(
     async (wf: DiscoveredWorkflow) => {
       setReviewWorkflow(wf);
       setProposal(null);
+      setEditedProposal(null);
+      setIsEditingWorkflow(false);
+      setShowRejectInput(false);
+      setRejectionReasonInput("");
+      setFeedbackSuccessMsg(null);
+      setFeedbackErrorMsg(null);
       setAiLoading(true);
       setAiError(null);
       setExecutionResult(null);
       setExecutionError(null);
       setApprovalStatus(approvals[wf.label] || "idle");
+
+      fetchLearningState(wf);
 
       try {
         const res = await fetch(`${API_BASE_URL}/api/ai/workflow/generate`, {
@@ -69,6 +111,7 @@ export default function DiscoveryView({
         const data = await res.json();
         if (data.success && data.workflow) {
           setProposal(data.workflow);
+          setEditedProposal(JSON.parse(JSON.stringify(data.workflow)));
         } else {
           throw new Error(data.error || "No proposal returned");
         }
@@ -78,8 +121,65 @@ export default function DiscoveryView({
         setAiLoading(false);
       }
     },
-    [approvals]
+    [approvals, fetchLearningState]
   );
+
+  const submitFeedback = async (
+    decision: "approve" | "reject" | "edit_approve",
+    opts?: { rejection_reason?: string; edited_workflow?: WorkflowProposal | Record<string, unknown> }
+  ) => {
+    if (!reviewWorkflow) return;
+    setIsSubmittingFeedback(true);
+    setFeedbackSuccessMsg(null);
+    setFeedbackErrorMsg(null);
+    const wfId = getWorkflowCanonicalId(reviewWorkflow.sequence, reviewWorkflow.workflow_id);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/workflows/${wfId}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision,
+          rejection_reason: opts?.rejection_reason,
+          edited_workflow: opts?.edited_workflow,
+          original_workflow: proposal,
+          session_id: reviewWorkflow.session_ids?.[0],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(formatApiErrorMessage(err, `Server returned ${res.status}`));
+      }
+      const data = await res.json();
+      if (data.learning_state) {
+        setLearningState(data.learning_state);
+      }
+
+      if (decision === "approve") {
+        setApprovalStatus("approved");
+        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "approved" }));
+        setFeedbackSuccessMsg("✓ Feedback recorded: Approved. Learning state updated.");
+      } else if (decision === "reject") {
+        setApprovalStatus("rejected");
+        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "rejected" }));
+        setShowRejectInput(false);
+        setFeedbackSuccessMsg("✕ Feedback recorded: Rejected. Workflow deprioritized.");
+      } else if (decision === "edit_approve") {
+        setApprovalStatus("approved");
+        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "approved" }));
+        setIsEditingWorkflow(false);
+        if (opts?.edited_workflow) {
+          setProposal(opts.edited_workflow as WorkflowProposal);
+        }
+        setFeedbackSuccessMsg("✎ Feedback recorded: Edited & Approved.");
+      }
+      onRefreshDiscovery();
+    } catch (e: unknown) {
+      setFeedbackErrorMsg(e instanceof Error ? e.message : "Failed to record feedback");
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
 
   const handleApproveAndRun = async () => {
     if (!proposal) return;
@@ -87,7 +187,8 @@ export default function DiscoveryView({
     setExecutionError(null);
     setExecutionResult(null);
 
-    const updatedActions = proposal.actions.map((act) =>
+    const activeWorkflow = editedProposal || proposal;
+    const updatedActions = activeWorkflow.actions.map((act) =>
       act.type === "search_customer" || act.type === "update_customer"
         ? { ...act, target: testCustomer }
         : act
@@ -98,7 +199,7 @@ export default function DiscoveryView({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workflow: { ...proposal, actions: updatedActions },
+          workflow: { ...activeWorkflow, actions: updatedActions },
           approved: true,
           session_id: reviewWorkflow?.session_ids?.[0],
           parameters: { customer_name: testCustomer },
@@ -113,10 +214,14 @@ export default function DiscoveryView({
         setApprovalStatus("approved");
         if (reviewWorkflow) {
           setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "approved" }));
+          fetchLearningState(reviewWorkflow);
         }
         onExecutionComplete();
       } else if (data.status === "paused") {
         setApprovalStatus("approved");
+        if (reviewWorkflow) {
+          fetchLearningState(reviewWorkflow);
+        }
         onExecutionComplete();
       } else {
         setExecutionError(data.message || "Execution encountered an error");
@@ -297,9 +402,32 @@ export default function DiscoveryView({
                           Rejected
                         </span>
                       )}
+                      {wf.recommendation_status && (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                            wf.recommendation_status === "RECOMMENDED"
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                              : wf.recommendation_status === "DEPRIORITIZED"
+                              ? "bg-rose-100 text-rose-800 border border-rose-300"
+                              : wf.recommendation_status === "LEARNING"
+                              ? "bg-sky-100 text-sky-800 border border-sky-300"
+                              : "bg-slate-100 text-slate-700 border border-slate-300"
+                          }`}
+                        >
+                          {wf.recommendation_status}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 text-xs font-mono">
+                      {wf.learning_score !== undefined && (
+                        <span
+                          title={wf.learning_explanation || `Adaptive Learning Score: ${wf.learning_score.toFixed(2)}`}
+                          className="px-2 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-800 font-semibold text-[11px]"
+                        >
+                          Learning {wf.learning_score.toFixed(2)}
+                        </span>
+                      )}
                       {wf.ranking_score !== undefined && (
                         <span
                           title={wf.ranking_explanation || `Utility Score: ${Math.round(wf.ranking_score * 100)}/100`}
@@ -719,6 +847,237 @@ export default function DiscoveryView({
                     </div>
                   </div>
 
+                  {/* Phase 9: Adaptive Learning & Recommendation Telemetry */}
+                  <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#2563EB]" />
+                        <h4 className="text-xs font-bold text-[#0F172A] tracking-tight uppercase">
+                          Learning Status & Adaptive Recommendation
+                        </h4>
+                        {learningLoading && (
+                          <span className="text-[10px] text-blue-600 animate-pulse font-mono font-medium">Syncing…</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono text-[#64748B]">Recommendation:</span>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                            (learningState?.recommendation_status || reviewWorkflow?.recommendation_status) === "RECOMMENDED"
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                              : (learningState?.recommendation_status || reviewWorkflow?.recommendation_status) === "DEPRIORITIZED"
+                              ? "bg-rose-100 text-rose-800 border border-rose-300"
+                              : (learningState?.recommendation_status || reviewWorkflow?.recommendation_status) === "LEARNING"
+                              ? "bg-sky-100 text-sky-800 border border-sky-300"
+                              : "bg-slate-100 text-slate-700 border border-slate-300"
+                          }`}
+                        >
+                          {learningState?.recommendation_status || reviewWorkflow?.recommendation_status || "NEW"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Telemetry Metrics Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 text-xs">
+                      {/* Learning Score */}
+                      <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
+                        <div className="text-[10px] uppercase font-semibold text-[#64748B]">Learning Score</div>
+                        <div className="text-lg font-bold font-mono text-[#0F172A] mt-0.5">
+                          {(learningState?.learning_score ?? reviewWorkflow?.learning_score ?? 0.50).toFixed(2)}
+                        </div>
+                        <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                          <div
+                            className="bg-[#2563EB] h-full rounded-full transition-all duration-300"
+                            style={{
+                              width: `${Math.round(
+                                (learningState?.learning_score ?? reviewWorkflow?.learning_score ?? 0.50) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Human Feedback */}
+                      <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
+                        <div className="text-[10px] uppercase font-semibold text-[#64748B]">Feedback History</div>
+                        <div className="flex flex-col gap-0.5 mt-1 font-mono text-[11px]">
+                          <span className="text-emerald-700 font-medium">✓ Approved: {learningState?.approval_count ?? 0}</span>
+                          <span className="text-rose-700 font-medium">✕ Rejected: {learningState?.rejection_count ?? 0}</span>
+                          <span className="text-indigo-700 font-medium">✎ Edited: {learningState?.edit_count ?? 0}</span>
+                        </div>
+                      </div>
+
+                      {/* Execution Telemetry */}
+                      <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
+                        <div className="text-[10px] uppercase font-semibold text-[#64748B]">Execution History</div>
+                        <div className="flex flex-col gap-0.5 mt-1 font-mono text-[11px]">
+                          <span className="text-emerald-700 font-medium">
+                            ✓ Successful: {learningState?.successful_execution_count ?? 0}
+                          </span>
+                          <span className="text-rose-700 font-medium">
+                            ✕ Failed: {learningState?.failed_execution_count ?? 0}
+                          </span>
+                          <span className="text-[#64748B]">Total Runs: {learningState?.execution_count ?? 0}</span>
+                        </div>
+                      </div>
+
+                      {/* Interventions & Recoveries */}
+                      <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
+                        <div className="text-[10px] uppercase font-semibold text-[#64748B]">Reliability Signals</div>
+                        <div className="flex flex-col gap-0.5 mt-1 font-mono text-[11px]">
+                          <span className="text-amber-700 font-medium">
+                            Interventions: {learningState?.intervention_count ?? 0}
+                          </span>
+                          <span className="text-blue-700 font-medium">
+                            Recoveries: {learningState?.recovery_count ?? 0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Explanation */}
+                    <div className="bg-[#F1F5F9] border border-[#E2E8F0] rounded-lg p-2.5 text-xs text-[#334155] italic">
+                      {learningState?.learning_explanation ||
+                        reviewWorkflow?.learning_explanation ||
+                        "New workflow candidate with no prior feedback or execution history."}
+                    </div>
+
+                    {/* Inline Feedback Controls */}
+                    <div className="border-t border-[#E2E8F0] pt-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-[#475569]">
+                        Submit Human Review Feedback:
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => submitFeedback("approve")}
+                          disabled={isSubmittingFeedback || isExecuting}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition active:scale-97 cursor-pointer disabled:opacity-50"
+                        >
+                          ✓ Approve
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowRejectInput((prev) => !prev);
+                            setIsEditingWorkflow(false);
+                          }}
+                          disabled={isSubmittingFeedback || isExecuting}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition active:scale-97 cursor-pointer disabled:opacity-50"
+                        >
+                          ✕ Reject
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsEditingWorkflow((prev) => !prev);
+                            setShowRejectInput(false);
+                          }}
+                          disabled={isSubmittingFeedback || isExecuting}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition active:scale-97 cursor-pointer disabled:opacity-50"
+                        >
+                          ✎ Edit & Approve
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Small Rejection Reason Input Card */}
+                    {showRejectInput && (
+                      <div className="bg-rose-50/60 border border-rose-200 rounded-lg p-3 space-y-2 text-xs">
+                        <label className="font-semibold text-rose-900 block">
+                          Reason for Rejection (Optional):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={rejectionReasonInput}
+                            onChange={(e) => setRejectionReasonInput(e.target.value)}
+                            placeholder="e.g. Unnecessary automation, wrong steps, CRM duplicate..."
+                            className="flex-1 bg-white border border-rose-300 rounded px-2.5 py-1.5 text-xs text-[#0F172A] focus:outline-none focus:border-rose-500"
+                          />
+                          <button
+                            onClick={() => submitFeedback("reject", { rejection_reason: rejectionReasonInput })}
+                            disabled={isSubmittingFeedback}
+                            className="px-3 py-1.5 text-xs font-semibold rounded bg-rose-600 hover:bg-rose-700 text-white transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isSubmittingFeedback ? "Submitting…" : "Confirm Rejection"}
+                          </button>
+                          <button
+                            onClick={() => setShowRejectInput(false)}
+                            className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Edit & Approve Editor Card */}
+                    {isEditingWorkflow && editedProposal && (
+                      <div className="bg-indigo-50/60 border border-indigo-200 rounded-lg p-3 space-y-2 text-xs">
+                        <div className="font-semibold text-indigo-900">
+                          Edit Workflow Proposal Before Approval:
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-[11px] text-slate-600 block">Workflow Name:</span>
+                            <input
+                              type="text"
+                              value={editedProposal.name}
+                              onChange={(e) => setEditedProposal({ ...editedProposal, name: e.target.value })}
+                              className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-xs text-[#0F172A]"
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[11px] text-slate-600 block">Workflow Intent:</span>
+                            <input
+                              type="text"
+                              value={editedProposal.intent}
+                              onChange={(e) => setEditedProposal({ ...editedProposal, intent: e.target.value })}
+                              className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-xs text-[#0F172A]"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            onClick={() => setIsEditingWorkflow(false)}
+                            className="px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => submitFeedback("edit_approve", { edited_workflow: editedProposal })}
+                            disabled={isSubmittingFeedback}
+                            className="px-3 py-1 text-xs font-semibold rounded bg-indigo-600 hover:bg-indigo-700 text-white transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isSubmittingFeedback ? "Saving…" : "Save & Approve"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Feedback Status Alerts */}
+                    {feedbackSuccessMsg && (
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-3 py-2 rounded-lg flex items-center justify-between">
+                        <span>{feedbackSuccessMsg}</span>
+                        <button
+                          onClick={() => setFeedbackSuccessMsg(null)}
+                          className="text-emerald-700 hover:text-emerald-900 font-bold ml-2 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                    {feedbackErrorMsg && (
+                      <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3 py-2 rounded-lg flex items-center justify-between">
+                        <span>{feedbackErrorMsg}</span>
+                        <button
+                          onClick={() => setFeedbackErrorMsg(null)}
+                          className="text-rose-700 hover:text-rose-900 font-bold ml-2 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Execution Target Parameter */}
                   <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 space-y-2">
                     <label className="font-semibold text-[#0F172A] block">
@@ -886,15 +1245,19 @@ export default function DiscoveryView({
                 <div className="flex items-center gap-2.5">
                   <button
                     onClick={() => {
-                      setApprovalStatus("rejected");
-                      if (reviewWorkflow) {
-                        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "rejected" }));
-                      }
+                      submitFeedback("reject", { rejection_reason: "Dismissed in operator review" });
                     }}
-                    disabled={isExecuting || isResuming || approvalStatus !== "idle"}
+                    disabled={isExecuting || isResuming || isSubmittingFeedback || approvalStatus === "rejected"}
                     className="px-3.5 py-2 text-xs font-medium rounded-lg bg-white hover:bg-[#F8FAFC] text-[#475569] border border-[#E2E8F0] transition disabled:opacity-50 cursor-pointer"
                   >
                     Reject
+                  </button>
+                  <button
+                    onClick={() => submitFeedback("approve")}
+                    disabled={isExecuting || isResuming || isSubmittingFeedback || approvalStatus === "approved"}
+                    className="px-3.5 py-2 text-xs font-medium rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 transition disabled:opacity-50 cursor-pointer"
+                  >
+                    Approve Feedback
                   </button>
                   <button
                     onClick={handleApproveAndRun}

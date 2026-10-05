@@ -75,6 +75,19 @@ async def init_indexes():
         await workflows_collection.create_index([("id", 1)], unique=True)
         await workflows_collection.create_index([("updated_at", -1)])
         logger.info("MongoDB indexes verified on collection 'workflows'.")
+
+        # Phase 9: Workflow feedback collection indexes
+        feedback_collection = db["workflow_feedback"]
+        await feedback_collection.create_index([("workflow_id", 1)])
+        await feedback_collection.create_index([("timestamp", -1)])
+        await feedback_collection.create_index([("decision", 1)])
+        logger.info("MongoDB indexes verified on collection 'workflow_feedback'.")
+
+        # Phase 9: Workflow learning state collection indexes
+        learning_collection = db["workflow_learning_state"]
+        await learning_collection.create_index([("workflow_id", 1)], unique=True)
+        await learning_collection.create_index([("updated_at", -1)])
+        logger.info("MongoDB indexes verified on collection 'workflow_learning_state'.")
     except Exception as e:
         logger.warning(f"Could not initialize MongoDB indexes: {e}")
 
