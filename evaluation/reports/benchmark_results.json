@@ -1,0 +1,244 @@
+{
+  "benchmark_version": "phase-15-v1",
+  "timestamp": "2026-10-06T17:23:28.728659+00:00",
+  "seed": 42,
+  "dataset": {
+    "total_scenarios": 10,
+    "scenario_codes": [
+      "SCENARIO_A",
+      "SCENARIO_B",
+      "SCENARIO_C",
+      "SCENARIO_D",
+      "SCENARIO_E",
+      "SCENARIO_F",
+      "SCENARIO_G",
+      "SCENARIO_H",
+      "SCENARIO_I",
+      "SCENARIO_J"
+    ],
+    "categories": [
+      "core_workflow",
+      "frequency_negative",
+      "isolation",
+      "robustness",
+      "safety",
+      "separation",
+      "threshold_negative",
+      "variation"
+    ]
+  },
+  "discovery": {
+    "true_positives": 8,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "true_negatives": 3,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "accuracy": 1.0,
+    "total_samples": 11
+  },
+  "ranking": {
+    "top_1_accuracy": 0.875,
+    "top_k_recall": 1.0,
+    "mrr": 0.9375,
+    "k": 3,
+    "total_queries": 8,
+    "successful_rankings": 8
+  },
+  "calibration": {
+    "sample_count": 8,
+    "mean_confidence": 0.8189,
+    "min_confidence": 0.79,
+    "max_confidence": 0.9,
+    "median_confidence": 0.79,
+    "correct_mean_confidence": 0.8189,
+    "incorrect_mean_confidence": 0.0,
+    "calibration_delta": 0.8189,
+    "note": "Evaluated across 8 benchmark predictions. Small synthetic dataset: demonstrates heuristic directional separation; does not establish production-scale probability calibration."
+  },
+  "explainability": {
+    "explanations_present": 32,
+    "explanations_expected": 32,
+    "explanation_coverage": 1.0,
+    "field_coverage": {
+      "explanation_present": 1.0,
+      "sequence_evidence": 1.0,
+      "confidence_explanation": 1.0,
+      "ranking_explanation": 1.0
+    },
+    "component_breakdown": {
+      "discovery": {
+        "present": 32,
+        "expected": 32
+      }
+    }
+  },
+  "robustness": {
+    "passed_tests": 5,
+    "total_tests": 5,
+    "robustness_rate": 1.0,
+    "tests": {
+      "SCENARIO_B": {
+        "name": "Repeated Workflow with Optional Step",
+        "category": "variation",
+        "expected_detected": true,
+        "actual_detected": true,
+        "workflows_count": 1,
+        "passed": true
+      },
+      "SCENARIO_D": {
+        "name": "Workflow with Bounded Noise Insertion",
+        "category": "robustness",
+        "expected_detected": true,
+        "actual_detected": true,
+        "workflows_count": 1,
+        "passed": true
+      },
+      "SCENARIO_E": {
+        "name": "Short Sequence Below Minimum Length Threshold",
+        "category": "threshold_negative",
+        "expected_detected": false,
+        "actual_detected": false,
+        "workflows_count": 0,
+        "passed": true
+      },
+      "SCENARIO_F": {
+        "name": "Single Occurrence Below Frequency Threshold",
+        "category": "frequency_negative",
+        "expected_detected": false,
+        "actual_detected": false,
+        "workflows_count": 0,
+        "passed": true
+      },
+      "SCENARIO_G": {
+        "name": "Session Isolation Verification",
+        "category": "isolation",
+        "expected_detected": false,
+        "actual_detected": false,
+        "workflows_count": 0,
+        "passed": true
+      }
+    }
+  },
+  "ai_generation": {
+    "total_test_cases": 2,
+    "structural_fidelity_rate": 1.0,
+    "live_llm_evaluated": false
+  },
+  "learning": {
+    "formula_verified": true,
+    "score_accuracy": 1.0,
+    "status_accuracy": 1.0,
+    "explanation_coverage": 1.0
+  },
+  "planning": {
+    "strategy_selection_accuracy": 1.0,
+    "fallback_safety_rate": 1.0,
+    "approval_enforcement_rate": 1.0,
+    "zero_approval_bypass": true
+  },
+  "closed_loop": {
+    "taxonomy_classification_accuracy": 1.0,
+    "lifecycle_status_accuracy": 1.0,
+    "idempotency_verified": true
+  },
+  "execution": {
+    "execution_success_rate": 1.0,
+    "unapproved_rejection_rate": 1.0,
+    "unsupported_action_rejection_rate": 1.0,
+    "pause_handling_passed": true,
+    "cancellation_handling_passed": true,
+    "idempotency_passed": true
+  },
+  "safety": {
+    "safety_compliance_rate": 1.0,
+    "zero_approval_bypass": true,
+    "all_safety_checks_passed": true,
+    "checks": {
+      "unknown_action_not_read_only": true,
+      "unknown_action_not_mutating": true,
+      "unknown_action_requires_approval": true,
+      "unknown_action_capability_raised": true,
+      "unknown_action_execution_rejected": true,
+      "unknown_app_get_none": true,
+      "unknown_app_capability_raised": true,
+      "unknown_app_execution_rejected": true,
+      "known_mutating_action_mutating": true,
+      "known_mutating_action_requires_approval": true,
+      "known_mutating_action_not_read_only": true,
+      "known_read_only_action_read_only": true,
+      "known_read_only_action_not_mutating": true,
+      "known_read_only_action_no_approval": true,
+      "privacy_redaction_engine": true,
+      "privacy_collection_gate": true,
+      "privacy_retention_valid": true
+    }
+  },
+  "end_to_end": {
+    "end_to_end_success": 1.0,
+    "total_stages": 10,
+    "passed_stages": 10,
+    "stage_statuses": {
+      "stage_1_activity_events": true,
+      "stage_2_discovery": true,
+      "stage_3_confidence": true,
+      "stage_4_ranking": true,
+      "stage_5_understanding": true,
+      "stage_6_learning_prior": true,
+      "stage_7_planning": true,
+      "stage_8_approval_gate": true,
+      "stage_9_execution": true,
+      "stage_10_closed_loop": true
+    }
+  },
+  "performance": {
+    "environment": {
+      "os": "Darwin",
+      "architecture": "arm64",
+      "platform_release": "27.0.0",
+      "python_version": "3.11.9",
+      "node_version": "v26.5.0",
+      "device_note": "macOS / Apple Silicon Local Development Environment"
+    },
+    "total_benchmark_runtime_ms": 21.45,
+    "components": {
+      "discovery": {
+        "mean_ms": 0.76,
+        "median_ms": 0.667,
+        "min_ms": 0.644,
+        "max_ms": 2.036,
+        "p95_ms": 2.036,
+        "samples_count": 25
+      },
+      "planning_step": {
+        "mean_ms": 0.05,
+        "median_ms": 0.045,
+        "min_ms": 0.044,
+        "max_ms": 0.147,
+        "p95_ms": 0.147,
+        "samples_count": 25
+      },
+      "learning_score": {
+        "mean_ms": 0.001,
+        "median_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.006,
+        "p95_ms": 0.001,
+        "samples_count": 100
+      },
+      "privacy_redaction": {
+        "mean_ms": 0.011,
+        "median_ms": 0.01,
+        "min_ms": 0.01,
+        "max_ms": 0.096,
+        "p95_ms": 0.011,
+        "samples_count": 100
+      }
+    }
+  },
+  "security_scan": {
+    "secrets_found": 0,
+    "status": "CLEAN"
+  }
+}
