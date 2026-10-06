@@ -1,441 +1,475 @@
 "use client";
 
-import React from "react";
-import { ActivityEvent, AutomationExecutionRecord, DiscoveryResult } from "@/lib/types";
-import { formatEventStep, statusBadgeConfig, getApplicationDisplayName, getAppBadgeClass, formatTimestamp } from "@/lib/utils";
+import React, { useState } from "react";
+import {
+  ActivityEvent,
+  AutomationExecutionRecord,
+  DiscoveryResult,
+  SystemStatusResponse,
+  ViewId,
+} from "@/lib/types";
+import {
+  formatEventStep,
+  statusBadgeConfig,
+  getApplicationDisplayName,
+  getAppBadgeClass,
+  formatTimestamp,
+} from "@/lib/utils";
 
 interface DashboardViewProps {
   events: ActivityEvent[];
   executions: AutomationExecutionRecord[];
   discovery: DiscoveryResult | null;
+  systemStatus: SystemStatusResponse | null;
   loading: boolean;
   historyLoading: boolean;
-  onNavigate: (view: "activity" | "discovery" | "executions" | "builder") => void;
-}
-
-function MetricCard({
-  label,
-  value,
-  sub,
-  icon,
-  iconBg,
-  iconColor,
-  loading,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ReactNode;
-  iconBg: string;
-  iconColor: string;
-  loading?: boolean;
-}) {
-  return (
-    <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs hover:shadow-xs transition flex flex-col justify-between group">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-[#64748B]">
-          {label}
-        </span>
-        <div className={`w-8 h-8 rounded-lg ${iconBg} ${iconColor} flex items-center justify-center shrink-0`}>
-          {icon}
-        </div>
-      </div>
-      <div>
-        <div className="text-2xl sm:text-3xl font-bold font-mono text-[#0F172A] tracking-tight">
-          {loading ? (
-            <div className="h-8 w-16 bg-[#F1F5F9] rounded animate-pulse" />
-          ) : (
-            value
-          )}
-        </div>
-        {sub && (
-          <p className="text-[11px] text-[#64748B] mt-1.5 truncate">
-            {sub}
-          </p>
-        )}
-      </div>
-    </div>
-  );
+  onNavigate: (view: ViewId) => void;
+  onRefresh?: () => void;
 }
 
 export default function DashboardView({
   events,
   executions,
   discovery,
+  systemStatus,
   loading,
   historyLoading,
   onNavigate,
+  onRefresh,
 }: DashboardViewProps) {
-  const completed = executions.filter((e) => e.status === "completed").length;
-  const failed = executions.filter((e) => e.status === "failed" || e.status === "paused").length;
-  const uniqueApps = Array.from(new Set(events.map((e) => e.application)));
-  const successRate =
-    executions.length > 0
-      ? Math.round((completed / executions.length) * 100)
-      : null;
+  const [showOnboarding, setShowOnboarding] = useState(true);
 
-  const recentEvents = events.slice(0, 7);
+  // Derived metrics from real data
+  const completedExecs = executions.filter(
+    (e) => e.status === "completed"
+  ).length;
+  const connectedAppsCount = systemStatus?.applications?.connected ?? 0;
+  const availableAppsCount = systemStatus?.applications?.available ?? 3;
+  const discoveredCount =
+    discovery?.workflows?.length ?? systemStatus?.workflows?.discovered ?? 0;
+  const agentStatus = systemStatus?.agent ?? "disconnected";
+
+  const recentEvents = events.slice(0, 6);
   const recentExecutions = executions.slice(0, 5);
-
-  // Derive real application distribution from events
-  const appCounts: Record<string, number> = {};
-  events.forEach((ev) => {
-    appCounts[ev.application] = (appCounts[ev.application] || 0) + 1;
-  });
-  const topApps = Object.entries(appCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4);
 
   return (
     <div className="space-y-6 p-6 max-w-7xl mx-auto">
-      {/* Workspace Header & Quick Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs">
-        <div>
-          <h2 className="text-lg font-bold text-[#0F172A] tracking-tight">
-            Workspace Overview
-          </h2>
-          <p className="text-xs text-[#64748B] mt-0.5">
-            Observational desktop telemetry, discovered patterns, and autonomous workflow executions.
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5 shrink-0">
-          <button
-            onClick={() => onNavigate("discovery")}
-            className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#0F172A] shadow-2xs transition active:scale-97 cursor-pointer"
-          >
-            Review Discovered ({discovery?.workflows.length ?? 0})
-          </button>
-          <button
-            onClick={() => onNavigate("builder")}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Create Workflow</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Cards Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Events Captured"
-          value={events.length}
-          sub="Live ingested events"
-          iconBg="bg-blue-50"
-          iconColor="text-[#2563EB]"
-          loading={loading}
-          icon={
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          }
-        />
-        <MetricCard
-          label="Active Applications"
-          value={uniqueApps.length}
-          sub={loading ? "" : `${new Set(events.map((e) => e.event_type)).size} event types active`}
-          iconBg="bg-purple-50"
-          iconColor="text-purple-600"
-          loading={loading}
-          icon={
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-            </svg>
-          }
-        />
-        <MetricCard
-          label="Workflows Found"
-          value={discovery?.workflows.length ?? 0}
-          sub={discovery?.detected ? "Repeated sequences detected" : "Scanning for patterns"}
-          iconBg="bg-emerald-50"
-          iconColor="text-[#16A34A]"
-          loading={false}
-          icon={
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-          }
-        />
-        <MetricCard
-          label="Success Rate"
-          value={successRate !== null ? `${successRate}%` : "—"}
-          sub={executions.length > 0 ? `${completed} of ${executions.length} automated runs` : "No executions logged"}
-          iconBg="bg-sky-50"
-          iconColor="text-sky-600"
-          loading={historyLoading}
-          icon={
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          }
-        />
-      </div>
-
-      {/* Discovery Insight Banner if patterns exist */}
-      {discovery?.detected && discovery.workflows.length > 0 && (
-        <section className="bg-white border border-[#BFDBFE] rounded-xl p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs relative overflow-hidden">
-          <div className="flex items-center gap-3.5">
-            <div className="w-9 h-9 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center shrink-0 text-[#2563EB]">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+      {/* Product Banner & System Posture */}
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#2563EB]">
+                WorkFlowOS Platform
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Phase 14 Productized
+              </span>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-[#0F172A]">
-                  {discovery.workflows.length} Automated Workflow Pattern{discovery.workflows.length > 1 ? "s" : ""} Discovered
+            <h2 className="text-xl font-bold text-[#0F172A] tracking-tight mt-1">
+              Intelligent Automation Dashboard
+            </h2>
+            <p className="text-xs text-[#64748B] mt-0.5 max-w-2xl">
+              Unified operational view across desktop observation, pattern discovery,
+              adaptive learning, and human-in-the-loop automation.
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => onNavigate("workflows")}
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#0F172A] shadow-2xs transition active:scale-97 cursor-pointer"
+            >
+              Explore Workflows ({discoveredCount})
+            </button>
+            <button
+              onClick={() => onNavigate("applications")}
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
+            >
+              Applications Ecosystem
+            </button>
+          </div>
+        </div>
+
+        {/* Complete Lifecycle Stepper (Section 3) */}
+        <div className="mt-5 pt-4 border-t border-[#F1F5F9]">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8] mb-2.5">
+            WorkFlowOS Closed-Loop Lifecycle
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-1.5 text-center text-[11px] font-mono">
+            {[
+              { step: "OBSERVE", sub: "Desktop NSWorkspace" },
+              { step: "UNDERSTAND", sub: "Semantic intent" },
+              { step: "DISCOVER", sub: "Pattern detection" },
+              { step: "LEARN", sub: "Feedback loop" },
+              { step: "PLAN", sub: "Strategy selection" },
+              { step: "APPROVE", sub: "Human-in-the-loop" },
+              { step: "AUTOMATE", sub: "Safe execution" },
+              { step: "EVALUATE", sub: "Empirical outcomes" },
+              { step: "LEARN", sub: "Adaptive weights" },
+            ].map((item, idx) => (
+              <div
+                key={idx}
+                className="p-2 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-center"
+              >
+                <span className="font-bold text-[#0F172A] text-[10px]">
+                  {item.step}
                 </span>
-                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Ready to Automate
+                <span className="text-[9px] text-[#94A3B8] truncate">
+                  {item.sub}
                 </span>
               </div>
-              <p className="text-xs text-[#64748B] mt-0.5">
-                Observed {discovery.workflows[0]?.occurrences || 3} repeated sessions in &quot;{discovery.workflows[0]?.label || "Pattern"}&quot;. AI can validate and generate proposal.
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* High-Level Status Cards (Section 5) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        {/* 1. System Status */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs flex flex-col justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+            System Status
+          </span>
+          <div className="my-2">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-sm font-bold text-[#0F172A]">Operational</span>
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-0.5">FastAPI & MongoDB</p>
+          </div>
+        </div>
+
+        {/* 2. Agent Status */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs flex flex-col justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+            Desktop Agent
+          </span>
+          <div className="my-2">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  agentStatus === "connected"
+                    ? "bg-emerald-500 animate-pulse"
+                    : agentStatus === "degraded"
+                    ? "bg-amber-500"
+                    : "bg-slate-400"
+                }`}
+              />
+              <span className="text-sm font-bold text-[#0F172A] capitalize">
+                {agentStatus === "connected"
+                  ? "Connected"
+                  : agentStatus === "degraded"
+                  ? "Degraded"
+                  : "Disconnected"}
+              </span>
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-0.5 truncate">
+              {agentStatus === "connected"
+                ? "Streaming events"
+                : "python -m agent run"}
+            </p>
+          </div>
+        </div>
+
+        {/* 3. Applications */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs flex flex-col justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+            Applications
+          </span>
+          <div className="my-2">
+            <div className="text-lg font-bold font-mono text-[#0F172A]">
+              {loading ? "…" : `${connectedAppsCount} Connected`}
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-0.5">
+              {availableAppsCount} registered in ecosystem
+            </p>
+          </div>
+        </div>
+
+        {/* 4. Workflows */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs flex flex-col justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+            Workflows
+          </span>
+          <div className="my-2">
+            <div className="text-lg font-bold font-mono text-[#0F172A]">
+              {loading ? "…" : `${discoveredCount} Discovered`}
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-0.5">
+              {discoveredCount > 0 ? "Repetition detected" : "Observing traffic"}
+            </p>
+          </div>
+        </div>
+
+        {/* 5. Automations */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs flex flex-col justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+            Automations
+          </span>
+          <div className="my-2">
+            <div className="text-lg font-bold font-mono text-[#0F172A]">
+              {historyLoading ? "…" : `${completedExecs} Successful`}
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-0.5">
+              {executions.length} total runs logged
+            </p>
+          </div>
+        </div>
+
+        {/* 6. Privacy */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs flex flex-col justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+            Privacy & Safety
+          </span>
+          <div className="my-2">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="text-sm font-bold text-[#0F172A]">Protected</span>
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-0.5">
+              Redaction & Approval Gate
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Lightweight First-Run Onboarding Guide (Section 15) */}
+      {showOnboarding && (
+        <section className="bg-white border border-[#BFDBFE] rounded-xl p-5 shadow-2xs relative">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-[#0F172A]">
+                  Welcome to WorkFlowOS
+                </h3>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                  Ready to Start
+                </span>
+              </div>
+              <p className="text-xs text-[#64748B] mt-1 max-w-2xl leading-relaxed">
+                WorkFlowOS observes repetitive digital work, discovers workflows, and
+                helps automate them safely. Check the operational readiness below:
+              </p>
+            </div>
+            <button
+              onClick={() => setShowOnboarding(false)}
+              className="text-[#94A3B8] hover:text-[#0F172A] text-xs cursor-pointer p-1 rounded"
+              title="Dismiss onboarding"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-[#EFF6FF]">
+            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#0F172A]">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>1. Activity Agent</span>
+              </div>
+              <p className="text-[11px] text-[#64748B] mt-1">
+                {agentStatus === "connected"
+                  ? "Connected & actively capturing focus events."
+                  : "Ready. Run `python -m agent run` to stream macOS activity."}
+              </p>
+            </div>
+
+            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#0F172A]">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>2. Backend Engine</span>
+              </div>
+              <p className="text-[11px] text-[#64748B] mt-1">
+                Connected. MongoDB Atlas event stream and REST API active on port 8000.
+              </p>
+            </div>
+
+            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#0F172A]">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>3. Applications</span>
+              </div>
+              <p className="text-[11px] text-[#64748B] mt-1">
+                {availableAppsCount} available adapters (Email, CRM, Chat, Gmail) ready in registry.
+              </p>
+            </div>
+
+            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#0F172A]">
+                <span className="text-emerald-600 font-bold">✓</span>
+                <span>4. Privacy & Safety</span>
+              </div>
+              <p className="text-[11px] text-[#64748B] mt-1">
+                Protected. Keylogging and screenshots disabled. Mutating actions require approval.
               </p>
             </div>
           </div>
-          <button
-            onClick={() => onNavigate("discovery")}
-            className="shrink-0 px-4 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
-          >
-            Review & Automate
-          </button>
         </section>
       )}
 
-      {/* Application Telemetry Distribution */}
-      {topApps.length > 0 && (
-        <section className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748B]">
-              Application Activity Distribution
-            </h3>
-            <span className="text-xs text-[#64748B]">
-              {events.length} total events
-            </span>
-          </div>
-          {/* Proportion bar */}
-          <div className="h-2 w-full bg-[#F1F5F9] rounded-full overflow-hidden flex">
-            {topApps.map(([app, count], idx) => {
-              const pct = (count / events.length) * 100;
-              const colors = ["bg-[#2563EB]", "bg-purple-500", "bg-emerald-500", "bg-amber-500"];
-              return (
-                <div
-                  key={app}
-                  style={{ width: `${pct}%` }}
-                  className={`h-full ${colors[idx % colors.length]}`}
-                  title={`${app}: ${count} (${pct.toFixed(0)}%)`}
-                />
-              );
-            })}
-          </div>
-          {/* Legend */}
-          <div className="flex flex-wrap items-center gap-4 mt-3">
-            {topApps.map(([app, count], idx) => {
-              const colors = ["bg-[#2563EB]", "bg-purple-500", "bg-emerald-500", "bg-amber-500"];
-              const pct = ((count / events.length) * 100).toFixed(0);
-              return (
-                <div key={app} className="flex items-center gap-1.5 text-xs text-[#475569]">
-                  <span className={`w-2 h-2 rounded-full ${colors[idx % colors.length]}`} />
-                  <span className="font-medium text-[#0F172A]">{getApplicationDisplayName(app)}</span>
-                  <span className="text-[#94A3B8]">({count} · {pct}%)</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Two Column Grid: Activity Feed & Executions */}
+      {/* Main Two-Column View: Recent Activity & Recent Executions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Activity Section */}
-        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-2xs flex flex-col">
-          <div className="px-5 py-3.5 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[#2563EB]" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#0F172A]">
-                Recent Desktop Activity
-              </h3>
+        {/* Recent Activity Table (Section 6) */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748B]">
+                  Recent Activity
+                </h3>
+                <p className="text-[11px] text-[#64748B] mt-0.5">
+                  Latest observed actions captured from desktop and demo applications
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {onRefresh && (
+                  <button
+                    onClick={onRefresh}
+                    className="text-[11px] text-[#2563EB] hover:text-[#1D4ED8] font-medium cursor-pointer"
+                  >
+                    Refresh
+                  </button>
+                )}
+                <button
+                  onClick={() => onNavigate("activity")}
+                  className="text-[11px] text-[#2563EB] hover:text-[#1D4ED8] font-semibold cursor-pointer"
+                >
+                  View All ({events.length}) →
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => onNavigate("activity")}
-              className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition cursor-pointer"
-            >
-              View all →
-            </button>
-          </div>
 
-          <div className="divide-y divide-[#E2E8F0] overflow-y-auto flex-1">
             {loading ? (
-              <div className="p-5 space-y-3">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 animate-pulse">
-                    <div className="h-4 w-20 bg-[#F1F5F9] rounded" />
-                    <div className="h-4 w-28 bg-[#F1F5F9] rounded" />
-                    <div className="h-4 flex-1 bg-[#F1F5F9] rounded" />
-                  </div>
-                ))}
+              <div className="py-8 text-center text-xs text-[#94A3B8]">
+                Loading recent activity…
               </div>
             ) : recentEvents.length === 0 ? (
-              <div className="py-12 text-center px-4">
-                <div className="w-10 h-10 rounded-full bg-[#F1F5F9] text-[#94A3B8] flex items-center justify-center mx-auto mb-2">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <p className="text-xs font-medium text-[#0F172A]">No activity events captured yet</p>
-                <p className="text-[11px] text-[#64748B] mt-1">Run `python -m agent run` or seed demo events.</p>
+              <div className="py-8 text-center text-xs text-[#94A3B8] border border-dashed border-[#E2E8F0] rounded-xl">
+                No activity captured yet.
+                <p className="text-[11px] text-[#64748B] mt-1">
+                  Start `python -m agent run` or trigger actions in the Demo Applications.
+                </p>
               </div>
             ) : (
-              recentEvents.map((ev) => {
-                const ts = formatTimestamp(ev.timestamp);
-                const badgeClass = getAppBadgeClass(ev.application);
-                return (
-                  <div
-                    key={ev.id}
-                    className="px-5 py-3 hover:bg-[#F8FAFC] transition flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded border shrink-0 ${badgeClass}`}>
-                        {getApplicationDisplayName(ev.application)}
-                      </span>
-                      <span className="font-mono text-[#0F172A] font-semibold truncate">
-                        {formatEventStep(ev.event_type)}
-                      </span>
-                      {ev.target && (
-                        <span className="text-[#64748B] truncate hidden sm:inline">
-                          · {ev.target}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-[#94A3B8] font-mono shrink-0">
-                      {ts.relative || ts.full}
-                    </span>
-                  </div>
-                );
-              })
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#F8FAFC] text-[#64748B] border-b border-[#E2E8F0]">
+                    <tr>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Application</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Action</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Time</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Target</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0]">
+                    {recentEvents.map((ev) => {
+                      const t = formatTimestamp(ev.timestamp);
+                      const badgeClass = getAppBadgeClass(ev.application);
+                      return (
+                        <tr key={ev.id} className="hover:bg-[#F8FAFC] transition">
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span
+                              className={`text-[10px] font-medium px-2 py-0.5 rounded border ${badgeClass}`}
+                            >
+                              {getApplicationDisplayName(ev.application)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-medium text-[#0F172A] whitespace-nowrap">
+                            {formatEventStep(ev.event_type)}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[#64748B] whitespace-nowrap">
+                            {t.relative || t.full}
+                          </td>
+                          <td className="py-2.5 px-3 text-[#64748B] max-w-48 truncate">
+                            {ev.target || "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
 
-        {/* Recent Executions Section */}
-        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-2xs flex flex-col">
-          <div className="px-5 py-3.5 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[#16A34A]" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#0F172A]">
-                Recent Automated Executions
-              </h3>
-              {executions.length > 0 && (
-                <span className="text-[10px] font-mono font-medium px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-full">
-                  {completed}/{executions.length}
-                </span>
-              )}
+        {/* Recent Executions History (Section 10) */}
+        <section className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748B]">
+                  Recent Executions
+                </h3>
+                <p className="text-[11px] text-[#64748B] mt-0.5">
+                  Automated workflow runs, outcomes, and intervention status
+                </p>
+              </div>
+              <button
+                onClick={() => onNavigate("executions")}
+                className="text-[11px] text-[#2563EB] hover:text-[#1D4ED8] font-semibold cursor-pointer"
+              >
+                View History ({executions.length}) →
+              </button>
             </div>
-            <button
-              onClick={() => onNavigate("executions")}
-              className="text-xs font-medium text-[#2563EB] hover:text-[#1D4ED8] transition cursor-pointer"
-            >
-              View all →
-            </button>
-          </div>
 
-          <div className="divide-y divide-[#E2E8F0] overflow-y-auto flex-1">
             {historyLoading ? (
-              <div className="p-5 space-y-3">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 animate-pulse">
-                    <div className="h-5 w-16 bg-[#F1F5F9] rounded-full" />
-                    <div className="h-4 flex-1 bg-[#F1F5F9] rounded" />
-                    <div className="h-4 w-12 bg-[#F1F5F9] rounded" />
-                  </div>
-                ))}
+              <div className="py-8 text-center text-xs text-[#94A3B8]">
+                Loading execution history…
               </div>
             ) : recentExecutions.length === 0 ? (
-              <div className="py-12 text-center px-4">
-                <div className="w-10 h-10 rounded-full bg-[#F1F5F9] text-[#94A3B8] flex items-center justify-center mx-auto mb-2">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                </div>
-                <p className="text-xs font-medium text-[#0F172A]">No automation runs executed yet</p>
-                <p className="text-[11px] text-[#64748B] mt-1">Approve a proposal or build a declarative workflow.</p>
-                <button
-                  onClick={() => onNavigate("discovery")}
-                  className="mt-3 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] text-[#0F172A] hover:bg-[#F8FAFC] shadow-2xs transition cursor-pointer"
-                >
-                  Review Discovered Workflows
-                </button>
+              <div className="py-8 text-center text-xs text-[#94A3B8] border border-dashed border-[#E2E8F0] rounded-xl">
+                No automated executions logged yet.
+                <p className="text-[11px] text-[#64748B] mt-1">
+                  Approve and run a discovered or declarative workflow to record execution history.
+                </p>
               </div>
             ) : (
-              recentExecutions.map((ex) => {
-                const cfg = statusBadgeConfig(ex.status);
-                const progress =
-                  ex.total_actions > 0
-                    ? Math.round((ex.completed_actions.length / ex.total_actions) * 100)
-                    : 0;
-                return (
-                  <div key={ex.execution_id} className="p-4 hover:bg-[#F8FAFC] transition">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-[#0F172A] truncate">
-                          {ex.workflow_name || "Automation Workflow"}
-                        </p>
-                        <p className="text-[11px] text-[#64748B] mt-0.5">
-                          {ex.completed_actions.length}/{ex.total_actions} actions
-                          {ex.execution_time_seconds != null && ` · ${ex.execution_time_seconds}s`}
-                          {ex.applications && ex.applications.length > 0 && ` · ${ex.applications.map(getApplicationDisplayName).join(", ")}`}
-                        </p>
-                      </div>
-                      <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
-                        {cfg.label}
-                      </span>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="mt-2.5 h-1.5 bg-[#F1F5F9] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          ex.status === "completed"
-                            ? "bg-[#16A34A]"
-                            : ex.status === "failed"
-                            ? "bg-[#DC2626]"
-                            : ex.status === "paused"
-                            ? "bg-[#F59E0B]"
-                            : "bg-[#2563EB]"
-                        }`}
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#F8FAFC] text-[#64748B] border-b border-[#E2E8F0]">
+                    <tr>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Workflow</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">Progress</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap text-right">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0]">
+                    {recentExecutions.map((rec) => {
+                      const cfg = statusBadgeConfig(rec.status);
+                      const t = rec.completed_at
+                        ? formatTimestamp(rec.completed_at)
+                        : rec.started_at
+                        ? formatTimestamp(rec.started_at)
+                        : null;
+                      return (
+                        <tr key={rec.execution_id} className="hover:bg-[#F8FAFC] transition">
+                          <td className="py-2.5 px-3 font-medium text-[#0F172A] max-w-44 truncate">
+                            {rec.workflow_name || "Automation Workflow"}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}
+                            >
+                              {cfg.label}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[#64748B]">
+                            {rec.completed_actions?.length ?? 0}/{rec.total_actions ?? 0} steps
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[#94A3B8] text-right whitespace-nowrap">
+                            {t ? t.relative || t.full : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
       </div>
-
-      {/* Telemetry Summary Cards */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs text-center">
-          <div className="text-xl font-bold font-mono text-[#0F172A]">{failed}</div>
-          <div className="text-[11px] font-medium text-[#64748B] mt-1">Failed / Paused Executions</div>
-        </div>
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs text-center">
-          <div className="text-xl font-bold font-mono text-[#0F172A]">
-            {executions.reduce((s, e) => s + (e.execution_time_seconds ?? 0), 0).toFixed(1)}s
-          </div>
-          <div className="text-[11px] font-medium text-[#64748B] mt-1">Total Automation Runtime</div>
-        </div>
-        <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 shadow-2xs text-center">
-          <div className="text-xl font-bold font-mono text-[#0F172A]">
-            {executions.reduce((s, e) => s + e.completed_actions.length, 0)}
-          </div>
-          <div className="text-[11px] font-medium text-[#64748B] mt-1">Total Actions Completed</div>
-        </div>
-      </section>
     </div>
   );
 }

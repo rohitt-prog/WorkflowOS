@@ -267,6 +267,8 @@ export interface AutomationExecutionResponse {
   all_actions?: ActionDetail[];
 }
 
+export type ExecuteWorkflowResponse = AutomationExecutionResponse;
+
 export interface AutomationExecutionRecord {
   execution_id: string;
   workflow_name: string;
@@ -351,7 +353,7 @@ export interface WorkflowDefinition {
   tags?: string[];
 }
 
-export type ViewId = "dashboard" | "activity" | "discovery" | "builder" | "executions" | "applications" | "settings";
+export type ViewId = "dashboard" | "activity" | "workflows" | "discovery" | "builder" | "executions" | "applications" | "settings";
 
 // Phase 7.1 Integration Foundation types
 export interface IntegrationActionParam {
@@ -566,4 +568,91 @@ export interface ApplicationSummary {
   auth_requirements: string[];
   is_demo: boolean;
   description?: string;
+}
+
+// ============================================================================
+// Phase 14: Productization & System Telemetry Types
+// ============================================================================
+
+export interface ApplicationStatusItem {
+  application_id: string;
+  display_name: string;
+  integration_type: string;
+  connected: boolean;
+  is_demo: boolean;
+  capabilities_count: number;
+}
+
+export interface ApplicationsStatusSummary {
+  connected: number;
+  available: number;
+  items: ApplicationStatusItem[];
+}
+
+export interface WorkflowsStatusSummary {
+  discovered: number;
+  declarative: number;
+}
+
+export interface ExecutionsStatusSummary {
+  total: number;
+  successful: number;
+  failed: number;
+}
+
+export interface PrivacyStatusSummary {
+  collection_enabled: boolean;
+  retention_days: number;
+  redaction_active: boolean;
+  human_approval_required: boolean;
+}
+
+export interface SystemStatusResponse {
+  backend: string;
+  agent: "connected" | "disconnected" | "degraded" | string;
+  agent_details?: {
+    process_id?: number | null;
+    mode?: string;
+    [key: string]: unknown;
+  } | null;
+  applications: ApplicationsStatusSummary;
+  workflows: WorkflowsStatusSummary;
+  executions: ExecutionsStatusSummary;
+  privacy: PrivacyStatusSummary;
+}
+
+export interface OnboardingStep {
+  id: string;
+  title: string;
+  status: "ready" | "connected" | "protected" | "waiting" | string;
+  description: string;
+  action_label?: string | null;
+  action_target?: ViewId | string | null;
+}
+
+export interface OnboardingResponse {
+  completed: boolean;
+  title: string;
+  subtitle: string;
+  steps: OnboardingStep[];
+}
+
+export interface SystemSettingsResponse {
+  backend_url: string;
+  frontend_url: string;
+  environment: string;
+  activity_collection: string;
+  event_retention_days: number;
+  privacy_posture: string;
+  credentials_configured: Record<string, string>;
+  guarantees: Record<string, string>;
+}
+
+export interface PrivacyStatusResponse {
+  collection_enabled: boolean;
+  retention_days: number;
+  retention_cutoff_timestamp?: string;
+  redaction_active: boolean;
+  zero_credentials_persisted: boolean;
+  approval_gate_required: boolean;
 }

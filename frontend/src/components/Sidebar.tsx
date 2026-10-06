@@ -38,11 +38,6 @@ const IconDiscovery = () => (
   </svg>
 );
 
-const IconBuilder = () => (
-  <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-  </svg>
-);
 
 const IconExecutions = () => (
   <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -72,27 +67,26 @@ export default function Sidebar({
   discoveryCount,
 }: SidebarProps) {
   const navItems: NavItem[] = [
-    { id: "dashboard", label: "Dashboard", icon: <IconDashboard /> },
+    { id: "dashboard", label: "Overview", icon: <IconDashboard /> },
     {
       id: "activity",
-      label: "Activity Feed",
+      label: "Activity",
       icon: <IconActivity />,
       badge: eventCount > 0 ? eventCount : undefined,
     },
     {
-      id: "discovery",
-      label: "Discovery",
+      id: "workflows",
+      label: "Workflows",
       icon: <IconDiscovery />,
       badge: discoveryCount > 0 ? discoveryCount : undefined,
     },
-    { id: "builder", label: "Workflow Builder", icon: <IconBuilder /> },
+    { id: "applications", label: "Applications", icon: <IconApplications /> },
     {
       id: "executions",
       label: "Executions",
       icon: <IconExecutions />,
       badge: executionCount > 0 ? executionCount : undefined,
     },
-    { id: "applications", label: "Applications", icon: <IconApplications /> },
     { id: "settings", label: "Settings", icon: <IconSettings /> },
   ];
 
@@ -128,7 +122,9 @@ export default function Sidebar({
           </p>
           <div className="space-y-1">
             {navItems.map((item) => {
-              const isActive = activeView === item.id;
+              const isActive =
+                activeView === item.id ||
+                (item.id === "workflows" && (activeView === "discovery" || activeView === "builder"));
               return (
                 <button
                   key={item.id}

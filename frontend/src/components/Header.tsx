@@ -4,23 +4,25 @@ import React from "react";
 import { ViewId } from "@/lib/types";
 
 const VIEW_LABELS: Record<ViewId, string> = {
-  dashboard: "Dashboard",
-  activity: "Activity Feed",
+  dashboard: "Overview",
+  activity: "Activity",
+  workflows: "Workflows",
   discovery: "Workflow Discovery",
   builder: "Workflow Builder",
-  executions: "Execution History",
-  applications: "Application Ecosystem",
-  settings: "Settings",
+  executions: "Executions",
+  applications: "Applications",
+  settings: "Settings & Privacy",
 };
 
 const VIEW_DESCRIPTIONS: Record<ViewId, string> = {
-  dashboard: "Real-time system overview, event stream summary, and execution telemetry",
+  dashboard: "System overview, agent connectivity, and live telemetry",
   activity: "Live event stream captured from desktop agents and demo applications",
+  workflows: "Complete workflow lifecycle: discovery, understanding, learning, and automation",
   discovery: "Algorithmic detection of repeated multi-step workflow patterns",
   builder: "Declarative workflow engine editor, branching conditions, and retry policies",
   executions: "Automated execution log, step results, and human-in-the-loop control",
-  applications: "Ecosystem applications, connection status, read-only vs mutating capabilities, and safety requirements",
-  settings: "Agent configuration, API endpoints, and system preferences",
+  applications: "Ecosystem applications, read-only vs mutating capabilities, and safety controls",
+  settings: "Privacy controls, data retention governance, and system configuration",
 };
 
 interface HeaderProps {

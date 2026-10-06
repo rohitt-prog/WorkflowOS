@@ -5,7 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import DashboardView from "@/components/views/DashboardView";
 import ActivityView from "@/components/views/ActivityView";
-import DiscoveryView from "@/components/views/DiscoveryView";
+import WorkflowsView from "@/components/views/WorkflowsView";
 import BuilderView from "@/components/views/BuilderView";
 import ExecutionsView from "@/components/views/ExecutionsView";
 import ApplicationsView from "@/components/views/ApplicationsView";
@@ -15,14 +15,21 @@ import {
   ActivityEvent,
   DiscoveryResult,
   AutomationExecutionRecord,
+  SystemStatusResponse,
 } from "@/lib/types";
-import { API_BASE_URL } from "@/lib/utils";
+import {
+  fetchSystemStatus,
+  fetchEvents,
+  fetchDiscoveredWorkflows,
+  fetchExecutions,
+} from "@/lib/api";
 
 export default function WorkFlowOSApp() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
 
-  // Connection & data
+  // Connection & System Telemetry
   const [backendStatus, setBackendStatus] = useState<"connected" | "disconnected" | "checking">("checking");
+  const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -39,97 +46,97 @@ export default function WorkFlowOSApp() {
   const [executions, setExecutions] = useState<AutomationExecutionRecord[]>([]);
   const [executionsLoading, setExecutionsLoading] = useState(false);
 
-  const fetchEvents = useCallback(async () => {
+  const loadSystemData = useCallback(async () => {
     try {
-      const [healthRes, eventsRes] = await Promise.allSettled([
-        fetch(`${API_BASE_URL}/health`, { cache: "no-store" }),
-        fetch(`${API_BASE_URL}/api/events?limit=100`, { cache: "no-store" }),
-      ]);
-
-      setBackendStatus(
-        healthRes.status === "fulfilled" && healthRes.value.ok ? "connected" : "disconnected"
-      );
-
-      if (eventsRes.status === "fulfilled" && eventsRes.value.ok) {
-        const data: ActivityEvent[] = await eventsRes.value.json();
-        setEvents(data);
-        setBackendStatus("connected");
-      }
-      setLastRefreshed(new Date());
+      const statusData = await fetchSystemStatus();
+      setSystemStatus(statusData);
+      setBackendStatus("connected");
     } catch {
       setBackendStatus("disconnected");
+    }
+  }, []);
+
+  const loadEventsData = useCallback(async () => {
+    try {
+      const data = await fetchEvents({ limit: 100 });
+      setEvents(data);
+      setBackendStatus("connected");
+      setLastRefreshed(new Date());
+    } catch {
+      // handled gracefully
     } finally {
       setEventsLoading(false);
     }
   }, []);
 
-  const fetchDiscovery = useCallback(async () => {
+  const loadDiscoveryData = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/discovery/repeated?include_suppressed=true`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Discovery API returned ${res.status}`);
-      const data: DiscoveryResult = await res.json();
+      const data = await fetchDiscoveredWorkflows(true);
       setDiscovery(data);
       setDiscoveryError(null);
     } catch (e: unknown) {
-      setDiscoveryError(e instanceof Error ? e.message : "Discovery unavailable");
+      setDiscoveryError(e instanceof Error ? e.message : "Discovery scan unavailable");
       setDiscovery(null);
     } finally {
       setDiscoveryLoading(false);
     }
   }, []);
 
-  const fetchExecutions = useCallback(async () => {
+  const loadExecutionsData = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/automation/executions`, { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        const list: AutomationExecutionRecord[] = data.executions || [];
-        setExecutions([...list].reverse());
-      }
+      const list = await fetchExecutions();
+      setExecutions(list);
     } catch {
-      // silent — executions is optional
+      // executions is optional
     } finally {
       setExecutionsLoading(false);
     }
   }, []);
 
-  const handleRefresh = useCallback(async (isManual = true) => {
-    if (isManual) setRefreshing(true);
-    await Promise.all([fetchEvents(), fetchDiscovery(), fetchExecutions()]);
-    if (isManual) setRefreshing(false);
-  }, [fetchEvents, fetchDiscovery, fetchExecutions]);
+  const handleRefresh = useCallback(
+    async (isManual = true) => {
+      if (isManual) setRefreshing(true);
+      await Promise.allSettled([
+        loadSystemData(),
+        loadEventsData(),
+        loadDiscoveryData(),
+        loadExecutionsData(),
+      ]);
+      setLastRefreshed(new Date());
+      if (isManual) setRefreshing(false);
+    },
+    [loadSystemData, loadEventsData, loadDiscoveryData, loadExecutionsData]
+  );
 
   // Initial load
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
       if (!isMounted) return;
-      await Promise.all([fetchEvents(), fetchDiscovery(), fetchExecutions()]);
+      await handleRefresh(false);
     };
     load();
     return () => {
       isMounted = false;
     };
-  }, [fetchEvents, fetchDiscovery, fetchExecutions]);
+  }, [handleRefresh]);
 
-  // Auto-refresh every 5 s
+  // Periodic background telemetry refresh every 6 seconds
   useEffect(() => {
     const id = setInterval(() => {
-      fetchEvents();
-      fetchDiscovery();
-      fetchExecutions();
-    }, 5000);
+      handleRefresh(false);
+    }, 6000);
     return () => clearInterval(id);
-  }, [fetchEvents, fetchDiscovery, fetchExecutions]);
+  }, [handleRefresh]);
 
   const handleRefreshDiscovery = useCallback(async () => {
     setDiscoveryLoading(true);
-    await fetchDiscovery();
-  }, [fetchDiscovery]);
+    await loadDiscoveryData();
+  }, [loadDiscoveryData]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F7F9FC] text-[#475569]">
-      {/* Sidebar */}
+      {/* Sidebar Navigation */}
       <Sidebar
         activeView={activeView}
         onNavigate={setActiveView}
@@ -139,7 +146,7 @@ export default function WorkFlowOSApp() {
         discoveryCount={discovery?.workflows.length ?? 0}
       />
 
-      {/* Main content area */}
+      {/* Main Content Area */}
       <div className="flex flex-col flex-1 overflow-hidden">
         <Header
           activeView={activeView}
@@ -149,47 +156,56 @@ export default function WorkFlowOSApp() {
           onRefresh={() => handleRefresh(true)}
         />
 
-        {/* View content — scrollable */}
+        {/* View Content Container */}
         <main className="flex-1 overflow-y-auto">
           {activeView === "dashboard" && (
             <DashboardView
               events={events}
               executions={executions}
               discovery={discovery}
+              systemStatus={systemStatus}
               loading={eventsLoading}
               historyLoading={executionsLoading}
-              onNavigate={(v) => setActiveView(v)}
+              onNavigate={setActiveView}
+              onRefresh={loadEventsData}
             />
           )}
+
           {activeView === "activity" && (
             <ActivityView
               events={events}
               loading={eventsLoading}
             />
           )}
-          {activeView === "discovery" && (
-            <DiscoveryView
+
+          {(activeView === "workflows" || activeView === "discovery") && (
+            <WorkflowsView
               discovery={discovery}
               discoveryLoading={discoveryLoading}
               discoveryError={discoveryError}
               onRefreshDiscovery={handleRefreshDiscovery}
-              onExecutionComplete={fetchExecutions}
-            />
-          )}
-          {activeView === "builder" && (
-            <BuilderView
-              onExecutionComplete={fetchExecutions}
+              onExecutionComplete={loadExecutionsData}
               onNavigate={setActiveView}
             />
           )}
+
+          {activeView === "builder" && (
+            <BuilderView
+              onExecutionComplete={loadExecutionsData}
+              onNavigate={setActiveView}
+            />
+          )}
+
           {activeView === "executions" && (
             <ExecutionsView
               executions={executions}
               loading={executionsLoading}
-              onRefresh={fetchExecutions}
+              onRefresh={loadExecutionsData}
             />
           )}
+
           {activeView === "applications" && <ApplicationsView />}
+
           {activeView === "settings" && <SettingsView />}
         </main>
       </div>

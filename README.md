@@ -29,16 +29,18 @@
                        │ REST
 ┌──────────────────────▼───────────────────────────────┐
 │  Next.js 16 Frontend (React 19 + TailwindCSS v4)     │
+│  src/lib/api.ts            centralized typed client   │
 │  src/components/                                      │
-│  ├── Sidebar.tsx           sidebar nav               │
-│  ├── Header.tsx            breadcrumb + controls     │
+│  ├── Sidebar.tsx           product navigation shell  │
+│  ├── Header.tsx            status, refresh & title   │
 │  └── views/                                          │
-│      ├── DashboardView     KPIs + recent feeds       │
-│      ├── ActivityView      live event table          │
-│      ├── DiscoveryView     pattern cards + AI modal  │
-│      ├── BuilderView       declarative WF editor     │
-│      ├── ExecutionsView    history + detail modal    │
-│      └── SettingsView      config + phase status     │
+│      ├── DashboardView     Overview KPIs & lifecycle │
+│      ├── ActivityView      Live desktop event stream │
+│      ├── WorkflowsView     Lifecycle & detail modal  │
+│      ├── BuilderView       Declarative WF editor     │
+│      ├── ApplicationsView  Ecosystem & capabilities  │
+│      ├── ExecutionsView    History & step inspector  │
+│      └── SettingsView      Privacy & safe configs    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -69,6 +71,8 @@
 | **Phase 10** | Intelligent Automation — Deterministic Strategy Planning | ✅ Complete |
 | **Phase 11** | Closed-Loop Intelligence — Execution Feedback & Strategy Adaptation | ✅ Complete |
 | **Phase 12** | Privacy & Safety — Sensitive Data Redaction & Data Governance | ✅ Complete |
+| **Phase 13** | Application Ecosystem — Registry, Capabilities & Safety Classification | ✅ Complete |
+| **Phase 14** | Productization — Coherent Shell, Workflows Lifecycle, Governance & Telemetry | ✅ Complete |
 
 ---
 
@@ -943,3 +947,27 @@ WorkFlowOS implements a deterministic, multi-layered privacy and safety system:
 
 ### 5. Mandatory Safety Invariant
 - **Approval Gate**: `requires_approval = True` remains non-negotiable. Zero autonomous execution is introduced.
+
+---
+
+## Productization & Unified Dashboard (Phase 14)
+
+Phase 14 turns the WorkFlowOS engineering system into a coherent, demo-ready product experience across the full lifecycle:
+
+```text
+OBSERVE → UNDERSTAND → DISCOVER → LEARN → PLAN → APPROVE → AUTOMATE → EVALUATE → LEARN
+```
+
+### 1. Unified Navigation Shell
+- **Overview (`dashboard`)**: Real-time status cards (System, Desktop Agent, Applications, Workflows, Automations, Privacy), onboarding readiness banner, and recent feeds.
+- **Activity (`activity`)**: Filterable and searchable desktop and demo application event stream with detail inspection drawer.
+- **Workflows (`workflows`)**: Unified hub surfacing the complete workflow lifecycle with confidence scores, learning status, automation strategy, and step inspection modal. Also features a direct tab to the Declarative Builder.
+- **Applications (`applications`)**: Ecosystem registry displaying connected adapters, read-only vs. mutating capability badges, and approval requirements.
+- **Executions (`executions`)**: Historical execution ledger with step-by-step outcomes, failure diagnostics, and human-in-the-loop resume/cancel actions.
+- **Settings (`settings`)**: Safe endpoint configuration, interactive Phase 12 privacy toggles, event retention audits, and real-time PII redaction test tool.
+
+### 2. Centralized APIs & Non-Leaking Telemetry
+- `GET /api/system/status`: Aggregated system operational health without exposing database URIs, API keys, or OAuth credentials.
+- `GET /api/system/onboarding`: First-run readiness checklist for agent, backend, applications, and privacy.
+- `GET /api/system/settings`: Public configurations with credential status masked as `"Configured"`.
+- `frontend/src/lib/api.ts`: Strongly typed API client handling error translations and preventing technical exception leaks in the UI.
