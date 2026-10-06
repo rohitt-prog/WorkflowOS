@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="WorkFlowOS API",
-    description="Observational Event Ingestion & Workflow OS Backend - Phase 1",
+    description="AI-Powered Workflow Automation System",
     version="1.0.0",
     lifespan=lifespan
 )
