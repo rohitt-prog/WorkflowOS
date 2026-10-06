@@ -88,7 +88,7 @@ class StrategyCapabilityRegistry:
             return True, None, False, ctx.get("credentials_available", True)
 
         # Check adapter in registry
-        adapter = self._integration_registry.get(app_id) or self._integration_registry.find_adapter_by_action(norm_action)
+        adapter = self._integration_registry.get(app_id) if app_id else self._integration_registry.find_adapter_by_action(norm_action)
         if adapter:
             action_def = adapter.get_action(norm_action)
             if action_def:
@@ -135,13 +135,15 @@ class StrategyCapabilityRegistry:
                 return False, "Integration strategy marked unavailable in context", False, False
             return True, None, False, ctx.get("credentials_available", True)
 
-        adapter = self._integration_registry.get(app_id) or self._integration_registry.find_adapter_by_action(norm_action)
+        adapter = self._integration_registry.get(app_id) if app_id else self._integration_registry.find_adapter_by_action(norm_action)
         if adapter:
             action_def = adapter.get_action(norm_action)
-            is_mut = action_def.is_mutating if action_def else False
-            needs_creds = (len(action_def.required_scopes) > 0 if action_def else False) or not adapter.metadata.is_mock
-            creds_avail = adapter.is_connected or not needs_creds or ctx.get("credentials_available", False)
-            return True, None, is_mut, creds_avail
+            if action_def:
+                is_mut = action_def.is_mutating
+                needs_creds = len(action_def.required_scopes) > 0 or not adapter.metadata.is_mock
+                creds_avail = adapter.is_connected or not needs_creds or ctx.get("credentials_available", False)
+                return True, None, is_mut, creds_avail
+            return False, f"Action '{action}' is not supported by integration '{adapter.id}'", False, True
 
         # Check if mapped to CRM / mock / email adapter
         if norm_action in ("search_customer", "update_customer") and (app_id in ("demo_crm", "mock_crm", "crm")):
@@ -192,8 +194,9 @@ class StrategyCapabilityRegistry:
             return True, None, (norm_action in ("update_customer", "send_message")), True
 
         # Generic web actions on known web applications
-        if app_id in KNOWN_WEB_APPLICATIONS or "browser" in app_id or "web" in app_id:
-            # Common browser actions like click, fill, navigate
+        if (app_id in KNOWN_WEB_APPLICATIONS or "browser" in app_id or "web" in app_id) and norm_action in {
+            "click", "fill", "navigate", "press", "wait", "screenshot", "hover", "select",
+        }:
             return True, None, False, True
 
         return False, f"Action '{action}' on '{application}' is not a supported browser action", False, True

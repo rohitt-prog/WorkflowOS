@@ -22,6 +22,10 @@ from integrations.models import (
     UnsupportedActionError,
     IntegrationConnectionError,
     IntegrationValidationError,
+    ApplicationHealthStatus,
+    ApplicationHealth,
+    ApplicationCapability,
+    ApplicationSummary,
 )
 from integrations.credentials import sanitize_credential_dict, sanitize_log_message
 
@@ -54,8 +58,31 @@ class BaseIntegrationAdapter(ABC):
         return self.metadata.id
 
     @property
+    def application_id(self) -> str:
+        """Alias for id conforming to Phase 13 Application Ecosystem interface."""
+        return self.metadata.id
+
+    @property
     def name(self) -> str:
         return self.metadata.name
+
+    @property
+    def display_name(self) -> str:
+        """Alias for name conforming to Phase 13 Application Ecosystem interface."""
+        return self.metadata.name
+
+    @property
+    def integration_type(self) -> str:
+        """Categorizes integration mechanism: 'oauth', 'demo', 'mock', or 'api'."""
+        if self.id == "gmail":
+            return "oauth"
+        if self.metadata.is_mock:
+            return "demo" if self.id in ("crm", "chat", "demo_crm", "demo_chat") else "mock"
+        return "api"
+
+    @property
+    def is_demo(self) -> bool:
+        return self.integration_type == "demo"
 
     @property
     def status(self) -> IntegrationStatus:
@@ -345,4 +372,125 @@ class BaseIntegrationAdapter(ABC):
             connected_at=self._connected_at,
             last_error=self._last_error,
             actions=self.declared_actions,
+        )
+
+    def capabilities(self) -> List[ApplicationCapability]:
+        """
+        Returns structured ApplicationCapability models for all declared actions.
+        SAFETY INVARIANT: Every mutating action strictly enforces requires_approval = True.
+        """
+        canonical_mutating = {
+            "update_customer",
+            "send_message",
+            "create_record",
+            "delete_record",
+            "modify_record",
+            "simulate_mutating_write",
+        }
+        caps: List[ApplicationCapability] = []
+        for act in self.declared_actions:
+            is_mut = act.is_mutating or (act.name in canonical_mutating)
+            is_read_only = not is_mut
+
+            # SAFETY INVARIANT: Every mutating action MUST require human approval
+            req_approval = True if is_mut else (act.requires_approval or False)
+            req_creds = len(act.required_scopes) > 0 or (not self.metadata.is_mock and self.id == "gmail")
+
+            # Determine supported execution strategies
+            strats = list(act.supported_strategies) if act.supported_strategies else []
+            if not strats:
+                if self.id in ("crm", "chat", "demo_crm", "demo_chat"):
+                    strats = ["INTEGRATION", "BROWSER"]
+                elif self.id == "gmail":
+                    strats = ["API", "INTEGRATION"]
+                elif act.allow_direct_execution:
+                    strats = ["API", "INTEGRATION"]
+                else:
+                    strats = ["INTEGRATION"]
+
+            caps.append(
+                ApplicationCapability(
+                    action_id=f"{self.id}.{act.name}",
+                    application_id=self.id,
+                    name=act.name,
+                    display_name=act.display_name,
+                    description=act.description,
+                    category=self.metadata.category,
+                    read_only=is_read_only,
+                    mutating=is_mut,
+                    requires_credentials=req_creds,
+                    requires_approval=req_approval,
+                    supported_strategies=strats,
+                    parameters=act.parameters,
+                    reliability={
+                        "is_safe": act.is_safe,
+                        "is_destructive": act.is_destructive,
+                        "allow_direct_execution": act.allow_direct_execution,
+                    },
+                )
+            )
+        return caps
+
+    def health(self) -> ApplicationHealth:
+        """
+        Returns lightweight ApplicationHealth status without making external network calls.
+        """
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if self.id == "gmail":
+            try:
+                from integrations.oauth import default_google_oauth_manager
+                if not default_google_oauth_manager.is_configured():
+                    return ApplicationHealth(
+                        application_id=self.id,
+                        status=ApplicationHealthStatus.NOT_CONFIGURED,
+                        is_healthy=False,
+                        message="Google OAuth credentials are not configured in environment.",
+                        timestamp=now_iso,
+                    )
+            except Exception:
+                pass
+
+        if self._status == IntegrationStatus.CONNECTED:
+            return ApplicationHealth(
+                application_id=self.id,
+                status=ApplicationHealthStatus.CONNECTED,
+                is_healthy=True,
+                message=f"Application '{self.name}' is connected and operational.",
+                timestamp=now_iso,
+                details={"connected_at": self._connected_at},
+            )
+        elif self._status == IntegrationStatus.ERROR:
+            return ApplicationHealth(
+                application_id=self.id,
+                status=ApplicationHealthStatus.DEGRADED,
+                is_healthy=False,
+                message=self._last_error or f"Application '{self.name}' is in an error state.",
+                timestamp=now_iso,
+            )
+        else:
+            return ApplicationHealth(
+                application_id=self.id,
+                status=ApplicationHealthStatus.DISCONNECTED,
+                is_healthy=False,
+                message=f"Application '{self.name}' is currently disconnected.",
+                timestamp=now_iso,
+            )
+
+    def to_application_summary(self) -> ApplicationSummary:
+        """Builds an ApplicationSummary for the Application Ecosystem API and UI."""
+        return ApplicationSummary(
+            application_id=self.application_id,
+            display_name=self.display_name,
+            description=self.metadata.description,
+            version=self.metadata.version,
+            category=self.metadata.category,
+            icon=self.metadata.icon,
+            integration_type=self.integration_type,
+            is_mock=self.metadata.is_mock,
+            disclaimer=self.metadata.disclaimer,
+            health=self.health(),
+            is_connected=self.is_connected,
+            connected_at=self._connected_at,
+            capabilities=self.capabilities(),
         )

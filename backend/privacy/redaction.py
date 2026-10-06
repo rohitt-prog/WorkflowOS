@@ -138,11 +138,22 @@ def sanitize_log_message(message: str) -> str:
     return scrubbed
 
 
+SAFE_METADATA_KEYS: Set[str] = {
+    "requires_credentials",
+    "credentials_available",
+    "has_credentials",
+    "requires_approval",
+    "auth_requirements",
+}
+
+
 def is_sensitive_key(key: Any) -> bool:
     """Deterministically checks if a dictionary key represents sensitive data."""
     if not isinstance(key, str):
         key = str(key)
     key_lower = key.strip().lower()
+    if key_lower in SAFE_METADATA_KEYS:
+        return False
     if key_lower in SENSITIVE_KEY_NAMES:
         return True
     return any(sub in key_lower for sub in _SENSITIVE_KEY_SUBSTRINGS)

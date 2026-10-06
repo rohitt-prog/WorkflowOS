@@ -63,6 +63,83 @@ class IntegrationActionDefinition(BaseModel):
         default=False,
         description="Server-side declaration allowing direct standalone execution outside workflow engine"
     )
+    supported_strategies: List[str] = Field(
+        default_factory=list,
+        description="Supported automation strategies (e.g. ['API', 'INTEGRATION', 'BROWSER'])"
+    )
+    requires_approval: Optional[bool] = Field(
+        default=None,
+        description="Whether this action explicitly requires human approval (defaults to True if mutating)"
+    )
+
+
+# ── Phase 13 Application Ecosystem Models ───────────────────────────────────
+
+class ApplicationHealthStatus(str, Enum):
+    """Health & connection lifecycle status of an application."""
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
+    NOT_CONFIGURED = "not_configured"
+
+
+class ApplicationHealth(BaseModel):
+    """
+    Lightweight health/connection status for an application in the ecosystem.
+    """
+    application_id: str = Field(..., description="Target application identifier")
+    status: ApplicationHealthStatus = Field(..., description="Current health/connection status")
+    is_healthy: bool = Field(..., description="Whether application is currently operational")
+    message: str = Field(..., description="Status summary or diagnostic message")
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        description="ISO UTC check timestamp"
+    )
+    details: Optional[Dict[str, Any]] = Field(default=None, description="Optional diagnostic details")
+
+    @property
+    def connected(self) -> bool:
+        """Convenience property indicating active connection."""
+        return self.status == ApplicationHealthStatus.CONNECTED
+
+
+class ApplicationCapability(BaseModel):
+    """
+    Structured representation of a capability/action exposed by an application.
+    """
+    action_id: str = Field(..., description="Canonical action ID (e.g. 'gmail.search_messages', 'crm.update_customer')")
+    application_id: str = Field(..., description="Application identifier (e.g. 'gmail', 'crm')")
+    name: str = Field(..., description="Action verb (e.g. 'search_messages', 'update_customer')")
+    display_name: str = Field(..., description="Human-friendly label")
+    description: str = Field(..., description="Detailed capability description")
+    category: str = Field(default="general", description="Capability category")
+    read_only: bool = Field(default=True, description="Whether action is read-only")
+    mutating: bool = Field(default=False, description="Whether action mutates state")
+    requires_credentials: bool = Field(default=False, description="Whether authentication is required")
+    requires_approval: bool = Field(default=False, description="Whether approval is mandatory (always True if mutating)")
+    supported_strategies: List[str] = Field(default_factory=list, description="Supported automation strategies (API, INTEGRATION, BROWSER)")
+    parameters: List[ActionParameterDefinition] = Field(default_factory=list, description="Parameter schema definitions")
+    reliability: Optional[Dict[str, Any]] = Field(default=None, description="Reliability metadata")
+
+
+class ApplicationSummary(BaseModel):
+    """
+    Public API representation of an application in the ecosystem.
+    """
+    application_id: str = Field(..., description="Unique application identifier")
+    display_name: str = Field(..., description="Display title")
+    description: str = Field(..., description="Explanation of application purpose")
+    version: str = Field(default="1.0.0", description="Semantic version string")
+    category: str = Field(default="general", description="Application category")
+    icon: Optional[str] = Field(default=None, description="Icon key")
+    integration_type: str = Field(default="api", description="Type: 'oauth', 'demo', 'mock', 'api'")
+    is_mock: bool = Field(default=False, description="Whether this is a simulated demo/mock application")
+    disclaimer: Optional[str] = Field(default=None, description="User-facing disclaimer")
+    health: ApplicationHealth = Field(..., description="Current lightweight health status")
+    is_connected: bool = Field(..., description="Whether application is connected")
+    connected_at: Optional[str] = Field(default=None, description="ISO timestamp of connection")
+    capabilities: List[ApplicationCapability] = Field(default_factory=list, description="Exposed capabilities")
 
 
 class IntegrationMetadata(BaseModel):

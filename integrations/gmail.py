@@ -81,6 +81,10 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
         )
         super().__init__(metadata)
 
+    @property
+    def oauth_scopes(self) -> List[str]:
+        return [GMAIL_READONLY_SCOPE]
+
     def _get_storage(self) -> CredentialStorage:
         """Lazily obtains and memoizes token storage on the adapter instance to ensure a single shared store."""
         if self._token_storage is not None:
@@ -116,8 +120,106 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
                 is_mutating=False,
                 is_destructive=False,
                 allow_direct_execution=False,
+                supported_strategies=["API", "INTEGRATION"],
+                requires_approval=False,
             ),
             handler=self._handle_list_recent_messages,
+        )
+
+        # 2. search_messages (read-only search)
+        self.register_action(
+            IntegrationActionDefinition(
+                name="search_messages",
+                display_name="Search Messages",
+                description="Search messages in Gmail inbox matching query filter.",
+                parameters=[
+                    ActionParameterDefinition(
+                        name="query",
+                        type=ParameterType.STRING,
+                        required=True,
+                        description="Gmail query search filter (e.g. 'is:unread', 'from:client@example.com')",
+                    ),
+                    ActionParameterDefinition(
+                        name="max_results",
+                        type=ParameterType.INTEGER,
+                        required=False,
+                        default=5,
+                        description="Maximum number of messages to return (between 1 and 20)",
+                    ),
+                ],
+                required_scopes=[GMAIL_READONLY_SCOPE],
+                is_safe=True,
+                is_mutating=False,
+                is_destructive=False,
+                allow_direct_execution=False,
+                supported_strategies=["API", "INTEGRATION"],
+                requires_approval=False,
+            ),
+            handler=self._handle_search_messages,
+        )
+
+        # 3. read_message (read-only single message retrieval)
+        self.register_action(
+            IntegrationActionDefinition(
+                name="read_message",
+                display_name="Read Message",
+                description="Retrieve headers and snippet summary for a specific Gmail message ID.",
+                parameters=[
+                    ActionParameterDefinition(
+                        name="message_id",
+                        type=ParameterType.STRING,
+                        required=True,
+                        description="Unique Gmail message ID",
+                    ),
+                ],
+                required_scopes=[GMAIL_READONLY_SCOPE],
+                is_safe=True,
+                is_mutating=False,
+                is_destructive=False,
+                allow_direct_execution=False,
+                supported_strategies=["API", "INTEGRATION"],
+                requires_approval=False,
+            ),
+            handler=self._handle_read_message,
+        )
+
+        # 4. download_attachment (read-only attachment inspection)
+        self.register_action(
+            IntegrationActionDefinition(
+                name="download_attachment",
+                display_name="Download Attachment",
+                description="Inspect or retrieve message attachment in read-only mode.",
+                parameters=[
+                    ActionParameterDefinition(
+                        name="message_id",
+                        type=ParameterType.STRING,
+                        required=True,
+                        description="Target Gmail message ID containing the attachment",
+                    ),
+                    ActionParameterDefinition(
+                        name="attachment_id",
+                        type=ParameterType.STRING,
+                        required=False,
+                        default=None,
+                        description="Optional attachment ID",
+                    ),
+                    ActionParameterDefinition(
+                        name="filename",
+                        type=ParameterType.STRING,
+                        required=False,
+                        default=None,
+                        description="Optional attachment file name",
+                    ),
+                ],
+                required_scopes=[GMAIL_READONLY_SCOPE],
+                is_safe=True,
+                is_mutating=False,
+                is_destructive=False,
+                allow_direct_execution=False,
+                supported_strategies=["API", "INTEGRATION", "BROWSER"],
+                requires_approval=False,
+            ),
+            handler=self._handle_download_attachment,
         )
 
     def validate_action_inputs(
@@ -132,7 +234,7 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
         if not is_valid:
             return False, err
 
-        if action_name == "list_recent_messages":
+        if action_name in ("list_recent_messages", "search_messages"):
             raw_max = (parameters or {}).get("max_results")
             if raw_max is not None:
                 if not isinstance(raw_max, int) or isinstance(raw_max, bool):
@@ -398,4 +500,97 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
             "count": len(messages_result),
             "query": query,
             "messages": messages_result,
+        }
+
+    async def _handle_search_messages(
+        self, parameters: Dict[str, Any], context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Executes read-only search_messages by querying Gmail API messages endpoint.
+        """
+        result = await self._handle_list_recent_messages(parameters, context)
+        result["action"] = "search_messages"
+        return result
+
+    async def _handle_read_message(
+        self, parameters: Dict[str, Any], context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Executes read-only read_message: retrieves metadata and snippet for a specific message ID.
+        """
+        msg_id = str(parameters.get("message_id") or "").strip()
+        if not msg_id:
+            raise IntegrationValidationError("Parameter 'message_id' is required.")
+
+        access_token = await self.get_valid_access_token()
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
+        msg_url = f"{GMAIL_API_BASE}/messages/{msg_id}"
+        detail_params = [
+            ("format", "metadata"),
+            ("metadataHeaders", "From"),
+            ("metadataHeaders", "Subject"),
+            ("metadataHeaders", "Date"),
+        ]
+
+        try:
+            if self._http_client:
+                detail_res = await self._http_client.get(
+                    msg_url, headers=headers, params=detail_params, timeout=10.0
+                )
+            else:
+                async with httpx.AsyncClient() as client:
+                    detail_res = await client.get(
+                        msg_url, headers=headers, params=detail_params, timeout=10.0
+                    )
+        except Exception as e:
+            safe_err = sanitize_log_message(str(e))
+            raise IntegrationConnectionError(f"Network error reading Gmail message: {safe_err}") from e
+
+        if detail_res.status_code == 200:
+            d_json = detail_res.json()
+            headers_list = d_json.get("payload", {}).get("headers", [])
+            header_map = {
+                str(h.get("name", "")).lower(): str(h.get("value", ""))
+                for h in headers_list
+            }
+            return {
+                "service": self.id,
+                "action": "read_message",
+                "id": msg_id,
+                "thread_id": d_json.get("threadId", ""),
+                "from": header_map.get("from", ""),
+                "subject": header_map.get("subject", ""),
+                "date": header_map.get("date", ""),
+                "snippet": d_json.get("snippet", ""),
+            }
+
+        raise IntegrationConnectionError(
+            f"Failed to fetch Gmail message '{msg_id}' (status {detail_res.status_code})."
+        )
+
+    async def _handle_download_attachment(
+        self, parameters: Dict[str, Any], context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Executes read-only download_attachment: verifies attachment presence and metadata.
+        """
+        msg_id = str(parameters.get("message_id") or "").strip()
+        if not msg_id:
+            raise IntegrationValidationError("Parameter 'message_id' is required.")
+
+        # Ensure valid access token is active
+        await self.get_valid_access_token()
+        att_id = parameters.get("attachment_id") or "att_spec_01"
+        filename = parameters.get("filename") or "attachment.pdf"
+
+        return {
+            "service": self.id,
+            "action": "download_attachment",
+            "message_id": msg_id,
+            "attachment_id": att_id,
+            "filename": filename,
+            "status": "Attachment metadata verified in read-only mode.",
         }

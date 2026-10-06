@@ -73,11 +73,15 @@ class IntegrationExecutor(ActionExecutor):
             f"[IntegrationExecutor] Dispatching action '{action.type}' to adapter '{integration_id}'..."
         )
 
+        ctx = dict(context or {})
+        if action.target and "target" not in ctx:
+            ctx["target"] = action.target
+
         res = await self.registry.route_action(
             integration_id=integration_id,
             action_name=action.type,
             parameters=action.parameters,
-            context=context,
+            context=ctx,
         )
 
         return ExecutionActionResult(

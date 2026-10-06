@@ -351,7 +351,7 @@ export interface WorkflowDefinition {
   tags?: string[];
 }
 
-export type ViewId = "dashboard" | "activity" | "discovery" | "builder" | "executions" | "settings";
+export type ViewId = "dashboard" | "activity" | "discovery" | "builder" | "executions" | "applications" | "settings";
 
 // Phase 7.1 Integration Foundation types
 export interface IntegrationActionParam {
@@ -522,4 +522,48 @@ export interface ClosedLoopSummary {
   strategy_evidence: StrategyOutcomeEvidence[];
   adaptations: string[];
   explanation: string;
+}
+
+// Phase 13 Application Ecosystem types
+export type ApplicationHealthStatus =
+  | "CONNECTED"
+  | "DISCONNECTED"
+  | "DEGRADED"
+  | "UNAVAILABLE"
+  | "NOT_CONFIGURED";
+
+export interface ApplicationHealth {
+  status: ApplicationHealthStatus;
+  connected: boolean;
+  message?: string;
+  last_checked?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ApplicationCapability {
+  action_id: string;
+  application_id: string;
+  display_name: string;
+  description: string;
+  category: string;
+  read_only: boolean;
+  mutating: boolean;
+  requires_credentials: boolean;
+  requires_approval: boolean;
+  supported_strategies: string[];
+  parameters?: Record<string, unknown>[];
+  reliability_metadata?: Record<string, unknown>;
+}
+
+export interface ApplicationSummary {
+  application_id: string;
+  display_name: string;
+  integration_type: string;
+  connection_status: ApplicationHealthStatus | string;
+  health: ApplicationHealth;
+  capabilities: ApplicationCapability[];
+  supported_actions: string[];
+  auth_requirements: string[];
+  is_demo: boolean;
+  description?: string;
 }

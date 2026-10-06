@@ -82,7 +82,8 @@ class NoOpExecutor(ActionExecutor):
         # Route integration actions through IntegrationExecutor
         from integrations.registry import integration_registry
         app_id = action.application.split(":", 1)[1].strip() if action.application.startswith("integration:") else action.application.strip()
-        if integration_registry.get(app_id):
+        adapter = integration_registry.get(app_id)
+        if adapter and (action.application.startswith("integration:") or not getattr(adapter, "is_demo", False)):
             from integrations.executor import IntegrationExecutor
             return await IntegrationExecutor(integration_registry).execute(action, context=context)
 

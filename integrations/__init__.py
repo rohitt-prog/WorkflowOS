@@ -40,13 +40,28 @@ from integrations.oauth import (
     default_google_oauth_manager,
 )
 from integrations.gmail import GmailIntegrationAdapter, get_oauth_token_storage
+from integrations.crm import CrmIntegrationAdapter
+from integrations.chat import ChatIntegrationAdapter
+from integrations.registry import ApplicationRegistry, application_registry
+from integrations.models import (
+    ApplicationHealthStatus,
+    ApplicationHealth,
+    ApplicationCapability,
+    ApplicationSummary,
+)
 
-# Automatically seed the default mock and Gmail integration adapters into registry
+# Automatically seed ecosystem applications into registry
 if not integration_registry.get("mock_service"):
     integration_registry.register(MockTestIntegrationAdapter())
 
 if not integration_registry.get("gmail"):
     integration_registry.register(GmailIntegrationAdapter())
+
+if not integration_registry.get("crm"):
+    integration_registry.register(CrmIntegrationAdapter())
+
+if not integration_registry.get("chat"):
+    integration_registry.register(ChatIntegrationAdapter())
 
 __all__ = [
     "IntegrationStatus",
@@ -62,9 +77,15 @@ __all__ = [
     "UnsupportedActionError",
     "IntegrationConnectionError",
     "IntegrationValidationError",
+    "ApplicationHealthStatus",
+    "ApplicationHealth",
+    "ApplicationCapability",
+    "ApplicationSummary",
     "BaseIntegrationAdapter",
     "IntegrationRegistry",
     "integration_registry",
+    "ApplicationRegistry",
+    "application_registry",
     "CredentialStorage",
     "EnvCredentialStorage",
     "EncryptedTokenStorage",
@@ -72,6 +93,8 @@ __all__ = [
     "sanitize_log_message",
     "CredentialMaskedException",
     "MockTestIntegrationAdapter",
+    "CrmIntegrationAdapter",
+    "ChatIntegrationAdapter",
     "IntegrationExecutor",
     "OAuthStateStore",
     "GoogleOAuthManager",

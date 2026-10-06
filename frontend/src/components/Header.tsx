@@ -9,6 +9,7 @@ const VIEW_LABELS: Record<ViewId, string> = {
   discovery: "Workflow Discovery",
   builder: "Workflow Builder",
   executions: "Execution History",
+  applications: "Application Ecosystem",
   settings: "Settings",
 };
 
@@ -18,6 +19,7 @@ const VIEW_DESCRIPTIONS: Record<ViewId, string> = {
   discovery: "Algorithmic detection of repeated multi-step workflow patterns",
   builder: "Declarative workflow engine editor, branching conditions, and retry policies",
   executions: "Automated execution log, step results, and human-in-the-loop control",
+  applications: "Ecosystem applications, connection status, read-only vs mutating capabilities, and safety requirements",
   settings: "Agent configuration, API endpoints, and system preferences",
 };
 

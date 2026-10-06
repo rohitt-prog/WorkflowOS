@@ -8,6 +8,7 @@ import ActivityView from "@/components/views/ActivityView";
 import DiscoveryView from "@/components/views/DiscoveryView";
 import BuilderView from "@/components/views/BuilderView";
 import ExecutionsView from "@/components/views/ExecutionsView";
+import ApplicationsView from "@/components/views/ApplicationsView";
 import SettingsView from "@/components/views/SettingsView";
 import {
   ViewId,
@@ -188,6 +189,7 @@ export default function WorkFlowOSApp() {
               onRefresh={fetchExecutions}
             />
           )}
+          {activeView === "applications" && <ApplicationsView />}
           {activeView === "settings" && <SettingsView />}
         </main>
       </div>
