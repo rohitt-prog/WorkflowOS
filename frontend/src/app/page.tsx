@@ -158,55 +158,57 @@ export default function WorkFlowOSApp() {
 
         {/* View Content Container */}
         <main className="flex-1 overflow-y-auto">
-          {activeView === "dashboard" && (
-            <DashboardView
-              events={events}
-              executions={executions}
-              discovery={discovery}
-              systemStatus={systemStatus}
-              loading={eventsLoading}
-              historyLoading={executionsLoading}
-              onNavigate={setActiveView}
-              onRefresh={loadEventsData}
-            />
-          )}
+          <div key={activeView} className="animate-view-fade h-full">
+            {activeView === "dashboard" && (
+              <DashboardView
+                events={events}
+                executions={executions}
+                discovery={discovery}
+                systemStatus={systemStatus}
+                loading={eventsLoading}
+                historyLoading={executionsLoading}
+                onNavigate={setActiveView}
+                onRefresh={loadEventsData}
+              />
+            )}
 
-          {activeView === "activity" && (
-            <ActivityView
-              events={events}
-              loading={eventsLoading}
-            />
-          )}
+            {activeView === "activity" && (
+              <ActivityView
+                events={events}
+                loading={eventsLoading}
+              />
+            )}
 
-          {(activeView === "workflows" || activeView === "discovery") && (
-            <WorkflowsView
-              discovery={discovery}
-              discoveryLoading={discoveryLoading}
-              discoveryError={discoveryError}
-              onRefreshDiscovery={handleRefreshDiscovery}
-              onExecutionComplete={loadExecutionsData}
-              onNavigate={setActiveView}
-            />
-          )}
+            {(activeView === "workflows" || activeView === "discovery") && (
+              <WorkflowsView
+                discovery={discovery}
+                discoveryLoading={discoveryLoading}
+                discoveryError={discoveryError}
+                onRefreshDiscovery={handleRefreshDiscovery}
+                onExecutionComplete={loadExecutionsData}
+                onNavigate={setActiveView}
+              />
+            )}
 
-          {activeView === "builder" && (
-            <BuilderView
-              onExecutionComplete={loadExecutionsData}
-              onNavigate={setActiveView}
-            />
-          )}
+            {activeView === "builder" && (
+              <BuilderView
+                onExecutionComplete={loadExecutionsData}
+                onNavigate={setActiveView}
+              />
+            )}
 
-          {activeView === "executions" && (
-            <ExecutionsView
-              executions={executions}
-              loading={executionsLoading}
-              onRefresh={loadExecutionsData}
-            />
-          )}
+            {activeView === "executions" && (
+              <ExecutionsView
+                executions={executions}
+                loading={executionsLoading}
+                onRefresh={loadExecutionsData}
+              />
+            )}
 
-          {activeView === "applications" && <ApplicationsView />}
+            {activeView === "applications" && <ApplicationsView />}
 
-          {activeView === "settings" && <SettingsView />}
+            {activeView === "settings" && <SettingsView />}
+          </div>
         </main>
       </div>
     </div>

@@ -109,7 +109,7 @@ export default function Header({
         <button
           onClick={onRefresh}
           disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition active:scale-97 disabled:opacity-60 cursor-pointer"
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-white hover:bg-[#F8FAFC] hover:shadow-xs border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition-all duration-150 active:translate-y-px disabled:opacity-60 cursor-pointer"
           title="Refresh real data"
         >
           <svg

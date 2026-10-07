@@ -129,7 +129,7 @@ export default function Sidebar({
                 <button
                   key={item.id}
                   onClick={() => onNavigate(item.id)}
-                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer text-left
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:translate-y-px cursor-pointer text-left
                     ${
                       isActive
                         ? "bg-[#DBEAFE] text-[#1D4ED8] font-semibold shadow-2xs"
@@ -168,7 +168,7 @@ export default function Sidebar({
           <div className="space-y-1">
             <Link
               href="/demo"
-              className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC] transition cursor-pointer"
+              className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC] transition-all duration-150 active:translate-y-px cursor-pointer"
             >
               <span className="flex items-center gap-2.5">
                 <svg className="w-4.5 h-4.5 text-[#64748B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>

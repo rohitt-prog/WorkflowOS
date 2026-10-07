@@ -161,7 +161,7 @@ export default function ActivityView({ events, loading }: ActivityViewProps) {
                     <tr
                       key={ev.id}
                       onClick={() => setSelectedEvent(isSelected ? null : ev)}
-                      className={`cursor-pointer transition group ${
+                      className={`cursor-pointer transition-colors duration-150 animate-row-enter group ${
                         isSelected
                           ? "bg-[#EFF6FF] border-l-3 border-[#2563EB]"
                           : "hover:bg-[#F8FAFC]"

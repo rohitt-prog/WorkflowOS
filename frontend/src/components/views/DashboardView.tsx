@@ -77,13 +77,13 @@ export default function DashboardView({
           <div className="flex items-center gap-2.5 shrink-0">
             <button
               onClick={() => onNavigate("workflows")}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#0F172A] shadow-2xs transition active:scale-97 cursor-pointer"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] hover:shadow-xs text-[#0F172A] shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
             >
               Explore Workflows ({discoveredCount})
             </button>
             <button
               onClick={() => onNavigate("applications")}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
+              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] hover:shadow-xs text-white shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
             >
               Applications Ecosystem
             </button>

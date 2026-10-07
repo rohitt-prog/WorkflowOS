@@ -82,7 +82,7 @@ function ExecutionDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-xl flex flex-col max-h-[90vh] overflow-hidden"
+        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-xl flex flex-col max-h-[90vh] overflow-hidden animate-modal-enter"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -306,7 +306,7 @@ export default function ExecutionsView({
         </div>
         <button
           onClick={onRefresh}
-          className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition active:scale-97 cursor-pointer self-start sm:self-auto"
+          className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer self-start sm:self-auto"
         >
           <svg className="w-3.5 h-3.5 text-[#475569]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -396,7 +396,7 @@ export default function ExecutionsView({
                   <tr
                     key={exec.execution_id}
                     onClick={() => setSelectedExecution(exec)}
-                    className="hover:bg-[#F8FAFC] transition cursor-pointer group"
+                    className="hover:bg-[#F8FAFC] transition-colors duration-150 animate-row-enter cursor-pointer group"
                   >
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
@@ -440,7 +440,7 @@ export default function ExecutionsView({
                           e.stopPropagation();
                           setSelectedExecution(exec);
                         }}
-                        className="px-2.5 py-1 text-xs font-semibold rounded bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#2563EB] shadow-2xs transition"
+                        className="px-2.5 py-1 text-xs font-semibold rounded bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#2563EB] shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
                       >
                         Inspect →
                       </button>

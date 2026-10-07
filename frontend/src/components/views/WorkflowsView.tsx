@@ -102,7 +102,7 @@ function WorkflowDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-modal-enter"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -319,7 +319,7 @@ function WorkflowDetailModal({
         <div className="px-6 py-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between shrink-0">
           <button
             onClick={onClose}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-white hover:text-[#0F172A] transition cursor-pointer"
+            className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-white hover:text-[#0F172A] transition-all duration-150 active:translate-y-px cursor-pointer"
           >
             Close
           </button>
@@ -328,12 +328,196 @@ function WorkflowDetailModal({
               onClose();
               onOpenAdvancedReview();
             }}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] hover:shadow-xs text-white shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
           >
             <span>Review & Automate</span>
             <span>→</span>
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function useCountUp(target: number, duration: number = 700): number {
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion || target === 0) {
+      animationFrameId = requestAnimationFrame(() => {
+        setCurrent(target);
+      });
+      return () => {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      };
+    }
+
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // easeOutCubic curve
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCurrent(Math.round(eased * target));
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(tick);
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(tick);
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, [target, duration]);
+
+  return current;
+}
+
+interface WorkflowCardProps {
+  wf: DiscoveredWorkflow;
+  index: number;
+  onSelect: (wf: DiscoveredWorkflow) => void;
+  onReview: (wf: DiscoveredWorkflow) => void;
+}
+
+function WorkflowCard({ wf, index, onSelect, onReview }: WorkflowCardProps) {
+  const conf = wf.confidence
+    ? Math.round(wf.confidence * 100)
+    : 85;
+  const status = wf.recommendation_status || "RECOMMENDED";
+  const hasMutating = wf.sequence.some(
+    (s) =>
+      s.includes("update") ||
+      s.includes("create") ||
+      s.includes("delete") ||
+      s.includes("send")
+  );
+
+  // Real data-driven count-up animations
+  const animatedConf = useCountUp(conf, 700);
+  const animatedOccurrences = useCountUp(wf.occurrences, 600);
+
+  return (
+    <div
+      style={{ animationDelay: `${Math.min(index * 35, 210)}ms` }}
+      className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs hover:shadow-xs hover:border-[#CBD5E1] hover:-translate-y-0.5 transition-all duration-200 ease-out animate-card-enter flex flex-col justify-between space-y-4 group"
+    >
+      <div>
+        {/* Status & Confidence row */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span
+            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border transition-colors duration-200 ${
+              status === "RECOMMENDED"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : "bg-blue-50 text-blue-700 border-blue-200"
+            }`}
+          >
+            {status}
+          </span>
+          <span className="text-[11px] font-mono text-[#64748B]">
+            Confidence: <strong className="text-[#0F172A]">{animatedConf}%</strong>
+          </span>
+        </div>
+
+        {/* Subtle Confidence Progress Bar */}
+        <div className="w-full bg-[#F1F5F9] border border-[#E2E8F0] h-1.5 rounded-full overflow-hidden mb-3">
+          <div
+            className="bg-[#2563EB] h-full rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${animatedConf}%` }}
+          />
+        </div>
+
+        <h4 className="text-sm font-bold text-[#0F172A] leading-snug">
+          {wf.label}
+        </h4>
+
+        {/* Lifecycle Metrics Summary */}
+        <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-[#F1F5F9] text-[11px]">
+          <div>
+            <span className="text-[#94A3B8] block text-[10px] uppercase">
+              Automation
+            </span>
+            <span className="font-semibold text-[#0F172A]">
+              Available (Plan ready)
+            </span>
+          </div>
+          <div>
+            <span className="text-[#94A3B8] block text-[10px] uppercase">
+              Approval
+            </span>
+            <span
+              className={`font-semibold ${
+                hasMutating ? "text-amber-700" : "text-emerald-700"
+              }`}
+            >
+              {hasMutating ? "Mandatory" : "Operator Gate"}
+            </span>
+          </div>
+          <div>
+            <span className="text-[#94A3B8] block text-[10px] uppercase">
+              Occurrences
+            </span>
+            <span className="font-mono text-[#0F172A]">
+              {animatedOccurrences} observed sessions
+            </span>
+          </div>
+          <div>
+            <span className="text-[#94A3B8] block text-[10px] uppercase">
+              Steps Count
+            </span>
+            <span className="font-mono text-[#0F172A]">
+              {wf.sequence.length} steps
+            </span>
+          </div>
+        </div>
+
+        {/* Steps preview list with subtle sequential reveal */}
+        <div className="mt-3 space-y-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8]">
+            Steps Sequence
+          </span>
+          <div className="space-y-1">
+            {wf.sequence.slice(0, 4).map((s, idx) => (
+              <div
+                key={idx}
+                style={{ animationDelay: `${idx * 40}ms` }}
+                className="text-[11px] text-[#475569] font-mono flex items-center gap-1.5 truncate animate-step-reveal"
+              >
+                <span className="text-[#94A3B8]">{idx + 1}.</span>
+                <span className="truncate">{formatEventStep(s)}</span>
+              </div>
+            ))}
+            {wf.sequence.length > 4 && (
+              <span className="text-[10px] text-[#94A3B8] pl-3 italic">
+                +{wf.sequence.length - 4} more steps…
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Card Action Buttons */}
+      <div className="pt-3 border-t border-[#F1F5F9] flex items-center justify-between gap-2">
+        <button
+          onClick={() => onSelect(wf)}
+          className="flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] hover:bg-white hover:border-[#CBD5E1] text-[#0F172A] transition-all duration-150 active:translate-y-px cursor-pointer text-center"
+        >
+          Workflow Details
+        </button>
+        <button
+          onClick={() => onReview(wf)}
+          className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] hover:shadow-xs text-white shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
+        >
+          Review & Run
+        </button>
       </div>
     </div>
   );
@@ -496,125 +680,19 @@ export default function WorkflowsView({
             ) : (
               /* Workflows Grid / Cards */
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredWorkflows.map((wf) => {
-                  const conf = wf.confidence
-                    ? Math.round(wf.confidence * 100)
-                    : 85;
-                  const status = wf.recommendation_status || "RECOMMENDED";
-                  const hasMutating = wf.sequence.some(
-                    (s) =>
-                      s.includes("update") ||
-                      s.includes("create") ||
-                      s.includes("delete") ||
-                      s.includes("send")
+                {filteredWorkflows.map((wf, idx) => {
+                  const workflowId = getWorkflowCanonicalId(
+                    wf.sequence,
+                    wf.workflow_id
                   );
-
                   return (
-                    <div
-                      key={wf.label}
-                      className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs hover:shadow-xs hover:border-[#CBD5E1] transition flex flex-col justify-between space-y-4"
-                    >
-                      <div>
-                        {/* Status & Confidence row */}
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${
-                              status === "RECOMMENDED"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                : "bg-blue-50 text-blue-700 border-blue-200"
-                            }`}
-                          >
-                            {status}
-                          </span>
-                          <span className="text-[11px] font-mono text-[#64748B]">
-                            Confidence: <strong className="text-[#0F172A]">{conf}%</strong>
-                          </span>
-                        </div>
-
-                        <h4 className="text-sm font-bold text-[#0F172A] leading-snug">
-                          {wf.label}
-                        </h4>
-
-                        {/* Lifecycle Metrics Summary */}
-                        <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-[#F1F5F9] text-[11px]">
-                          <div>
-                            <span className="text-[#94A3B8] block text-[10px] uppercase">
-                              Automation
-                            </span>
-                            <span className="font-semibold text-[#0F172A]">
-                              Available (Plan ready)
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#94A3B8] block text-[10px] uppercase">
-                              Approval
-                            </span>
-                            <span
-                              className={`font-semibold ${
-                                hasMutating ? "text-amber-700" : "text-emerald-700"
-                              }`}
-                            >
-                              {hasMutating ? "Mandatory" : "Operator Gate"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#94A3B8] block text-[10px] uppercase">
-                              Occurrences
-                            </span>
-                            <span className="font-mono text-[#0F172A]">
-                              {wf.occurrences} observed sessions
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#94A3B8] block text-[10px] uppercase">
-                              Steps Count
-                            </span>
-                            <span className="font-mono text-[#0F172A]">
-                              {wf.sequence.length} steps
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Steps preview list */}
-                        <div className="mt-3 space-y-1">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8]">
-                            Steps Sequence
-                          </span>
-                          <div className="space-y-1">
-                            {wf.sequence.slice(0, 4).map((s, idx) => (
-                              <div
-                                key={idx}
-                                className="text-[11px] text-[#475569] font-mono flex items-center gap-1.5 truncate"
-                              >
-                                <span className="text-[#94A3B8]">{idx + 1}.</span>
-                                <span className="truncate">{formatEventStep(s)}</span>
-                              </div>
-                            ))}
-                            {wf.sequence.length > 4 && (
-                              <span className="text-[10px] text-[#94A3B8] pl-3 italic">
-                                +{wf.sequence.length - 4} more steps…
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Card Action Buttons */}
-                      <div className="pt-3 border-t border-[#F1F5F9] flex items-center justify-between gap-2">
-                        <button
-                          onClick={() => setSelectedWorkflow(wf)}
-                          className="flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] hover:bg-white text-[#0F172A] transition cursor-pointer text-center"
-                        >
-                          Workflow Details
-                        </button>
-                        <button
-                          onClick={() => setAdvancedReviewWorkflow(wf)}
-                          className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 cursor-pointer"
-                        >
-                          Review & Run
-                        </button>
-                      </div>
-                    </div>
+                    <WorkflowCard
+                      key={workflowId}
+                      wf={wf}
+                      index={idx}
+                      onSelect={setSelectedWorkflow}
+                      onReview={setAdvancedReviewWorkflow}
+                    />
                   );
                 })}
               </div>
@@ -638,8 +716,8 @@ export default function WorkflowsView({
 
       {/* Advanced AI Review & Execution Modal (DiscoveryView review engine) */}
       {advancedReviewWorkflow && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl animate-modal-enter">
             <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
               <div>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
