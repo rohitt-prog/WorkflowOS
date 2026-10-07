@@ -16,6 +16,7 @@
 
 import {
   ActivityEvent,
+  EmitActivityEventParams,
   DiscoveryResult,
   WorkflowDefinition,
   WorkflowLearningState,
@@ -103,6 +104,88 @@ export async function fetchEvents(params?: {
   const qs = query.toString() ? `?${query.toString()}` : "";
   const res = await fetch(`${API_BASE_URL}/api/events${qs}`, { cache: "no-store" });
   return handleResponse<ActivityEvent[]>(res, "Unable to retrieve activity events");
+}
+
+/**
+ * Returns a stable demo session ID for the current browser tab.
+ * Persisted in sessionStorage so the Email, CRM, and Chat demo routes
+ * share the exact same session ID for multi-step workflow discovery.
+ */
+export function getDemoSessionId(): string {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return "workflowos_demo_session_static";
+  }
+  const SESSION_KEY = "workflowos_demo_session_id";
+  try {
+    let sessionId = window.sessionStorage.getItem(SESSION_KEY);
+    if (!sessionId) {
+      const rand =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID().slice(0, 8)
+          : Math.random().toString(36).substring(2, 10);
+      sessionId = `workflowos_demo_session_${rand}`;
+      window.sessionStorage.setItem(SESSION_KEY, sessionId);
+    }
+    return sessionId;
+  } catch {
+    return "workflowos_demo_session_fallback";
+  }
+}
+
+/**
+ * Emits a semantic activity event to the FastAPI backend (/api/events).
+ *
+ * Used by controlled demo applications (Email, CRM, Chat) to report user actions.
+ * - POSTs to /api/events, which executes through the backend privacy gate.
+ * - Reuses NEXT_PUBLIC_API_URL via API_BASE_URL.
+ * - Returns success/failure to the caller without crashing the UI.
+ * - Logs a development-safe warning if event ingestion fails.
+ * - Does not expose sensitive credentials.
+ */
+export async function emitActivityEvent(
+  params: EmitActivityEventParams
+): Promise<{ success: boolean; event?: ActivityEvent; error?: string }> {
+  try {
+    const payload = {
+      session_id: params.session_id || getDemoSessionId(),
+      timestamp: params.timestamp || new Date().toISOString(),
+      application: params.application,
+      event_type: params.event_type,
+      target: params.target ?? "customer_request",
+      metadata: params.metadata || {},
+    };
+
+    const res = await fetch(`${API_BASE_URL}/api/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      let errDetail: unknown = null;
+      try {
+        errDetail = await res.json();
+      } catch {
+        // Body is not JSON
+      }
+      const message = formatApiErrorMessage(errDetail, `Event ingestion rejected (${res.status})`);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(`[WorkFlowOS] Activity event emission warning: ${message}`);
+      }
+      return { success: false, error: message };
+    }
+
+    const createdEvent = (await res.json()) as ActivityEvent;
+    return { success: true, event: createdEvent };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[WorkFlowOS] Failed to emit activity event: ${message}`);
+    }
+    return { success: false, error: message };
+  }
 }
 
 // ----------------------------------------------------------------------------

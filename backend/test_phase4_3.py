@@ -82,7 +82,15 @@ def make_proposal(action_types=None, customer_name="Rahul") -> WorkflowProposal:
 
 
 def run_async(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
 
 # ─── Test Class ───────────────────────────────────────────────────────────────
@@ -288,7 +296,7 @@ class TestPhase43PlaywrightExecutor(unittest.TestCase):
         """
         Searching for 'Unknown Customer' causes search_customer to fail.
         update_customer and send_message must NOT execute.
-        Status must be failed.
+        Status must be PAUSED with human intervention required.
         """
         proposal = make_proposal(customer_name="Unknown Customer")
         engine = AutomationEngine()
@@ -303,12 +311,33 @@ class TestPhase43PlaywrightExecutor(unittest.TestCase):
 
         execution = run_async(run())
 
-        self.assertEqual(execution.status, AutomationStatus.FAILED,
-            f"Expected FAILED, got {execution.status}")
-        # open_email and download_attachment may succeed, but search_customer must fail
-        self.assertIn("search_customer", execution.current_action or "")
-        self.assertNotIn("update_customer", execution.completed_actions)
-        self.assertNotIn("send_message", execution.completed_actions)
+        self.assertEqual(
+            execution.status,
+            AutomationStatus.PAUSED
+        )
+
+        self.assertTrue(
+            execution.requires_human_intervention
+        )
+
+        self.assertTrue(
+            execution.resume_available
+        )
+
+        self.assertIn(
+            "search_customer",
+            execution.current_action or ""
+        )
+
+        self.assertNotIn(
+            "update_customer",
+            execution.completed_actions
+        )
+
+        self.assertNotIn(
+            "send_message",
+            execution.completed_actions
+        )
         print(f"  ✓ Failure at search_customer halted workflow. Completed: {execution.completed_actions}")
 
     # ── Test 11: Browser cleanup ──────────────────────────────────────────────

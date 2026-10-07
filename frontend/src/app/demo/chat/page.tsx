@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { emitActivityEvent } from "@/lib/api";
 
 interface ChatMessage {
   id: string;
@@ -59,6 +60,15 @@ export default function DemoChatPage() {
     setMessages((prev) => [...prev, newMessage]);
     setInputText("");
     setSendSuccess(true);
+
+    void emitActivityEvent({
+      application: "demo_chat",
+      event_type: "send_message",
+      target: "customer_request",
+      metadata: {
+        channel: selectedChannel,
+      },
+    });
   };
 
   return (

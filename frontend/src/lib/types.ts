@@ -20,6 +20,15 @@ export interface ActivityEvent {
   metadata?: EventMetadata;
 }
 
+export interface EmitActivityEventParams {
+  session_id?: string;
+  timestamp?: string;
+  application: string;
+  event_type: string;
+  target?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ConfidenceBreakdown {
   repetition_support: number;
   sequence_similarity: number;

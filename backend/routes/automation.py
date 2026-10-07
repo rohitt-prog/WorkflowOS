@@ -90,7 +90,7 @@ def _build_response(execution: AutomationExecution) -> ExecuteWorkflowResponse:
             status="paused",
             failed_action=failed_action,
             failure_reason=reason_msg,
-            message=f"Workflow paused after '{failed_action}' failed. Human intervention required.",
+            message=f"Workflow paused after '{failed_action}' failed: {reason_msg}. Human intervention required.",
             requires_human_intervention=True,
             human_intervention=human_intervention_info,
             resume_available=execution.resume_available,

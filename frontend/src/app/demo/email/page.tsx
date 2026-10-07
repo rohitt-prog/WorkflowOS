@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { emitActivityEvent } from "@/lib/api";
 
 interface EmailItem {
   id: string;
@@ -79,6 +80,18 @@ export default function DemoEmailPage() {
     setEmails((prev) =>
       prev.map((e) => (e.id === id ? { ...e, isUnread: false } : e))
     );
+
+    const email = emails.find((e) => e.id === id);
+    const customer = email?.senderName || "Rahul";
+    void emitActivityEvent({
+      application: "demo_email",
+      event_type: "open_email",
+      target: "customer_request",
+      metadata: {
+        email_id: id,
+        customer,
+      },
+    });
   };
 
   const handleDownloadAttachment = (attachmentName: string) => {
@@ -86,6 +99,16 @@ export default function DemoEmailPage() {
       ...prev,
       [attachmentName]: true,
     }));
+
+    void emitActivityEvent({
+      application: "demo_email",
+      event_type: "download_attachment",
+      target: "customer_request",
+      metadata: {
+        email_id: selectedEmailId || "email_001",
+        attachment: attachmentName,
+      },
+    });
   };
 
   const handleResetAttachment = (attachmentName: string) => {

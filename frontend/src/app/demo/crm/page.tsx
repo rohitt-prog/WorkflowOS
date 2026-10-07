@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { emitActivityEvent } from "@/lib/api";
 
 interface CustomerRecord {
   id: string;
@@ -102,6 +103,16 @@ export default function DemoCrmPage() {
       setEditStatus(found.status);
       setEditTier(found.tier);
       setEditNotes(found.notes);
+
+      void emitActivityEvent({
+        application: "demo_crm",
+        event_type: "search_customer",
+        target: "customer_request",
+        metadata: {
+          customer: found.name,
+          query: searchQuery.trim(),
+        },
+      });
     } else {
       setMatchedCustomer(null);
       setNotFound(true);
@@ -125,6 +136,17 @@ export default function DemoCrmPage() {
 
     setMatchedCustomer(updated);
     setUpdateSuccess(true);
+
+    void emitActivityEvent({
+      application: "demo_crm",
+      event_type: "update_customer",
+      target: "customer_request",
+      metadata: {
+        customer: updated.name,
+        status: editStatus,
+        tier: editTier,
+      },
+    });
   };
 
   return (

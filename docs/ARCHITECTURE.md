@@ -85,13 +85,30 @@
 
 ## 2. Component Responsibilities
 
-### 2.1 Desktop Activity Agent (`agent/`)
+### 2.1 Multi-Source Event Ingestion Architecture
+
+WorkFlowOS employs multiple complementary event sources feeding into the single, authoritative FastAPI event ingestion endpoint (`POST /api/events`):
+
+1. **OS-Level Desktop Activity Agent (`agent/`)**:
+   - Observes desktop application focus transitions, active windows, and process changes on macOS (`NSWorkspace` observer via `pyobjc`).
+   - Emits OS-level application events: `activate_application`, `switch_application`.
+   - Privacy-safe: zero screenshots, zero keylogging, zero clipboard capture, and zero video recording.
+   - *Architectural Boundary*: The macOS desktop agent operates at the window/process level and intentionally does not inspect arbitrary third-party application DOMs or internal UI state.
+
+2. **Application-Level Semantic Event Emitters (Controlled Demo Applications)**:
+   - Controlled WorkFlowOS web applications (`/demo/email`, `/demo/crm`, `/demo/chat`) emit rich semantic domain events upon user actions.
+   - Emits canonical semantic actions: `open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`.
+   - Shares a stable browser session ID via `sessionStorage` (`workflowos_demo_session_<id>`), ensuring that sequential actions across Email, CRM, and Chat correlate to a single coherent workflow session.
+
+Both event streams feed into the single, authoritative FastAPI ingestion endpoint (`POST /api/events`), passing through the centralized Phase 12 Privacy Gate before persistence to MongoDB Atlas.
+
+### 2.2 Desktop Activity Agent (`agent/`)
 - **Role**: Lightweight, non-intrusive daemon observing desktop application focus, window transitions, and structured user actions on macOS.
 - **Technology**: Uses `NSWorkspace` notifications and Accessibility APIs via `pyobjc`.
 - **Privacy Guarantee**: Operates strictly on structured application metadata (app names, window titles, interaction targets). **Does NOT capture screenshots, does NOT log raw keystrokes, and does NOT perform video recording.**
 - **Resilience**: Features exponential backoff buffering if the backend API is temporarily unreachable.
 
-### 2.2 Event Ingestion & Privacy Gate (`backend/routes/events.py`, `backend/privacy/`)
+### 2.3 Event Ingestion & Privacy Gate (`backend/routes/events.py`, `backend/privacy/`)
 - **Role**: Entry point for desktop activity events.
 - **Enforcement**:
   - Validates event schema using Pydantic models.

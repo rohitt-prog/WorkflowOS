@@ -195,12 +195,6 @@ class PlaywrightExecutor(ActionExecutor):
         """
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        # Delegate integration actions to IntegrationExecutor without launching browser
-        from integrations.registry import integration_registry
-        from integrations.executor import IntegrationExecutor
-        app_id = action.application.split(":", 1)[1].strip() if action.application.startswith("integration:") else action.application.strip()
-        if integration_registry.get(app_id):
-            return await IntegrationExecutor(integration_registry).execute(action, context=context)
 
         if action.type not in PLAYWRIGHT_SUPPORTED_ACTIONS:
             return ExecutionActionResult(

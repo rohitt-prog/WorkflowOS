@@ -44,7 +44,7 @@ Evaluate Outcome
 Learn
 ```
 
-1. **Observe**: Non-invasive desktop agent observes window switches, application focus changes, and semantic metadata without screenshots or keylogging.
+1. **Observe**: Ingests activity from multiple complementary sources: the non-invasive macOS desktop agent (observing OS-level application switches and window focus without screenshots or keylogging) and controlled web application emitters (capturing discrete semantic actions: `open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`).
 2. **Understand**: Sanitizes and normalizes event streams into structured event logs with automatic PII and credential scrubbing.
 3. **Detect Repetition**: Pattern discovery engine identifies recurring multi-step sequences across distinct sessions using sliding-window n-gram mining and local sequence alignment.
 4. **Generate Workflow**: AI synthesizer (powered by Google Gemini with deterministic heuristic fallbacks) maps raw UI events into declarative workflow graphs with parameterized inputs and semantic descriptions.
