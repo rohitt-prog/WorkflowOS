@@ -46,9 +46,11 @@ class DiscoveryService:
                 include_suppressed=include_suppressed,
             )
 
-            # Step 3: Phase 9 Adaptive Learning integration
+            # Step 3: Phase 9 Adaptive Learning integration & deleted workflow filtering
             try:
                 from backend.learning.service import learning_service, derive_workflow_id_from_sequence
+                deleted_ids = await learning_service.get_deleted_workflow_ids()
+
                 for wf in result.workflows:
                     wf_id = derive_workflow_id_from_sequence(wf.sequence, wf.label)
                     wf.workflow_id = wf_id
@@ -56,6 +58,7 @@ class DiscoveryService:
                     wf.learning_score = state.learning_score
                     wf.recommendation_status = state.recommendation_status.value
                     wf.learning_explanation = state.learning_explanation
+                    wf.is_rejected = await learning_service.is_workflow_rejected(wf_id)
 
                 for wf in result.suppressed_workflows:
                     wf_id = derive_workflow_id_from_sequence(wf.sequence, wf.label)
@@ -64,8 +67,22 @@ class DiscoveryService:
                     wf.learning_score = state.learning_score
                     wf.recommendation_status = state.recommendation_status.value
                     wf.learning_explanation = state.learning_explanation
+                    wf.is_rejected = await learning_service.is_workflow_rejected(wf_id)
+
+                if deleted_ids:
+                    result.workflows = [
+                        wf for wf in result.workflows
+                        if wf.workflow_id not in deleted_ids
+                        and derive_workflow_id_from_sequence(wf.sequence, wf.label) not in deleted_ids
+                    ]
+                    result.suppressed_workflows = [
+                        wf for wf in result.suppressed_workflows
+                        if wf.workflow_id not in deleted_ids
+                        and derive_workflow_id_from_sequence(wf.sequence, wf.label) not in deleted_ids
+                    ]
+                    result.detected = len(result.workflows) > 0
             except Exception as le:
-                logger.warning(f"Could not attach learning signals to discovered workflows: {le}")
+                logger.warning(f"Could not attach learning signals or filter deleted workflows: {le}")
 
             return result
         except Exception as e:

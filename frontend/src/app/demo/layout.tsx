@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Sidebar from "@/components/Sidebar";
 
 export default function DemoLayout({
   children,
@@ -60,83 +61,89 @@ export default function DemoLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-[#F7F9FC] text-[#475569] flex flex-col font-sans">
-      {/* Top Demo Bar */}
-      <header className="border-b border-[#E2E8F0] bg-white sticky top-0 z-40 shadow-2xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Brand & Section Title */}
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="flex items-center gap-2.5 group transition"
-              title="Return to WorkFlowOS Main Dashboard"
-            >
-              <div className="w-8 h-8 rounded-lg bg-[#2563EB] flex items-center justify-center text-white shadow-xs group-hover:scale-105 transition-transform">
-                <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <div>
-                <span className="text-sm font-bold tracking-tight text-[#0F172A] flex items-center gap-1">
-                  WorkFlow<span className="text-[#2563EB]">OS</span>
-                </span>
-                <span className="text-[10px] text-[#64748B] block leading-tight font-mono">
-                  Demo Playground
-                </span>
-              </div>
-            </Link>
+    <div className="min-h-screen bg-[#F7F9FC] text-[#475569] flex font-sans">
+      {/* Global Shared Sidebar in Auto-Hide Mode for Demo Applications */}
+      <Sidebar activeView="demo" />
 
-            <span className="text-[#CBD5E1] hidden sm:inline">/</span>
-
-            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-purple-50 text-purple-700 border border-purple-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-              Target Test Apps
-            </span>
-          </div>
-
-          {/* Navigation Tabs between Demo Apps */}
-          <nav className="flex items-center gap-1 bg-[#F8FAFC] p-1 rounded-xl border border-[#E2E8F0]" aria-label="Demo Applications">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 active:translate-y-px cursor-pointer ${
-                    isActive
-                      ? "bg-white text-[#1D4ED8] font-semibold shadow-2xs border border-[#BFDBFE]"
-                      : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
-                  }`}
-                >
-                  <span className={isActive ? "text-[#2563EB]" : "text-[#94A3B8]"}>{item.icon}</span>
-                  <span>{item.name}</span>
-                  <span className={`text-[10px] font-mono px-1 rounded ${isActive ? "bg-blue-50 text-[#2563EB]" : "text-[#94A3B8]"}`}>
-                    {item.step}
+      {/* Main App Canvas */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Demo Bar */}
+        <header className="border-b border-[#E2E8F0] bg-white sticky top-0 z-30 shadow-2xs">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            {/* Brand & Section Title - Logo navigates to Overview */}
+            <div className="flex items-center gap-3">
+              <Link
+                href="/"
+                className="flex items-center gap-2.5 group transition-colors duration-150 cursor-pointer"
+                title="Return to WorkFlowOS Overview"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#2563EB] flex items-center justify-center text-white shadow-xs shrink-0">
+                  <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="text-sm font-bold tracking-tight text-[#0F172A] flex items-center gap-1 group-hover:text-[#2563EB] transition-colors duration-150">
+                    WorkFlow<span className="text-[#2563EB]">OS</span>
                   </span>
-                </Link>
-              );
-            })}
-          </nav>
+                  <span className="text-[10px] text-[#64748B] block leading-tight font-mono">
+                    Demo Playground
+                  </span>
+                </div>
+              </Link>
 
-          {/* Return to Dashboard */}
-          <div>
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white hover:bg-[#F8FAFC] hover:shadow-xs border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
-            >
-              <svg className="w-3.5 h-3.5 text-[#64748B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              <span>Back to Dashboard</span>
-            </Link>
+              <span className="text-[#CBD5E1] hidden sm:inline">/</span>
+
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-purple-50 text-purple-700 border border-purple-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                Target Test Apps
+              </span>
+            </div>
+
+            {/* Navigation Tabs between Demo Apps */}
+            <nav className="flex items-center gap-1 bg-[#F8FAFC] p-1 rounded-xl border border-[#E2E8F0]" aria-label="Demo Applications">
+              {navItems.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer ${
+                      isActive
+                        ? "bg-white text-[#1D4ED8] font-semibold shadow-2xs border border-[#BFDBFE]"
+                        : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
+                    }`}
+                  >
+                    <span className={isActive ? "text-[#2563EB]" : "text-[#94A3B8]"}>{item.icon}</span>
+                    <span>{item.name}</span>
+                    <span className={`text-[10px] font-mono px-1 rounded ${isActive ? "bg-blue-50 text-[#2563EB]" : "text-[#94A3B8]"}`}>
+                      {item.step}
+                    </span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {/* Return to Dashboard */}
+            <div>
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white hover:bg-[#F8FAFC] hover:shadow-xs border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition-colors duration-150 cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5 text-[#64748B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                <span>Back to Overview</span>
+              </Link>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main Page Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {children}
-      </main>
+        {/* Main Page Body */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

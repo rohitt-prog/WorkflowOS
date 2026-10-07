@@ -73,6 +73,8 @@ class LearningService:
         # Phase 11 Closed-Loop storage
         self._strategy_evidence: Dict[str, StrategyOutcomeEvidence] = {}
         self._execution_outcomes: Dict[str, List[WorkflowExecutionOutcome]] = {}
+        # Tracks deleted rejected workflows
+        self._deleted_workflows: Set[str] = set()
 
     def reset_cache(self) -> None:
         """Clears in-memory caches (used between tests)."""
@@ -81,6 +83,7 @@ class LearningService:
         self._processed_executions.clear()
         self._strategy_evidence.clear()
         self._execution_outcomes.clear()
+        self._deleted_workflows.clear()
 
     # -----------------------------------------------------------------------
     # Database Persistence Helpers
@@ -621,6 +624,97 @@ class LearningService:
             canc_execs=canc_execs,
             paus_execs=paus_execs,
         )
+
+    # -----------------------------------------------------------------------
+    # Rejected Workflow Deletion (UX Improvement 3)
+    # -----------------------------------------------------------------------
+
+    async def is_workflow_rejected(self, workflow_id: str) -> bool:
+        """
+        Determines whether a workflow is currently in an explicitly rejected state.
+        A workflow is rejected if its most recent operator review decision was 'reject',
+        or if it has rejection feedback records and zero approvals.
+
+        IMPORTANT: A status of DEPRIORITIZED alone does NOT constitute a rejected state
+        unless accompanied by an explicit rejection decision.
+        """
+        if workflow_id in self._deleted_workflows:
+            return False
+
+        # Check latest feedback in history
+        history = await self.get_feedback_history(workflow_id, limit=1)
+        if history and len(history) > 0:
+            if history[0].decision == FeedbackDecision.REJECT:
+                return True
+            if history[0].decision in (FeedbackDecision.APPROVE, FeedbackDecision.EDIT_APPROVE):
+                return False
+
+        # Fallback to learning state
+        state = await self.get_learning_state(workflow_id)
+        if state.last_feedback and isinstance(state.last_feedback, dict):
+            decision = state.last_feedback.get("decision")
+            if decision == FeedbackDecision.REJECT.value:
+                return True
+            if decision in (FeedbackDecision.APPROVE.value, FeedbackDecision.EDIT_APPROVE.value):
+                return False
+
+        if state.rejection_count > 0 and state.approval_count == 0:
+            return True
+
+        return False
+
+    async def delete_rejected_workflow(self, workflow_id: str) -> bool:
+        """
+        Permanently deletes a rejected workflow candidate from active discovery and learning state.
+        Raises ValueError if the workflow is not in an explicitly rejected state.
+        """
+        if not await self.is_workflow_rejected(workflow_id):
+            raise ValueError(
+                f"Workflow '{workflow_id}' cannot be deleted because it is not in an explicitly rejected state."
+            )
+
+        self._deleted_workflows.add(workflow_id)
+        self._states.pop(workflow_id, None)
+        self._feedback_history.pop(workflow_id, None)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            from backend.database import get_database
+            db = get_database()
+            if db is not None:
+                await db["deleted_workflows"].update_one(
+                    {"workflow_id": workflow_id},
+                    {"$set": {"workflow_id": workflow_id, "deleted_at": now_iso}},
+                    upsert=True,
+                )
+                await db["workflow_learning_state"].delete_one({"workflow_id": workflow_id})
+        except Exception as e:
+            logger.warning(
+                f"[LearningService] MongoDB persistence failed for workflow deletion of {workflow_id}: {e}. "
+                "Tombstone remains in local memory."
+            )
+
+        return True
+
+    async def get_deleted_workflow_ids(self) -> Set[str]:
+        """
+        Retrieves all canonical workflow IDs that have been deleted.
+        Synchronizes from MongoDB 'deleted_workflows' collection if available.
+        """
+        try:
+            from backend.database import get_database
+            db = get_database()
+            if db is not None:
+                cursor = db["deleted_workflows"].find({}, {"workflow_id": 1})
+                docs = await cursor.to_list(length=2000)
+                for doc in docs:
+                    wid = doc.get("workflow_id")
+                    if wid:
+                        self._deleted_workflows.add(wid)
+        except Exception as e:
+            logger.warning(f"[LearningService] Loading deleted workflows from MongoDB failed: {e}")
+
+        return set(self._deleted_workflows)
 
 
 # Singleton instance

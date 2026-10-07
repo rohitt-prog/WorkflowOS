@@ -31,6 +31,7 @@ interface HeaderProps {
   lastRefreshed: Date | null;
   refreshing: boolean;
   onRefresh: () => void;
+  onNavigate?: (view: ViewId) => void;
 }
 
 export default function Header({
@@ -39,14 +40,20 @@ export default function Header({
   lastRefreshed,
   refreshing,
   onRefresh,
+  onNavigate,
 }: HeaderProps) {
   return (
     <header className="h-16 bg-white border-b border-[#E2E8F0] flex items-center justify-between px-6 shrink-0 sticky top-0 z-20 shadow-2xs">
       {/* Breadcrumb & Title */}
       <div className="flex items-center gap-2.5 min-w-0">
-        <span className="text-xs font-medium text-[#94A3B8] hidden sm:inline">
+        <button
+          type="button"
+          onClick={() => onNavigate?.("dashboard")}
+          className="text-xs font-semibold text-[#64748B] hover:text-[#2563EB] transition-colors duration-150 hidden sm:inline cursor-pointer focus:outline-hidden"
+          title="Return to WorkFlowOS Overview"
+        >
           WorkFlowOS
-        </span>
+        </button>
         <svg
           className="w-3.5 h-3.5 text-[#CBD5E1] hidden sm:inline shrink-0"
           fill="none"

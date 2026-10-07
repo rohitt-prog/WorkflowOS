@@ -134,6 +134,11 @@ class DiscoveredWorkflow(BaseModel):
         default=None,
         description="Deterministic explanation of current recommendation status"
     )
+    is_rejected: Optional[bool] = Field(
+        default=False,
+        description="True if workflow was explicitly rejected by human reviewer"
+    )
+
 
     model_config = {
         "json_schema_extra": {

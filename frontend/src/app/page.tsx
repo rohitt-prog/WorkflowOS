@@ -129,6 +129,29 @@ export default function WorkFlowOSApp() {
     return () => clearInterval(id);
   }, [handleRefresh]);
 
+  // Read view query param from URL on initial load if navigated from external link (e.g. demo)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const viewParam = params.get("view") as ViewId | null;
+      const validViews: ViewId[] = [
+        "dashboard",
+        "activity",
+        "workflows",
+        "discovery",
+        "builder",
+        "executions",
+        "applications",
+        "settings",
+      ];
+      if (viewParam && validViews.includes(viewParam)) {
+        requestAnimationFrame(() => {
+          setActiveView(viewParam);
+        });
+      }
+    }
+  }, []);
+
   const handleRefreshDiscovery = useCallback(async () => {
     setDiscoveryLoading(true);
     await loadDiscoveryData();
@@ -154,6 +177,7 @@ export default function WorkFlowOSApp() {
           lastRefreshed={lastRefreshed}
           refreshing={refreshing}
           onRefresh={() => handleRefresh(true)}
+          onNavigate={setActiveView}
         />
 
         {/* View Content Container */}

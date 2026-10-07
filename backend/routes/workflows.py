@@ -414,3 +414,45 @@ async def evaluate_workflow_outcome_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to evaluate execution outcome. Please try again.",
         )
+
+
+@router.delete(
+    "/{workflow_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Rejected Workflow",
+    description="Permanently deletes a discovered workflow candidate that has been explicitly rejected by operator review.",
+)
+async def delete_rejected_workflow_endpoint(workflow_id: str):
+    """
+    DELETE /api/workflows/{workflow_id}
+    """
+    if not workflow_id or not workflow_id.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A non-empty workflow_id is required.")
+    _wid = workflow_id.strip()
+    if len(_wid) > 128:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="workflow_id must not exceed 128 characters.")
+    if not _WORKFLOW_ID_RE.fullmatch(_wid):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="workflow_id contains invalid characters.")
+
+    is_rejected = await learning_service.is_workflow_rejected(_wid)
+    if not is_rejected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workflow cannot be deleted because it is not in an explicitly rejected state.",
+        )
+
+    try:
+        await learning_service.delete_rejected_workflow(_wid)
+        return {
+            "success": True,
+            "workflow_id": _wid,
+            "message": "Workflow deleted successfully.",
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error deleting workflow {_wid}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete workflow. Please try again.",
+        )

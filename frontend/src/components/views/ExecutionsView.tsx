@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AutomationExecutionRecord, ActionDetail } from "@/lib/types";
 import { statusBadgeConfig, getApplicationDisplayName, getAppBadgeClass, API_BASE_URL, formatApiErrorMessage } from "@/lib/utils";
 
@@ -10,18 +11,27 @@ interface ExecutionsViewProps {
   onRefresh: () => void;
 }
 
-function ExecutionDetailModal({
+export function ExecutionDetailModal({
   execution,
   onClose,
   onRefresh,
 }: {
   execution: AutomationExecutionRecord;
   onClose: () => void;
-  onRefresh: () => void;
+  onRefresh?: () => void;
 }) {
   const [isResuming, setIsResuming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Lock body scroll while modal is open to avoid background page shifting
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   const handleResume = async () => {
     setIsResuming(true);
@@ -39,7 +49,7 @@ function ExecutionDetailModal({
         const err = await res.json().catch(() => null);
         throw new Error(formatApiErrorMessage(err, `Resume failed (${res.status})`));
       }
-      onRefresh();
+      onRefresh?.();
       onClose();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Resume failed");
@@ -60,7 +70,7 @@ function ExecutionDetailModal({
         const err = await res.json().catch(() => null);
         throw new Error(formatApiErrorMessage(err, `Cancel failed (${res.status})`));
       }
-      onRefresh();
+      onRefresh?.();
       onClose();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Cancel failed");
@@ -76,16 +86,20 @@ function ExecutionDetailModal({
       ? Math.round((execution.completed_actions.length / execution.total_actions) * 100)
       : 0;
 
-  return (
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const modalOverlay = (
     <div
-      className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 z-50 overflow-hidden overscroll-contain animate-fadeIn"
       onClick={onClose}
     >
       <div
-        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-xl flex flex-col max-h-[90vh] overflow-hidden animate-modal-enter"
+        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-3xl w-full shadow-2xl flex flex-col max-h-[calc(100dvh-32px)] sm:max-h-[calc(100dvh-48px)] overflow-hidden animate-modal-enter"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* HEADER: fixed/sticky inside modal */}
         <div className="px-6 py-4.5 border-b border-[#E2E8F0] flex items-start justify-between shrink-0 bg-[#F8FAFC]">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -102,14 +116,15 @@ function ExecutionDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#E2E8F0] transition cursor-pointer"
+            className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#E2E8F0] transition-colors duration-150 cursor-pointer"
+            aria-label="Close execution details"
           >
             ✕
           </button>
         </div>
 
-        {/* Body */}
-        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5 text-xs">
+        {/* CONTENT: ONLY this region scrolls */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5 text-xs overscroll-contain">
           {/* Metadata Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
@@ -236,7 +251,7 @@ function ExecutionDetailModal({
           </div>
         </div>
 
-        {/* Modal Footer */}
+        {/* FOOTER: fixed/sticky inside modal */}
         <div className="px-6 py-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between shrink-0">
           <div>
             {actionError && (
@@ -249,14 +264,14 @@ function ExecutionDetailModal({
                 <button
                   onClick={handleCancel}
                   disabled={isCancelling || isResuming}
-                  className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white hover:bg-rose-50 text-[#DC2626] border border-rose-200 transition active:scale-97 disabled:opacity-60 cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white hover:bg-rose-50 text-[#DC2626] border border-rose-200 transition-colors duration-150 active:translate-y-px disabled:opacity-60 cursor-pointer"
                 >
                   {isCancelling ? "Cancelling…" : "Cancel Execution"}
                 </button>
                 <button
                   onClick={handleResume}
                   disabled={isCancelling || isResuming}
-                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 disabled:opacity-60 cursor-pointer"
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition-colors duration-150 active:translate-y-px disabled:opacity-60 cursor-pointer"
                 >
                   {isResuming ? "Resuming…" : "Resume Execution"}
                 </button>
@@ -265,7 +280,7 @@ function ExecutionDetailModal({
             {execution.status !== "paused" && (
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-xs font-medium rounded-lg bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#0F172A] transition cursor-pointer"
+                className="px-4 py-2 text-xs font-medium rounded-lg bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition-colors duration-150 active:translate-y-px cursor-pointer"
               >
                 Close
               </button>
@@ -275,6 +290,8 @@ function ExecutionDetailModal({
       </div>
     </div>
   );
+
+  return createPortal(modalOverlay, document.body);
 }
 
 export default function ExecutionsView({

@@ -234,6 +234,16 @@ export async function submitWorkflowFeedback(
   return handleResponse(res, "Unable to record workflow feedback");
 }
 
+export async function deleteWorkflow(
+  workflowId: string
+): Promise<{ success: boolean; workflow_id: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/workflows/${encodeURIComponent(workflowId)}`, {
+    method: "DELETE",
+  });
+  return handleResponse(res, "Unable to delete workflow");
+}
+
+
 export async function generateAutomationPlan(
   workflowId: string,
   workflowName: string,

@@ -157,6 +157,7 @@ export interface DiscoveredWorkflow {
   recommendation_status?: RecommendationStatus;
   learning_explanation?: string;
   learning_state?: WorkflowLearningState;
+  is_rejected?: boolean;
 }
 
 export type RecommendationStatus = "NEW" | "LEARNING" | "RECOMMENDED" | "DEPRIORITIZED";

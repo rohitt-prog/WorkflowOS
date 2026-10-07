@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   DiscoveredWorkflow,
   DiscoveryResult,
@@ -21,6 +22,7 @@ import {
   fetchWorkflowLearningState,
   generateAutomationPlan,
   fetchClosedLoopSummary,
+  deleteWorkflow,
 } from "@/lib/api";
 
 interface WorkflowsViewProps {
@@ -36,19 +38,44 @@ interface WorkflowDetailModalProps {
   workflow: DiscoveredWorkflow;
   onClose: () => void;
   onOpenAdvancedReview: () => void;
+  onDeleteWorkflow?: (workflowId: string) => Promise<void> | void;
 }
 
 function WorkflowDetailModal({
   workflow,
   onClose,
   onOpenAdvancedReview,
+  onDeleteWorkflow,
 }: WorkflowDetailModalProps) {
   const [learning, setLearning] = useState<WorkflowLearningState | null>(null);
   const [plan, setPlan] = useState<AutomationPlan | null>(null);
   const [closedLoop, setClosedLoop] = useState<ClosedLoopSummary | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const wfId = getWorkflowCanonicalId(workflow.sequence, workflow.workflow_id);
+
+  useEffect(() => {
+    const origOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = origOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
 
   useEffect(() => {
     let isMounted = true;
@@ -96,13 +123,40 @@ function WorkflowDetailModal({
       s.includes("send")
   );
 
-  return (
+  const isRejected =
+    Boolean(workflow.is_rejected) ||
+    learning?.last_feedback?.decision === "reject" ||
+    Boolean(learning && learning.rejection_count > 0 && learning.approval_count === 0);
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      if (onDeleteWorkflow) {
+        await onDeleteWorkflow(wfId);
+      } else {
+        await deleteWorkflow(wfId);
+      }
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete workflow");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const modalOverlay = (
     <div
-      className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
+      className="fixed inset-x-0 bottom-0 top-16 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 z-40 overflow-hidden overscroll-contain animate-fadeIn"
       onClick={onClose}
     >
       <div
-        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-modal-enter"
+        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-2xl flex flex-col max-h-[calc(100dvh-96px)] sm:max-h-[calc(100dvh-112px)] overflow-hidden animate-modal-enter"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -143,14 +197,15 @@ function WorkflowDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="text-[#94A3B8] hover:text-[#0F172A] p-1 rounded hover:bg-[#E2E8F0] transition cursor-pointer"
+            className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#E2E8F0] transition-colors duration-150 cursor-pointer"
+            aria-label="Close workflow details"
           >
             ✕
           </button>
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-xs flex-1">
+        <div className="p-6 pb-8 sm:pb-10 overflow-y-auto overscroll-contain space-y-5 text-xs flex-1 min-h-0">
           {/* Discovery Stage */}
           <div className="border border-[#E2E8F0] rounded-xl p-4 bg-white space-y-1.5 shadow-2xs">
             <div className="flex items-center gap-2 text-[#0F172A] font-bold">
@@ -317,12 +372,25 @@ function WorkflowDetailModal({
 
         {/* Footer Actions */}
         <div className="px-6 py-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between shrink-0">
-          <button
-            onClick={onClose}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-white hover:text-[#0F172A] transition-all duration-150 active:translate-y-px cursor-pointer"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-white hover:text-[#0F172A] transition-all duration-150 active:translate-y-px cursor-pointer"
+            >
+              Close
+            </button>
+            {isRejected && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isDeleting}
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-all duration-150 active:translate-y-px cursor-pointer flex items-center gap-1.5"
+              >
+                <span>🗑️</span>
+                <span>Delete Workflow</span>
+              </button>
+            )}
+          </div>
           <button
             onClick={() => {
               onClose();
@@ -334,9 +402,65 @@ function WorkflowDetailModal({
             <span>→</span>
           </button>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-60 animate-fadeIn"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            <div
+              className="bg-white border border-[#E2E8F0] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-modal-enter"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0 text-lg">
+                  ⚠️
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#0F172A]">Delete workflow?</h3>
+                  <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
+                    Are you sure you want to delete &ldquo;{workflow.label}&rdquo;?
+                    This permanently removes the workflow and its learning tombstone. This action cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3 rounded-lg">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#F1F5F9]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteError(null);
+                  }}
+                  disabled={isDeleting}
+                  className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-2xs transition cursor-pointer disabled:opacity-60"
+                >
+                  {isDeleting ? "Deleting…" : "Delete Workflow"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
+
+  return createPortal(modalOverlay, document.body);
 }
 
 function useCountUp(target: number, duration: number = 700): number {
@@ -386,9 +510,10 @@ interface WorkflowCardProps {
   index: number;
   onSelect: (wf: DiscoveredWorkflow) => void;
   onReview: (wf: DiscoveredWorkflow) => void;
+  onDelete?: (wf: DiscoveredWorkflow) => void;
 }
 
-function WorkflowCard({ wf, index, onSelect, onReview }: WorkflowCardProps) {
+function WorkflowCard({ wf, index, onSelect, onReview, onDelete }: WorkflowCardProps) {
   const conf = wf.confidence
     ? Math.round(wf.confidence * 100)
     : 85;
@@ -518,6 +643,15 @@ function WorkflowCard({ wf, index, onSelect, onReview }: WorkflowCardProps) {
         >
           Review & Run
         </button>
+        {wf.is_rejected && onDelete && (
+          <button
+            onClick={() => onDelete(wf)}
+            title="Delete rejected workflow"
+            className="p-1.5 text-xs font-semibold rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-all duration-150 active:translate-y-px cursor-pointer"
+          >
+            🗑️
+          </button>
+        )}
       </div>
     </div>
   );
@@ -535,8 +669,41 @@ export default function WorkflowsView({
   const [selectedWorkflow, setSelectedWorkflow] = useState<DiscoveredWorkflow | null>(null);
   const [advancedReviewWorkflow, setAdvancedReviewWorkflow] = useState<DiscoveredWorkflow | null>(null);
   const [searchFilter, setSearchFilter] = useState("");
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [workflowToDelete, setWorkflowToDelete] = useState<DiscoveredWorkflow | null>(null);
+  const [isDeletingDirect, setIsDeletingDirect] = useState(false);
+  const [directDeleteError, setDirectDeleteError] = useState<string | null>(null);
 
-  const workflowsList = discovery?.workflows || [];
+  const handleDeleteWorkflow = async (workflowId: string) => {
+    await deleteWorkflow(workflowId);
+    setDeletedIds((prev) => new Set(prev).add(workflowId));
+    setSelectedWorkflow(null);
+    setAdvancedReviewWorkflow(null);
+    setWorkflowToDelete(null);
+    setToastMessage("Workflow deleted successfully");
+    setTimeout(() => setToastMessage(null), 3000);
+    onRefreshDiscovery();
+  };
+
+  const handleConfirmDirectDelete = async () => {
+    if (!workflowToDelete) return;
+    setIsDeletingDirect(true);
+    setDirectDeleteError(null);
+    const wid = getWorkflowCanonicalId(workflowToDelete.sequence, workflowToDelete.workflow_id);
+    try {
+      await handleDeleteWorkflow(wid);
+    } catch (err: unknown) {
+      setDirectDeleteError(err instanceof Error ? err.message : "Failed to delete workflow");
+    } finally {
+      setIsDeletingDirect(false);
+    }
+  };
+
+  const rawWorkflowsList = discovery?.workflows || [];
+  const workflowsList = rawWorkflowsList.filter(
+    (wf) => !deletedIds.has(getWorkflowCanonicalId(wf.sequence, wf.workflow_id))
+  );
 
   const filteredWorkflows = workflowsList.filter((wf) => {
     if (!searchFilter) return true;
@@ -692,6 +859,7 @@ export default function WorkflowsView({
                       index={idx}
                       onSelect={setSelectedWorkflow}
                       onReview={setAdvancedReviewWorkflow}
+                      onDelete={(item) => setWorkflowToDelete(item)}
                     />
                   );
                 })}
@@ -711,39 +879,88 @@ export default function WorkflowsView({
             setSelectedWorkflow(null);
             setAdvancedReviewWorkflow(wf);
           }}
+          onDeleteWorkflow={handleDeleteWorkflow}
         />
       )}
 
       {/* Advanced AI Review & Execution Modal (DiscoveryView review engine) */}
       {advancedReviewWorkflow && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl animate-modal-enter">
-            <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
-              <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
-                  Workflow Automation Studio
-                </span>
-                <h3 className="text-sm font-bold text-[#0F172A]">
-                  Review & Execute: {advancedReviewWorkflow.label}
-                </h3>
+        <DiscoveryView
+          discovery={discovery}
+          selectedWorkflow={advancedReviewWorkflow}
+          onClose={() => setAdvancedReviewWorkflow(null)}
+          discoveryLoading={discoveryLoading}
+          discoveryError={discoveryError}
+          onRefreshDiscovery={onRefreshDiscovery}
+          onExecutionComplete={onExecutionComplete}
+          onDeleteWorkflow={handleDeleteWorkflow}
+        />
+      )}
+
+      {/* Direct Delete Confirmation Modal for Card Delete Action */}
+      {workflowToDelete && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-60 animate-fadeIn"
+          onClick={() => {
+            if (!isDeletingDirect) {
+              setWorkflowToDelete(null);
+              setDirectDeleteError(null);
+            }
+          }}
+        >
+          <div
+            className="bg-white border border-[#E2E8F0] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-modal-enter"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0 text-lg">
+                ⚠️
               </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#0F172A]">Delete workflow?</h3>
+                <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
+                  Are you sure you want to delete &ldquo;{workflowToDelete.label}&rdquo;?
+                  This permanently removes the workflow and its learning tombstone. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            {directDeleteError && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3 rounded-lg">
+                {directDeleteError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#F1F5F9]">
               <button
-                onClick={() => setAdvancedReviewWorkflow(null)}
-                className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded hover:bg-[#E2E8F0] transition cursor-pointer"
+                type="button"
+                onClick={() => {
+                  setWorkflowToDelete(null);
+                  setDirectDeleteError(null);
+                }}
+                disabled={isDeletingDirect}
+                className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] transition cursor-pointer"
               >
-                ✕ Close
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDirectDelete}
+                disabled={isDeletingDirect}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-2xs transition cursor-pointer disabled:opacity-60"
+              >
+                {isDeletingDirect ? "Deleting…" : "Delete Workflow"}
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <DiscoveryView
-                discovery={discovery}
-                discoveryLoading={discoveryLoading}
-                discoveryError={discoveryError}
-                onRefreshDiscovery={onRefreshDiscovery}
-                onExecutionComplete={onExecutionComplete}
-              />
-            </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-60 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2 animate-fadeIn">
+          <span>✓</span>
+          <span>{toastMessage}</span>
         </div>
       )}
     </div>

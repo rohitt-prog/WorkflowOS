@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   DiscoveryResult,
   DiscoveredWorkflow,
@@ -19,21 +19,28 @@ import {
   formatApiErrorMessage,
   getWorkflowCanonicalId,
 } from "@/lib/utils";
+import { deleteWorkflow } from "@/lib/api";
 
 interface DiscoveryViewProps {
   discovery: DiscoveryResult | null;
+  selectedWorkflow?: DiscoveredWorkflow | null;
+  onClose?: () => void;
   discoveryLoading: boolean;
   discoveryError: string | null;
   onRefreshDiscovery: () => void;
   onExecutionComplete: () => void;
+  onDeleteWorkflow?: (workflowId: string) => Promise<void> | void;
 }
 
 export default function DiscoveryView({
   discovery,
+  selectedWorkflow,
+  onClose,
   discoveryLoading,
   discoveryError,
   onRefreshDiscovery,
   onExecutionComplete,
+  onDeleteWorkflow,
 }: DiscoveryViewProps) {
   const [reviewWorkflow, setReviewWorkflow] = useState<DiscoveredWorkflow | null>(null);
   const [proposal, setProposal] = useState<WorkflowProposal | null>(null);
@@ -43,6 +50,10 @@ export default function DiscoveryView({
   const [rejectionReasonInput, setRejectionReasonInput] = useState("");
   const [learningState, setLearningState] = useState<WorkflowLearningState | null>(null);
   const [learningLoading, setLearningLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const [feedbackSuccessMsg, setFeedbackSuccessMsg] = useState<string | null>(null);
   const [feedbackErrorMsg, setFeedbackErrorMsg] = useState<string | null>(null);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
@@ -148,7 +159,8 @@ export default function DiscoveryView({
       setAiError(null);
       setExecutionResult(null);
       setExecutionError(null);
-      setApprovalStatus(approvals[wf.label] || "idle");
+      const canonicalWfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
+      setApprovalStatus(approvals[canonicalWfId] || (wf.is_rejected ? "rejected" : "idle"));
       setAutomationPlan(null);
       setClosedLoopSummary(null);
       setExpandedStepWhy({});
@@ -224,16 +236,16 @@ export default function DiscoveryView({
 
       if (decision === "approve") {
         setApprovalStatus("approved");
-        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "approved" }));
+        setApprovals((prev) => ({ ...prev, [wfId]: "approved" }));
         setFeedbackSuccessMsg("✓ Feedback recorded: Approved. Learning state updated.");
       } else if (decision === "reject") {
         setApprovalStatus("rejected");
-        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "rejected" }));
+        setApprovals((prev) => ({ ...prev, [wfId]: "rejected" }));
         setShowRejectInput(false);
         setFeedbackSuccessMsg("✕ Feedback recorded: Rejected. Workflow deprioritized.");
       } else if (decision === "edit_approve") {
         setApprovalStatus("approved");
-        setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "approved" }));
+        setApprovals((prev) => ({ ...prev, [wfId]: "approved" }));
         setIsEditingWorkflow(false);
         if (opts?.edited_workflow) {
           setProposal(opts.edited_workflow as WorkflowProposal);
@@ -280,7 +292,8 @@ export default function DiscoveryView({
       if (data.status === "completed") {
         setApprovalStatus("approved");
         if (reviewWorkflow) {
-          setApprovals((prev) => ({ ...prev, [reviewWorkflow.label]: "approved" }));
+          const canonicalWfId = getWorkflowCanonicalId(reviewWorkflow.sequence, reviewWorkflow.workflow_id);
+          setApprovals((prev) => ({ ...prev, [canonicalWfId]: "approved" }));
           fetchLearningState(reviewWorkflow);
         }
         onExecutionComplete();
@@ -359,6 +372,20 @@ export default function DiscoveryView({
     }
   };
 
+  useEffect(() => {
+    let ignore = false;
+    if (selectedWorkflow) {
+      void Promise.resolve().then(() => {
+        if (!ignore) {
+          handleReview(selectedWorkflow);
+        }
+      });
+    }
+    return () => {
+      ignore = true;
+    };
+  }, [selectedWorkflow, handleReview]);
+
   const closeModal = () => {
     setReviewWorkflow(null);
     setProposal(null);
@@ -367,11 +394,46 @@ export default function DiscoveryView({
     setAiError(null);
     setAutomationPlan(null);
     setExpandedStepWhy({});
+    setShowDeleteConfirm(false);
+    setDeleteError(null);
+    if (onClose) {
+      onClose();
+    }
   };
 
+  const handleConfirmDelete = async () => {
+    const targetWf = reviewWorkflow || selectedWorkflow;
+    if (!targetWf) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    const wid = getWorkflowCanonicalId(targetWf.sequence, targetWf.workflow_id);
+    try {
+      if (onDeleteWorkflow) {
+        await onDeleteWorkflow(wid);
+      } else {
+        await deleteWorkflow(wid);
+      }
+      setShowDeleteConfirm(false);
+      closeModal();
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete workflow");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const activeWf = reviewWorkflow || selectedWorkflow;
+  const isRejected =
+    approvalStatus === "rejected" ||
+    Boolean(activeWf?.is_rejected) ||
+    learningState?.last_feedback?.decision === "reject" ||
+    Boolean(learningState && learningState.rejection_count > 0 && learningState.approval_count === 0);
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 bg-[#F7F9FC]">
-      {/* Header bar */}
+    <>
+      {!selectedWorkflow && (
+        <div className="p-6 max-w-7xl mx-auto space-y-6 bg-[#F7F9FC]">
+          {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-2xs">
         <div>
           <div className="flex items-center gap-2">
@@ -453,12 +515,13 @@ export default function DiscoveryView({
       ) : (
         <div className="space-y-4">
           {discovery.workflows.map((wf, idx) => {
-            const isApproved = approvals[wf.label] === "approved";
-            const isRejected = approvals[wf.label] === "rejected";
+            const canonicalWfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
+            const isApproved = approvals[canonicalWfId] === "approved";
+            const isRejected = approvals[canonicalWfId] === "rejected" || Boolean(wf.is_rejected);
 
             return (
               <div
-                key={idx}
+                key={canonicalWfId}
                 className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-2xs hover:shadow-xs transition flex flex-col justify-between gap-6"
               >
                 <div>
@@ -837,15 +900,17 @@ export default function DiscoveryView({
           )}
         </div>
       )}
+        </div>
+      )}
 
       {/* AI Proposal & Execution Modal */}
-      {reviewWorkflow && (
+      {(selectedWorkflow ? activeWf : reviewWorkflow) && activeWf && (
         <div
           className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
           onClick={closeModal}
         >
           <div
-            className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-xl flex flex-col max-h-[90vh] overflow-hidden"
+            className="bg-white border border-[#E2E8F0] rounded-2xl max-w-4xl w-full shadow-xl flex flex-col max-h-[90vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -856,11 +921,11 @@ export default function DiscoveryView({
                     Gemini AI Proposal
                   </span>
                   <span className="text-xs text-[#64748B]">
-                    {reviewWorkflow.occurrences} observed occurrences
+                    {activeWf.occurrences} observed occurrences
                   </span>
                 </div>
                 <h3 className="text-base font-bold text-[#0F172A] mt-1">
-                  {proposal?.name || reviewWorkflow.label || "Workflow Proposal"}
+                  {proposal?.name || activeWf.label || "Workflow Proposal"}
                 </h3>
               </div>
               <button
@@ -1199,16 +1264,16 @@ export default function DiscoveryView({
                         <span className="text-[11px] font-mono text-[#64748B]">Recommendation:</span>
                         <span
                           className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                            (learningState?.recommendation_status || reviewWorkflow?.recommendation_status) === "RECOMMENDED"
+                            (learningState?.recommendation_status || activeWf?.recommendation_status) === "RECOMMENDED"
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : (learningState?.recommendation_status || reviewWorkflow?.recommendation_status) === "DEPRIORITIZED"
+                              : (learningState?.recommendation_status || activeWf?.recommendation_status) === "DEPRIORITIZED"
                               ? "bg-rose-100 text-rose-800 border border-rose-300"
-                              : (learningState?.recommendation_status || reviewWorkflow?.recommendation_status) === "LEARNING"
+                              : (learningState?.recommendation_status || activeWf?.recommendation_status) === "LEARNING"
                               ? "bg-sky-100 text-sky-800 border border-sky-300"
                               : "bg-slate-100 text-slate-700 border border-slate-300"
                           }`}
                         >
-                          {learningState?.recommendation_status || reviewWorkflow?.recommendation_status || "NEW"}
+                          {learningState?.recommendation_status || activeWf?.recommendation_status || "NEW"}
                         </span>
                       </div>
                     </div>
@@ -1219,14 +1284,14 @@ export default function DiscoveryView({
                       <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-2.5">
                         <div className="text-[10px] uppercase font-semibold text-[#64748B]">Learning Score</div>
                         <div className="text-lg font-bold font-mono text-[#0F172A] mt-0.5">
-                          {(learningState?.learning_score ?? reviewWorkflow?.learning_score ?? 0.50).toFixed(2)}
+                          {(learningState?.learning_score ?? activeWf?.learning_score ?? 0.50).toFixed(2)}
                         </div>
                         <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
                           <div
                             className="bg-[#2563EB] h-full rounded-full transition-all duration-300"
                             style={{
                               width: `${Math.round(
-                                (learningState?.learning_score ?? reviewWorkflow?.learning_score ?? 0.50) * 100
+                                (learningState?.learning_score ?? activeWf?.learning_score ?? 0.50) * 100
                               )}%`,
                             }}
                           />
@@ -1274,7 +1339,7 @@ export default function DiscoveryView({
                     {/* Explanation */}
                     <div className="bg-[#F1F5F9] border border-[#E2E8F0] rounded-lg p-2.5 text-xs text-[#334155] italic">
                       {learningState?.learning_explanation ||
-                        reviewWorkflow?.learning_explanation ||
+                        activeWf?.learning_explanation ||
                         "New workflow candidate with no prior feedback or execution history."}
                     </div>
 
@@ -1576,6 +1641,15 @@ export default function DiscoveryView({
                   {approvalStatus === "rejected" && (
                     <span className="text-[#64748B]">Proposal Dismissed</span>
                   )}
+                  {isRejected && (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      disabled={isDeleting}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer disabled:opacity-50"
+                    >
+                      Delete Workflow
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2.5">
@@ -1614,8 +1688,57 @@ export default function DiscoveryView({
               </div>
             )}
           </div>
+
+          {/* Delete Confirmation Modal */}
+          {showDeleteConfirm && (
+            <div
+              className="fixed inset-0 z-60 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-white border border-[#E2E8F0] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-modal-enter">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-lg shrink-0">
+                    ⚠️
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#0F172A]">Delete workflow?</h3>
+                    <p className="text-xs text-[#64748B] mt-0.5">
+                      Are you sure you want to delete &ldquo;{activeWf?.label}&rdquo;?
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-[#64748B] bg-[#F8FAFC] border border-[#E2E8F0] p-3 rounded-lg leading-relaxed">
+                  This workflow will be removed from your discovered workflows.
+                </p>
+                {deleteError && (
+                  <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 p-2.5 rounded-lg">
+                    {deleteError}
+                  </p>
+                )}
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteError(null);
+                    }}
+                    disabled={isDeleting}
+                    className="px-3.5 py-2 text-xs font-medium rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmDelete}
+                    disabled={isDeleting}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-2xs transition cursor-pointer disabled:opacity-60"
+                  >
+                    {isDeleting ? "Deleting…" : "Delete Workflow"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }

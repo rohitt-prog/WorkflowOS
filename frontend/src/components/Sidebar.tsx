@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ViewId } from "@/lib/types";
 
 interface NavItem {
@@ -12,12 +13,12 @@ interface NavItem {
 }
 
 interface SidebarProps {
-  activeView: ViewId;
-  onNavigate: (view: ViewId) => void;
-  backendStatus: "connected" | "disconnected" | "checking";
-  eventCount: number;
-  executionCount: number;
-  discoveryCount: number;
+  activeView: ViewId | "demo";
+  onNavigate?: (view: ViewId) => void;
+  backendStatus?: "connected" | "disconnected" | "checking";
+  eventCount?: number;
+  executionCount?: number;
+  discoveryCount?: number;
 }
 
 const IconDashboard = () => (
@@ -61,11 +62,78 @@ const IconSettings = () => (
 export default function Sidebar({
   activeView,
   onNavigate,
-  backendStatus,
-  eventCount,
-  executionCount,
-  discoveryCount,
+  backendStatus = "connected",
+  eventCount = 0,
+  executionCount = 0,
+  discoveryCount = 0,
 }: SidebarProps) {
+  const router = useRouter();
+  const [isHovered, setIsHovered] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const isOverview = activeView === "dashboard";
+
+  // Reset hover & focus when activeView changes (React recommended pattern for prop-driven reset)
+  const [prevView, setPrevView] = useState(activeView);
+  if (prevView !== activeView) {
+    setPrevView(activeView);
+    setIsHovered(false);
+    setIsFocused(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (leaveTimeoutRef.current) {
+        clearTimeout(leaveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleMouseEnter = () => {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+    }
+    leaveTimeoutRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 250); // 250ms hover grace tolerance
+  };
+
+  const handleFocusCapture = () => {
+    setIsFocused(true);
+  };
+
+  const handleBlurCapture = (e: React.FocusEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsFocused(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      setIsHovered(false);
+      setIsFocused(false);
+    }
+  };
+
+  const handleNavClick = (id: ViewId) => {
+    if (onNavigate) {
+      onNavigate(id);
+    } else {
+      router.push(id === "dashboard" ? "/" : `/?view=${id}`);
+    }
+    setIsHovered(false);
+    setIsFocused(false);
+  };
+
   const navItems: NavItem[] = [
     { id: "dashboard", label: "Overview", icon: <IconDashboard /> },
     {
@@ -90,10 +158,16 @@ export default function Sidebar({
     { id: "settings", label: "Settings", icon: <IconSettings /> },
   ];
 
-  return (
-    <aside className="w-60 shrink-0 bg-white border-r border-[#E2E8F0] flex flex-col h-screen sticky top-0 z-30 select-none">
-      {/* Brand Header */}
-      <div className="h-16 px-5 flex items-center border-b border-[#E2E8F0] gap-3 shrink-0">
+  const sidebarContent = (
+    <>
+      {/* Brand Header: Clickable logo navigates to Overview */}
+      <button
+        type="button"
+        onClick={() => handleNavClick("dashboard")}
+        className="h-16 px-5 flex items-center border-b border-[#E2E8F0] gap-3 shrink-0 text-left hover:bg-[#F8FAFC] transition-colors duration-150 cursor-pointer w-full group focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
+        title="Return to WorkFlowOS Overview"
+        aria-label="Return to WorkFlowOS Overview"
+      >
         <div className="w-8 h-8 rounded-lg bg-[#2563EB] flex items-center justify-center text-white shadow-xs shrink-0">
           <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -101,7 +175,7 @@ export default function Sidebar({
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-sm font-bold tracking-tight text-[#0F172A] leading-none">
+            <span className="text-sm font-bold tracking-tight text-[#0F172A] leading-none group-hover:text-[#2563EB] transition-colors duration-150">
               WorkFlow<span className="text-[#2563EB]">OS</span>
             </span>
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[#DBEAFE] text-[#1D4ED8] font-mono leading-none">
@@ -112,7 +186,7 @@ export default function Sidebar({
             Intelligent Automation
           </p>
         </div>
-      </div>
+      </button>
 
       {/* Navigation Groups */}
       <nav className="flex-1 py-4 px-3 space-y-6 overflow-y-auto">
@@ -128,8 +202,8 @@ export default function Sidebar({
               return (
                 <button
                   key={item.id}
-                  onClick={() => onNavigate(item.id)}
-                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 active:translate-y-px cursor-pointer text-left
+                  onClick={() => handleNavClick(item.id)}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer text-left
                     ${
                       isActive
                         ? "bg-[#DBEAFE] text-[#1D4ED8] font-semibold shadow-2xs"
@@ -168,7 +242,11 @@ export default function Sidebar({
           <div className="space-y-1">
             <Link
               href="/demo"
-              className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC] transition-all duration-150 active:translate-y-px cursor-pointer"
+              onClick={() => {
+                setIsHovered(false);
+                setIsFocused(false);
+              }}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC] transition-colors duration-150 cursor-pointer"
             >
               <span className="flex items-center gap-2.5">
                 <svg className="w-4.5 h-4.5 text-[#64748B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -216,6 +294,45 @@ export default function Sidebar({
           </span>
         </div>
       </div>
-    </aside>
+    </>
+  );
+
+  if (isOverview) {
+    return (
+      <aside className="w-60 shrink-0 bg-white border-r border-[#E2E8F0] flex flex-col h-screen sticky top-0 z-30 select-none">
+        {sidebarContent}
+      </aside>
+    );
+  }
+
+  const isRevealed = isHovered || isFocused;
+
+  return (
+    <>
+      {/* Subtle left-edge hover reveal trigger strip (approx. 12px width) */}
+      <div
+        className="fixed inset-y-0 left-0 w-3 z-30 group cursor-pointer"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        aria-label="Expand sidebar"
+        role="region"
+      >
+        <div className="w-1 h-12 rounded-r bg-slate-300 group-hover:bg-[#2563EB] group-hover:w-1.5 transition-all duration-200 absolute top-1/2 -translate-y-1/2 left-0 opacity-40 group-hover:opacity-100" />
+      </div>
+
+      {/* Flyout Sidebar */}
+      <aside
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocusCapture={handleFocusCapture}
+        onBlurCapture={handleBlurCapture}
+        onKeyDown={handleKeyDown}
+        className={`fixed inset-y-0 left-0 z-40 w-60 h-screen bg-white border-r border-[#E2E8F0] shadow-2xl flex flex-col select-none transition-transform duration-[250ms] ease-out motion-reduce:transition-none ${
+          isRevealed ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {sidebarContent}
+      </aside>
+    </>
   );
 }
