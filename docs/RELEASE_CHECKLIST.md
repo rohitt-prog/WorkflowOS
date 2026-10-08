@@ -23,9 +23,9 @@ This checklist tracks the release-readiness verification of **WorkFlowOS — AI-
 
 ## Applications
 
-- [x] Gmail capability verified (Read/send email operations with approval gating)
-- [x] CRM capability verified (Contact/deal query and mutation operations)
-- [x] Chat capability verified (Channel messaging with approval gating)
+- [x] Gmail capability verified (read-only message search/read/download operations; no send/modify/delete scope)
+- [x] CRM capability verified (Mock/local contact/deal query and mutation operations)
+- [x] Chat capability verified (Mock/local channel messaging with approval gating)
 
 ---
 
@@ -63,9 +63,9 @@ This checklist tracks the release-readiness verification of **WorkFlowOS — AI-
 
 ## Evaluation
 
-- [x] Phase 15 results documented (Documented verified 100% precision/recall/safety benchmarks)
-- [x] Regression suite passes (439 backend unit/integration tests pass cleanly)
-- [x] End-to-end flow verified (Complete synthetic pipeline from ingestion to learning verified)
+- [x] Phase 15 results documented (Documented verified 10-scenario deterministic benchmark results across Scenarios A through J)
+- [x] Regression suite passes (Backend test suite passes cleanly without live credentials)
+- [x] End-to-end flow verified (Complete synthetic deterministic pipeline from ingestion to learning verified; no live enterprise validation claimed)
 
 ---
 

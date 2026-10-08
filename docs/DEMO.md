@@ -96,7 +96,7 @@ Learning ◄── Outcome ◄── Execution ◄── Strategy Selection ◄�
 ### Step 1 — Product Dashboard
 * **Route**: `/` (or `/dashboard`)
 * **What to Show**:
-  * Clean, production-grade interface showing system health, active agent status, recent activity volume, discovered workflows, and registered application integrations.
+  * Clean, portfolio-grade interface showing system health, active agent status, recent activity volume, discovered workflows, and registered application integrations.
   * System overview cards displaying execution metrics and privacy enforcement posture.
 * **Talking Point**:
   > *"WorkFlowOS is designed as a complete operating system for desktop workflow automation. Rather than requiring users to manually author automation scripts or build brittle RPA macros, it continuously surfaces candidate workflows for user review."*
@@ -126,7 +126,7 @@ Learning ◄── Outcome ◄── Execution ◄── Strategy Selection ◄�
 ### Step 4 — AI Workflow Understanding
 * **Route**: `/workflows/[id]`
 * **What to Show**:
-  * Structured declarative workflow generated from raw events: Step 1 (Extract customer email from CRM), Step 2 (Draft acknowledgment email in Gmail), Step 3 (Post notification to Slack/Chat).
+  * Structured declarative workflow generated from raw events: Step 1 (Extract customer contact from mock CRM), Step 2 (Search and read customer messages via read-only Gmail integration), Step 3 (Post notification to mock Chat).
   * Parameterization: variables extracted dynamically from event metadata rather than hard-coded strings.
 * **Talking Point**:
   > *"Raw application switches don't explain intent. WorkFlowOS routes candidate sequences through an AI understanding pipeline (Google Gemini with deterministic AST fallbacks) that classifies intent, identifies source and destination applications, parameterizes variables, and outputs a declarative workflow definition."*
@@ -207,7 +207,7 @@ Learning ◄── Outcome ◄── Execution ◄── Strategy Selection ◄�
 ### Step 11 — Application Ecosystem
 * **Route**: `/applications`
 * **What to Show**:
-  * Registered adapters: Google Workspace (Gmail), CRM System (HubSpot/Mock), Communication (Chat/Slack).
+  * Registered adapters: Google Workspace (Gmail — read-only OAuth integration), CRM System (mock/local integration), Communication (mock/local Chat integration).
   * Capability inspection: read-only vs. mutating operations clearly delineated.
   * Fail-closed behavior: attempts to call unregistered applications or unknown actions are rejected immediately.
 * **Talking Point**:
@@ -230,7 +230,7 @@ Learning ◄── Outcome ◄── Execution ◄── Strategy Selection ◄�
     * **Closed-Loop Taxonomy Accuracy**: 100%
     * **Safety Compliance Rate**: 100% (Zero unauthorized mutating bypasses across all benchmark scenarios)
 * **Talking Point**:
-  > *"WorkFlowOS was formally benchmarked across 24 synthetic scenarios in Phase 15, measuring end-to-end performance across discovery accuracy, planning reliability, safety compliance, and closed-loop adaptability."*
+  > *"WorkFlowOS was formally benchmarked across 10 synthetic scenarios (Scenarios A through J in `docs/PHASE_15_REPORT.md`) in Phase 15, measuring end-to-end performance across discovery accuracy, planning reliability, safety compliance, and closed-loop adaptability. Note that these metrics validate structural correctness and safety boundaries deterministically on synthetic matrices rather than noisy live enterprise traces."*
 
 ---
 

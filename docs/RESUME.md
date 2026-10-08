@@ -12,10 +12,9 @@ An extensible, privacy-first desktop workflow automation platform that observes 
 
 * **Engineered End-to-End Workflow Mining Engine**: Built a full-stack automation system in Python (FastAPI, Pydantic) and TypeScript (Next.js, Tailwind CSS) that transforms unstructured desktop telemetry into structured, parameterizable workflow graphs using sliding-window pattern mining and temporal n-gram frequency analysis.
 * **Architected Hybrid AI Understanding Pipeline**: Implemented an LLM-driven workflow synthesizer utilizing Google Gemini with deterministic AST fallbacks that infers cross-application intent, maps raw UI events into declarative schemas, and parameterizes dynamic variables across CRM, Email, and Chat domains.
-* **Designed Hierarchical Automation Planner & Executor**: Developed a fault-tolerant execution engine featuring a multi-tier fallback planner (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`) with step-level validation, exponential backoff retries, and failure containment, achieving 100% strategy selection accuracy on benchmark tests.
-* **Built Closed-Loop Adaptive Learning System**: Implemented a Bayesian evidence-updating engine that tracks runtime execution receipts, latency, and user feedback to dynamically adjust strategy confidence scores, auto-tuning future plan selection without model retraining.
+* **Built Closed-Loop Adaptive Learning System**: Built a deterministic evidence-weighted adaptive learning engine that tracks execution outcomes and user feedback to adjust strategy reliability without model retraining.
 * **Enforced Fail-Closed Privacy & Security Architecture**: Established strict safety boundaries eliminating invasive screenshots or keylogging; engineered centralized collection kill-switches, regex-based PII/credential redaction, and mandatory approval gates where mutating operations and unregistered actions fail closed by default.
-* **Benchmarked Rigorously Across Synthetic Scenarios**: Designed a 24-scenario evaluation harness measuring discovery accuracy, planning reliability, and safety compliance, demonstrating 100% precision, 100% recall, and zero unauthorized mutating action executions.
+* **Benchmarked Rigorously Across Synthetic Scenarios**: Designed a 10-scenario deterministic evaluation harness covering discovery, planning, execution, learning, and safety, demonstrating 100% precision, 100% recall, and zero unauthorized mutating action executions on deterministic benchmark suites.
 
 ---
 
@@ -37,7 +36,7 @@ The desktop activity agent (`agent/collector.py`) runs as a non-invasive backgro
 Workflow discovery operates on normalized event sequences stored in the database. The discovery engine filters events by session or user context, identifies coherent task segments using inactivity delimiters, and applies sliding-window n-gram mining to count recurring sub-sequences of application actions. Candidates that meet minimum frequency and confidence thresholds are structured as `WorkflowCandidate` models with metadata about support, step count, and occurrence timestamps.
 
 ### 6. How are repeated workflows detected?
-Repeated workflows are detected by tokenizing event streams into canonical action tuples (e.g., `(app: CRM, action: view_contact) → (app: Gmail, action: compose_email)`). The discovery module computes frequency distributions across sliding windows of lengths $k \in [2, 10]$. Sequences exceeding support thresholds are grouped, scored for consistency (temporal proximity and transition predictability), and deduplicated using longest common subsequence (LCS) analysis to prevent overlapping partial candidates from cluttering recommendations.
+Repeated workflows are detected by tokenizing event streams into canonical action tuples (e.g., `(app: CRM, action: view_contact) → (app: Gmail, action: read_message)`). The discovery module computes frequency distributions across sliding windows of lengths $k \in [2, 10]$. Sequences exceeding support thresholds are grouped, scored for consistency (temporal proximity and transition predictability), and deduplicated using longest common subsequence (LCS) analysis to prevent overlapping partial candidates from cluttering recommendations.
 
 ### 7. How does AI workflow generation work?
 Candidate event sequences are transformed into prompt payloads containing structured event sequences and contextual metadata. The AI generation service invokes Google Gemini via structured prompt engineering to infer high-level user intent, generate semantic step descriptions, extract input/output parameters, and assign task tags. If the external LLM is offline or unconfigured, an internal rule-based heuristic generator deterministically constructs a valid declarative workflow, ensuring the system remains completely operational offline.
@@ -62,7 +61,9 @@ The planner also consults the adaptive learning engine: if an integration strate
 The Declarative Workflow Engine executes steps sequentially with comprehensive fault isolation. Each step execution is wrapped in timeout enforcement and retry loops with exponential backoff for transient errors (e.g., network timeouts). If a step fails terminally, the engine halts downstream execution, logs detailed diagnostics, sets the workflow state to `FAILED`, and records an execution receipt in the learning system so future planning can adapt.
 
 ### 12. How does Phase 9 learning work?
-Phase 9 introduced adaptive evidence-based learning (`backend/learning/`). Every workflow run produces structured execution receipts capturing success/failure status, duration, error classification, and user override actions. The learning engine calculates updated empirical reliability ratings ($R = \frac{S + 1}{N + 2}$ Laplace smoothing) for specific (application, action, strategy) tuples, ensuring that planning decisions improve systematically with usage without needing model retraining.
+Phase 9 introduced deterministic evidence-weighted adaptive learning (`backend/learning/`). Every workflow run produces structured execution receipts capturing success/failure status, duration, error classification, and user override actions. The learning engine calculates updated empirical reliability ratings using Laplace smoothing and scores candidate utility via a bounded deterministic formula:
+$$L = \text{clamp}(0.50 + 0.10 A + 0.08 E_{edit} + 0.15 X_{succ} + 0.05 C_{rec} - 0.20 R - 0.15 X_{fail} - 0.05 I, 0, 1)$$
+This ensures that planning decisions improve systematically with usage without needing model retraining.
 
 ### 13. How does closed-loop intelligence work?
 Closed-loop intelligence connects runtime outcomes directly back to planning and discovery. When a workflow executes, outcome verification checks output assertions. The resulting evidence updates strategy reliability weights, identifies problematic parameter bindings, and feeds into discovery ranking so that frequently failed patterns are suppressed while highly reliable workflows receive top recommendations.
@@ -88,17 +89,17 @@ Unsafe automation is prevented through four concentric guardrails:
 4. **Execution Sandboxing**: Integrations execute through isolated adapter functions without arbitrary shell or code execution permissions.
 
 ### 17. How was the system evaluated?
-In Phase 15, WorkFlowOS was evaluated across a standardized benchmark suite of 24 synthetic test scenarios covering:
+In Phase 15, WorkFlowOS was evaluated across a standardized benchmark suite of 10 deterministic synthetic scenarios (Scenarios A through J) covering:
 * **Workflow Discovery**: Measured precision, recall, and F1 score against ground-truth repetitive event traces.
 * **Planning Accuracy**: Tested whether the planner selected the optimal strategy across diverse capability matrices.
 * **Closed-Loop Taxonomy**: Tested classification of execution outcomes and adaptive weight adjustments.
 * **Safety & Security Compliance**: Tested whether mutating actions, unapproved workflows, and unknown actions correctly failed closed.
-All benchmark suites achieved 100% compliance with zero security bypasses.
+All benchmark suites achieved 100% compliance with zero security bypasses on the synthetic dataset.
 
 ### 18. What are the current limitations?
-* **Evaluation Data**: The benchmark suite relies on synthetic deterministic scenario data rather than enterprise multi-tenant traces.
-* **Integration Ecosystem**: Integrations currently include Gmail, CRM, and Chat adapters (mock/local implementations with real capability schemas); full production deployments require live OAuth enterprise grants.
-* **Environment Scope**: Designed and tested as a modular single-node system running locally; does not include multi-tenant distributed orchestration or Kubernetes deployment manifests.
+* **Evaluation Data**: The benchmark suite relies on synthetic deterministic scenario data rather than enterprise multi-tenant traces; synthetic benchmark accuracy does not establish identical real-world edge-case generalization.
+* **Integration Ecosystem**: Integrations currently include read-only Gmail OAuth access, alongside mock/local CRM and Chat adapters with structured capability schemas; full production deployments require live enterprise grants and broader API coverage.
+* **Environment Scope**: Designed and tested as a local, safety-first workflow automation system running on a single node; does not include multi-tenant distributed orchestration or Kubernetes deployment manifests.
 * **UI Automation Fragility**: Semantic UI and browser automation tiers remain sensitive to unexpected DOM mutations or OS accessibility permission changes.
 
 ### 19. What would be the next engineering direction?

@@ -4,7 +4,7 @@ WorkFlowOS is an extensible, privacy-first desktop workflow automation system de
 
 Unlike traditional Robotic Process Automation (RPA) tools that require manual macro scripting and break upon minor UI changes, WorkFlowOS operates as an intelligent workflow discovery operating system. It observes routine desktop interactions non-invasively, identifies recurring cross-application sequences, converts them into structured declarative workflows, and validates all mutating operations through strict human approval.
 
-The system is engineered with an emphasis on production-grade reliability: it features a 5-tier hierarchical automation planner (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`), comprehensive PII and credential redaction, fail-closed safety boundaries, and a Bayesian learning feedback loop that dynamically adjusts execution confidence based on runtime receipts.
+The system is a local, safety-first workflow automation platform engineered with production-oriented safety boundaries: it features a 5-tier hierarchical automation planner (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`), comprehensive PII and credential redaction, fail-closed safety boundaries, a read-only Gmail integration, and a deterministic evidence-weighted adaptive learning engine that dynamically adjusts execution confidence based on runtime receipts.
 
 ---
 
@@ -102,7 +102,7 @@ Learn
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │             Outcome Evaluator & Adaptive Loop          │
-│    (11-Category Taxonomy • Bayesian Weight Updates)    │
+│  (11-Category Taxonomy • Evidence-Weighted Updates)   │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -124,13 +124,13 @@ WorkFlowOS was engineered across 16 sequential, verified architectural phases:
 | **Phase 6** | Declarative Engine | AST step validation, variable interpolation, condition branches | Complete |
 | **Phase 7** | Integrations & Reliability | Fernet-encrypted token storage, Gmail OAuth 2.0, state recovery | Complete |
 | **Phase 8** | Discovery Intelligence | Calibrated confidence, DP alignment, ranking, explainability | Complete |
-| **Phase 9** | Adaptive Learning | Human review feedback loops, Bayesian learning score formula | Complete |
+| **Phase 9** | Adaptive Learning | Human review feedback loops, deterministic adaptive strategy scoring formula | Complete |
 | **Phase 10** | Intelligent Automation | Multi-strategy planning hierarchy, failure-aware fallback | Complete |
 | **Phase 11** | Closed-Loop Intelligence | 11-category failure taxonomy, strategy outcome feedback | Complete |
 | **Phase 12** | Privacy & Safety | Authoritative kill-switch, Luhn credit card & token redaction | Complete |
 | **Phase 13** | Application Ecosystem | Capability registry, read-only vs mutating, fail-closed actions | Complete |
 | **Phase 14** | Productization | Unified Next.js product dashboard, onboarding & telemetry | Complete |
-| **Phase 15** | Evaluation & Benchmarking | 24-scenario benchmark harness, deterministic evaluation | Complete |
+| **Phase 15** | Evaluation & Benchmarking | 10-scenario deterministic benchmark, deterministic evaluation | Complete |
 | **Phase 16** | Final Product Release | Production documentation, full regression, portfolio release | Complete |
 
 ---
@@ -148,11 +148,11 @@ WorkFlowOS was engineered across 16 sequential, verified architectural phases:
 | **Declarative Execution Engine** | Implemented | Step execution with timeout control, exponential retry backoff, and variable interpolation |
 | **Desktop Activity Agent** | Implemented | Non-invasive macOS agent capturing active window focus and metadata at 1.0s intervals |
 | **Application Ecosystem** | Implemented | Decoupled adapter contracts (Gmail, CRM, Chat) with explicit capability schemas |
-| **Closed-Loop Adaptive Learning** | Implemented | Bayesian evidence updating ($L \in [0.0, 1.0]$) dynamically tuning strategy selection |
+| **Closed-Loop Adaptive Learning** | Implemented | Deterministic evidence-weighted adaptive learning ($L \in [0.0, 1.0]$) dynamically tuning strategy selection |
 | **Privacy & Secret Redaction** | Implemented | Authoritative collection switch, Luhn-verified PAN scrubbing, credential pattern redaction |
 | **Fail-Closed Unknown Handling** | Implemented | Unregistered actions and unknown apps fail closed; cannot be classified as read-only |
 | **Product Dashboard UI** | Implemented | Next.js 16 (React 19, Tailwind CSS v4) with unified navigation, activity stream, execution logs |
-| **Evaluation Framework** | Implemented | 24-scenario synthetic benchmark harness testing discovery, planning, learning, and safety |
+| **Evaluation Framework** | Implemented | 10-scenario deterministic benchmark testing discovery, planning, learning, and safety |
 
 ---
 
@@ -188,12 +188,14 @@ WorkFlowOS interacts with external applications through an explicit, decoupled i
 
 | Application | Adapter Type | Supported Operations | Capability Safety |
 |:---|:---|:---|:---:|
-| **Gmail** | Google Workspace OAuth 2.0 | `list_recent_messages` | Read-Only (Safe) |
-| **Gmail** | Google Workspace OAuth 2.0 | `send_email` | Mutating (Approval Gated) |
-| **CRM System** | Native API / Mock CRM | `search_customer`, `get_contact` | Read-Only (Safe) |
-| **CRM System** | Native API / Mock CRM | `update_customer`, `create_deal` | Mutating (Approval Gated) |
-| **Chat / Messaging** | Webhook / Mock Chat | `read_channel` | Read-Only (Safe) |
-| **Chat / Messaging** | Webhook / Mock Chat | `post_message` | Mutating (Approval Gated) |
+| **Gmail** | Google Workspace OAuth 2.0 (Read-Only) | `list_recent_messages`, `search_messages`, `read_message`, `download_attachment` | Read-Only (Safe) |
+| **CRM System** | Local Mock Adapter | `search_customer`, `get_contact` | Read-Only (Safe) |
+| **CRM System** | Local Mock Adapter | `update_customer`, `create_deal` | Mutating (Approval Gated) |
+| **Chat / Messaging** | Local Mock Adapter | `read_channel` | Read-Only (Safe) |
+| **Chat / Messaging** | Local Mock Adapter | `post_message` | Mutating (Approval Gated) |
+
+> [!NOTE]
+> **Gmail Integration Scope**: Gmail uses read-only OAuth access (`https://www.googleapis.com/auth/gmail.readonly`). It intentionally supports only read operations (`list_recent_messages`, `search_messages`, `read_message`, and `download_attachment`). WorkFlowOS cannot send, modify, or delete emails in Gmail.
 
 ### Fail-Closed Security Policy
 * **Unregistered Actions**: Any action not explicitly declared in an application's capability manifest is rejected immediately (`UNKNOWN_ACTION`). It is **never** classified as read-only and **cannot** execute silently.
@@ -219,7 +221,7 @@ WorkFlowOS enforces a strict privacy boundary:
 
 ## Phase 15 Evaluation & Benchmark Results
 
-In Phase 15, WorkFlowOS was evaluated across a standardized benchmark suite of 24 synthetic scenarios testing discovery precision, strategy planning, failure classification, and security guardrails:
+In Phase 15, WorkFlowOS was evaluated across a standardized 10-scenario deterministic benchmark (Scenarios A through J in `docs/PHASE_15_REPORT.md` and `evaluation/README.md`) testing discovery precision, strategy planning, failure classification, and security guardrails:
 
 | Evaluation Benchmark | Metric | Verified Result | Target Standard |
 |:---|:---|:---:|:---:|
@@ -235,7 +237,7 @@ In Phase 15, WorkFlowOS was evaluated across a standardized benchmark suite of 2
 | **Safety Compliance** | Safety Compliance Rate | **100.0%** | $100.0\%$ |
 | **End-to-End Pipeline** | Full Synthetic Run Success | **100.0%** | $100.0\%$ |
 
-*Note: Benchmarks reflect deterministic evaluation over synthetic scenario matrices. Full benchmark reports are documented in [docs/PHASE_15_REPORT.md](docs/PHASE_15_REPORT.md).*
+*Note: Benchmarks reflect deterministic evaluation over synthetic scenario matrices (Scenarios A through J). These synthetic results validate structural correctness and safety boundaries under controlled conditions; they do not establish 100% production accuracy across noisy, unconstrained real-world environments. Full benchmark reports are documented in [docs/PHASE_15_REPORT.md](docs/PHASE_15_REPORT.md).*
 
 ---
 
@@ -342,7 +344,7 @@ WorkFlowOS provides a complete, 12-step guided demonstration flow:
 6. **Strategy Planning**: Inspect the hierarchical plan (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`).
 7. **Execution**: Trace step-by-step progress with retry and error containment.
 8. **Outcome Evaluation**: Review post-condition evaluation and 11-category failure taxonomy.
-9. **Adaptive Learning**: Inspect Bayesian evidence records and dynamic confidence adjustments.
+9. **Adaptive Learning**: Inspect deterministic evidence-weighted adaptive learning records and dynamic confidence adjustments.
 10. **Privacy Controls**: Test the authoritative kill-switch and PII redaction engine.
 11. **Application Ecosystem**: Verify capability schemas and fail-closed security for unknown actions.
 12. **Evaluation Suite**: Run the Phase 15 benchmark harness.
@@ -364,7 +366,7 @@ The backend exposes a clean REST API documented via OpenAPI at `http://127.0.0.1
 | **Workflow Management** | `GET /api/workflows`, `POST /api/workflows` | Register, retrieve, and update declarative workflows |
 | **Automation Planning** | `POST /api/workflows/{id}/automation-plan` | Generate deterministic multi-strategy automation plans |
 | **Execution Engine** | `POST /api/automation/execute` | Execute approved workflows with live progress tracking |
-| **Closed-Loop Learning** | `GET /api/workflows/{id}/learning` | Inspect Bayesian learning scores and evidence records |
+| **Closed-Loop Learning** | `GET /api/workflows/{id}/learning` | Inspect deterministic adaptive learning scores and evidence records |
 | **Privacy Controls** | `GET /api/privacy/status`, `POST /api/privacy/toggle` | Manage authoritative kill-switch and retention pruning |
 | **Integrations** | `GET /api/integrations`, `GET /api/integrations/gmail/connect`| Inspect connected apps and initiate OAuth flows |
 
@@ -424,9 +426,9 @@ workflowOS/
 
 To maintain absolute technical transparency, the current implementation has the following defined boundaries:
 
-1. **Synthetic Benchmark Dataset**: Phase 15 evaluation metrics reflect testing against a standardized 24-scenario synthetic benchmark harness rather than live enterprise multi-tenant traces.
-2. **Local Single-User Architecture**: WorkFlowOS is designed and tested as a single-node system running locally; it does not currently provide multi-tenant team isolation or Kubernetes clustering.
-3. **Mock & In-Memory Application Adapters**: While the Gmail integration supports live Google OAuth 2.0 authentication, CRM and Chat capabilities currently utilize local mock adapters implementing realistic capability schemas.
+1. **Synthetic Benchmark Dataset**: Phase 15 evaluation metrics reflect testing against a standardized 10-scenario deterministic benchmark rather than live enterprise multi-tenant traces.
+2. **Local Single-User Architecture**: WorkFlowOS is designed and tested as a local, safety-first workflow automation platform running on a single node; it does not currently provide multi-tenant team isolation or Kubernetes clustering.
+3. **Mock & In-Memory Application Adapters**: While the Gmail integration supports live Google OAuth 2.0 authentication (strictly read-only OAuth access), CRM and Chat capabilities currently utilize local mock adapters implementing realistic capability schemas.
 4. **UI Automation DOM Sensitivity**: Browser and UI automation tiers are vulnerable to unexpected third-party DOM changes, application redesigns, or OS accessibility permission revocations.
 5. **External AI API Dependency**: High-level natural language prompt synthesis relies on the external Google Gemini API; when unconfigured, the system gracefully falls back to deterministic rule-based heuristic generation.
 

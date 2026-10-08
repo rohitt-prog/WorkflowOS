@@ -31,7 +31,7 @@ models.py        — Pydantic models: DiscoveredWorkflow, DiscoveryResult, Workf
     ↓
 backend/routes/discovery.py  — GET /api/discovery/repeated (with min_confidence, min_ranking_score, filter_noise, include_suppressed)
     ↓
-evaluation.py    — Deterministic 24-scenario synthetic benchmark harness & explainability verification suite
+evaluation.py    — Deterministic 10-scenario synthetic benchmark harness & explainability verification suite
 ```
 
 ---
@@ -48,7 +48,7 @@ evaluation.py    — Deterministic 24-scenario synthetic benchmark harness & exp
 | `models.py` | `DiscoveredWorkflow`, `DiscoveryResult`, `WorkflowExplanation`, `ConfidenceBreakdown`, and `RankingBreakdown` Pydantic models |
 | `sequence.py` | `build_session_sequences()` and `fetch_session_sequences()` with session isolation |
 | `service.py` | `DiscoveryService` — wires event retrieval, session extraction, detection, ranking, and explanations |
-| `evaluation.py` | Deterministic 24-scenario synthetic evaluation dataset, explainability audit, and comparative benchmark runner |
+| `evaluation.py` | Deterministic 10-scenario synthetic evaluation dataset, explainability audit, and comparative benchmark runner |
 
 ---
 
@@ -263,7 +263,7 @@ In the Next.js discovery interface (`DiscoveryView.tsx`):
 
 ## Deterministic Synthetic Evaluation Dataset
 
-`discovery/evaluation.py` defines 24 standardized test scenarios with explicit ground truth:
+`discovery/evaluation.py` defines standardized test scenarios with explicit ground truth (evaluated through the 10-scenario synthetic benchmark harness):
 
 ### Phase 8.1 Regression Scenarios (1–8)
 1. `scenario_1_identical_repeated`: Canonical 5-step flow across 4 sessions.

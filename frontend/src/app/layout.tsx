@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "WorkFlowOS | Intelligent Workflow Automation",
   description:
-    "WorkFlowOS — Observational desktop activity agent, workflow discovery, AI proposal generation, and production-grade workflow automation engine.",
+    "WorkFlowOS — Observational desktop activity agent, workflow discovery, AI proposal generation, and local, safety-first workflow automation engine.",
   keywords: ["workflow", "automation", "AI", "macOS", "desktop agent"],
 };
 
