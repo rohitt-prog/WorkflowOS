@@ -9,6 +9,9 @@ Implements the BaseIntegrationAdapter interface for Google Workspace Gmail:
 5. Strict schema validation, parameter bounding (max 20 messages), and credential safety.
 """
 
+import os
+import base64
+import hashlib
 import time
 import asyncio
 import logging
@@ -43,6 +46,22 @@ logger = logging.getLogger(__name__)
 # Gmail API Base URL
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
+# Resource & Size Safety: Conservative default attachment size limit (10 MB)
+DEFAULT_MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
+
+
+def get_max_attachment_size_bytes() -> int:
+    """Retrieves configured maximum attachment download limit, defaulting to 10 MB."""
+    env_val = os.getenv("GMAIL_MAX_ATTACHMENT_SIZE_BYTES")
+    if env_val:
+        try:
+            val = int(env_val)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
+
 
 def get_oauth_token_storage() -> EncryptedTokenStorage:
     """
@@ -63,10 +82,12 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
         oauth_manager: Optional[GoogleOAuthManager] = None,
         token_storage: Optional[CredentialStorage] = None,
         http_client: Optional[httpx.AsyncClient] = None,
+        max_attachment_size_bytes: Optional[int] = None,
     ):
         self._oauth_manager = oauth_manager or default_google_oauth_manager
         self._token_storage = token_storage
         self._http_client = http_client
+        self._max_attachment_size_bytes = max_attachment_size_bytes
         self._refresh_lock = asyncio.Lock()
 
         metadata = IntegrationMetadata(
@@ -84,6 +105,13 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
     @property
     def oauth_scopes(self) -> List[str]:
         return [GMAIL_READONLY_SCOPE]
+
+    @property
+    def max_attachment_size_bytes(self) -> int:
+        """Configured maximum download size in bytes for attachments."""
+        if self._max_attachment_size_bytes is not None and self._max_attachment_size_bytes > 0:
+            return self._max_attachment_size_bytes
+        return get_max_attachment_size_bytes()
 
     def _get_storage(self) -> CredentialStorage:
         """Lazily obtains and memoizes token storage on the adapter instance to ensure a single shared store."""
@@ -199,9 +227,8 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
                     ActionParameterDefinition(
                         name="attachment_id",
                         type=ParameterType.STRING,
-                        required=False,
-                        default=None,
-                        description="Optional attachment ID",
+                        required=True,
+                        description="Gmail attachment ID",
                     ),
                     ActionParameterDefinition(
                         name="filename",
@@ -209,6 +236,20 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
                         required=False,
                         default=None,
                         description="Optional attachment file name",
+                    ),
+                    ActionParameterDefinition(
+                        name="max_size_bytes",
+                        type=ParameterType.INTEGER,
+                        required=False,
+                        default=None,
+                        description="Optional maximum allowed attachment size in bytes",
+                    ),
+                    ActionParameterDefinition(
+                        name="include_raw_data",
+                        type=ParameterType.BOOLEAN,
+                        required=False,
+                        default=False,
+                        description="Whether to include base64-encoded attachment bytes in result",
                     ),
                 ],
                 required_scopes=[GMAIL_READONLY_SCOPE],
@@ -244,6 +285,14 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
                 if raw_max > 20:
                     return False, "Parameter 'max_results' cannot exceed 20 for read-only inspection."
 
+        if action_name == "download_attachment":
+            raw_max_size = (parameters or {}).get("max_size_bytes")
+            if raw_max_size is not None:
+                if not isinstance(raw_max_size, int) or isinstance(raw_max_size, bool):
+                    return False, "Parameter 'max_size_bytes' must be an integer."
+                if raw_max_size < 1:
+                    return False, "Parameter 'max_size_bytes' must be at least 1."
+
         return True, None
 
     async def _do_connect(self, credentials: Optional[Dict[str, Any]] = None) -> bool:
@@ -277,9 +326,13 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
             return True
 
         # If connect called without credentials, verify stored credentials exist
+        has_stored = await storage.has_credential(self.id)
         stored = await storage.get_credential(self.id)
         if not stored or not stored.get("access_token"):
-            self._last_error = "No valid Gmail credentials found. Please authorize via Google OAuth."
+            if has_stored:
+                self._last_error = "Stored Gmail credential could not be decrypted. Please reconnect."
+            else:
+                self._last_error = "No valid Gmail credentials found. Please authorize via Google OAuth."
             return False
 
         return True
@@ -528,12 +581,7 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
             "Accept": "application/json",
         }
         msg_url = f"{GMAIL_API_BASE}/messages/{msg_id}"
-        detail_params = [
-            ("format", "metadata"),
-            ("metadataHeaders", "From"),
-            ("metadataHeaders", "Subject"),
-            ("metadataHeaders", "Date"),
-        ]
+        detail_params = [("format", "full")]
 
         try:
             if self._http_client:
@@ -551,11 +599,32 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
 
         if detail_res.status_code == 200:
             d_json = detail_res.json()
-            headers_list = d_json.get("payload", {}).get("headers", [])
+            payload = d_json.get("payload", {})
+            headers_list = payload.get("headers", [])
             header_map = {
                 str(h.get("name", "")).lower(): str(h.get("value", ""))
                 for h in headers_list
             }
+
+            def _extract_attachments(part_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
+                atts: List[Dict[str, Any]] = []
+                b_body = part_dict.get("body", {})
+                a_id = b_body.get("attachmentId")
+                fn = part_dict.get("filename", "")
+                if a_id:
+                    atts.append({
+                        "attachment_id": a_id,
+                        "filename": fn or "attachment",
+                        "size_bytes": b_body.get("size", 0),
+                        "mime_type": part_dict.get("mimeType", "application/octet-stream"),
+                    })
+                for child_part in part_dict.get("parts", []):
+                    if isinstance(child_part, dict):
+                        atts.extend(_extract_attachments(child_part))
+                return atts
+
+            attachments = _extract_attachments(payload)
+
             return {
                 "service": self.id,
                 "action": "read_message",
@@ -565,6 +634,7 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
                 "subject": header_map.get("subject", ""),
                 "date": header_map.get("date", ""),
                 "snippet": d_json.get("snippet", ""),
+                "attachments": attachments,
             }
 
         raise IntegrationConnectionError(
@@ -575,22 +645,147 @@ class GmailIntegrationAdapter(BaseIntegrationAdapter):
         self, parameters: Dict[str, Any], context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Executes read-only download_attachment: verifies attachment presence and metadata.
+        Executes read-only download_attachment: retrieves and decodes attachment from Gmail API.
         """
         msg_id = str(parameters.get("message_id") or "").strip()
         if not msg_id:
             raise IntegrationValidationError("Parameter 'message_id' is required.")
 
-        # Ensure valid access token is active
-        await self.get_valid_access_token()
-        att_id = parameters.get("attachment_id") or "att_spec_01"
-        filename = parameters.get("filename") or "attachment.pdf"
+        att_id = str(parameters.get("attachment_id") or "").strip()
+        if not att_id:
+            raise IntegrationValidationError("Parameter 'attachment_id' is required.")
 
-        return {
+        filename = str(parameters.get("filename") or "").strip() or "attachment"
+
+        # Determine effective size limit (bounded by configured adapter maximum)
+        configured_limit = self.max_attachment_size_bytes
+        param_limit = parameters.get("max_size_bytes")
+        if param_limit is not None and isinstance(param_limit, int) and param_limit > 0:
+            effective_limit = min(configured_limit, param_limit)
+        else:
+            effective_limit = configured_limit
+
+        # 1. Ensure valid access token (refreshes automatically if expired)
+        access_token = await self.get_valid_access_token()
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
+        att_url = f"{GMAIL_API_BASE}/messages/{msg_id}/attachments/{att_id}"
+
+        # 2. Fetch attachment from Gmail API
+        try:
+            if self._http_client:
+                att_res = await self._http_client.get(
+                    att_url, headers=headers, timeout=20.0
+                )
+            else:
+                async with httpx.AsyncClient() as client:
+                    att_res = await client.get(
+                        att_url, headers=headers, timeout=20.0
+                    )
+        except httpx.TimeoutException as e:
+            safe_err = sanitize_log_message(str(e))
+            logger.error(f"[{self.id}] Timeout downloading attachment '{att_id}': {safe_err}")
+            raise IntegrationConnectionError("Network timeout communicating with Gmail API.") from e
+        except Exception as e:
+            safe_err = sanitize_log_message(str(e))
+            logger.error(f"[{self.id}] Network error downloading attachment '{att_id}': {safe_err}")
+            raise IntegrationConnectionError(f"Network error downloading Gmail attachment: {safe_err}") from e
+
+        # 3. HTTP status code handling
+        if att_res.status_code == 401:
+            self._status = IntegrationStatus.ERROR
+            self._last_error = "Gmail authorization expired or was revoked. Please reconnect."
+            raise IntegrationConnectionError("Gmail authorization expired or was revoked. Please reconnect.")
+        elif att_res.status_code == 403:
+            safe_err = sanitize_log_message(att_res.text)
+            raise IntegrationConnectionError(f"Gmail API permission denied (403): {safe_err}")
+        elif att_res.status_code == 404:
+            raise IntegrationConnectionError(
+                f"Gmail attachment '{att_id}' for message '{msg_id}' was not found (404)."
+            )
+        elif att_res.status_code in (429, 503):
+            raise IntegrationConnectionError(
+                "Gmail API rate limit exceeded or service unavailable. Please retry later."
+            )
+        elif att_res.status_code != 200:
+            safe_err = sanitize_log_message(att_res.text)
+            raise IntegrationConnectionError(f"Gmail API error ({att_res.status_code}): {safe_err}")
+
+        # 4. Check Content-Length if present
+        content_len = att_res.headers.get("content-length")
+        if content_len:
+            try:
+                # JSON payload with base64 data is ~1.33x raw size plus json wrapper
+                if int(content_len) > (effective_limit * 2 + 4096):
+                    raise IntegrationValidationError(
+                        f"Attachment payload size exceeds configured limit of {effective_limit} bytes."
+                    )
+            except ValueError:
+                pass
+
+        # 5. Parse JSON
+        try:
+            att_data = att_res.json()
+        except Exception as e:
+            raise IntegrationConnectionError("Malformed Gmail API response: invalid JSON.") from e
+
+        if not isinstance(att_data, dict):
+            raise IntegrationConnectionError("Malformed Gmail API response: expected JSON object.")
+
+        # Check declared size if present in JSON
+        declared_size = att_data.get("size")
+        if declared_size is not None and isinstance(declared_size, int):
+            if declared_size > effective_limit:
+                raise IntegrationValidationError(
+                    f"Attachment size ({declared_size} bytes) exceeds configured limit of {effective_limit} bytes."
+                )
+
+        # 6. Extract base64url data
+        raw_b64 = att_data.get("data")
+        if not raw_b64 or not isinstance(raw_b64, str) or not raw_b64.strip():
+            raise IntegrationConnectionError("Gmail API response missing attachment data.")
+
+        # 7. Decode base64url payload
+        cleaned_b64 = raw_b64.strip()
+        padding_needed = (4 - len(cleaned_b64) % 4) % 4
+        padded_b64 = cleaned_b64 + ("=" * padding_needed)
+
+        try:
+            decoded_bytes = base64.urlsafe_b64decode(padded_b64)
+        except Exception as e:
+            raise IntegrationConnectionError("Malformed Gmail attachment payload: invalid base64url data.") from e
+
+        # 8. Check decoded bytes against size limit
+        actual_size = len(decoded_bytes)
+        if actual_size > effective_limit:
+            raise IntegrationValidationError(
+                f"Attachment size ({actual_size} bytes) exceeds configured limit of {effective_limit} bytes."
+            )
+
+        # 9. Compute integrity hash (SHA-256)
+        sha256_hash = hashlib.sha256(decoded_bytes).hexdigest()
+
+        # Log metadata only - never log attachment bytes or tokens!
+        logger.info(
+            f"[{self.id}] Successfully downloaded attachment '{att_id}' "
+            f"({actual_size} bytes, sha256={sha256_hash[:8]}...) for message '{msg_id}'."
+        )
+
+        result: Dict[str, Any] = {
             "service": self.id,
             "action": "download_attachment",
             "message_id": msg_id,
             "attachment_id": att_id,
             "filename": filename,
-            "status": "Attachment metadata verified in read-only mode.",
+            "size_bytes": actual_size,
+            "sha256": sha256_hash,
+            "status": "downloaded",
         }
+
+        if parameters.get("include_raw_data"):
+            result["data_base64"] = base64.b64encode(decoded_bytes).decode("ascii")
+
+        return result

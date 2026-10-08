@@ -9,8 +9,10 @@ Exposes deterministic customer operations:
 """
 
 import copy
+import email.utils
 import logging
-from typing import Dict, Any, Optional, List
+import re
+from typing import Dict, Any, Optional, List, Tuple
 
 from integrations.base import BaseIntegrationAdapter
 from integrations.models import (
@@ -29,7 +31,7 @@ DEFAULT_CRM_CUSTOMERS: Dict[str, Dict[str, Any]] = {
     "rahul": {
         "id": "cust_rahul_01",
         "name": "Rahul Sharma",
-        "email": "rahul.sharma@example.com",
+        "email": "rohit9.mwsp@gmail.com",
         "company": "Acme Corp",
         "tier": "Standard",
         "notes": "Interested in enterprise workflow automation.",
@@ -217,28 +219,89 @@ class CrmIntegrationAdapter(BaseIntegrationAdapter):
             handler=self._handle_update_customer,
         )
 
+    @staticmethod
+    def normalize_sender_info(query_str: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Parses a sender or query string (e.g. 'Rahul Sharma <rahul.sharma@example.com>')
+        into (normalized_name, normalized_email).
+        """
+        if not query_str:
+            return None, None
+        raw = query_str.strip()
+        parsed_name, parsed_email = email.utils.parseaddr(raw)
+
+        clean_name = parsed_name.strip().strip('"').strip("'") or None
+        clean_email = parsed_email.strip().lower() or None
+
+        # If parseaddr didn't separate name and email, but format was "Name <email>"
+        if not clean_name and "<" in raw and ">" in raw:
+            prefix = raw.split("<", 1)[0].strip().strip('"').strip("'")
+            if prefix:
+                clean_name = prefix
+
+        # If input was simply an email without angle brackets
+        if not clean_email and "@" in raw:
+            m = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", raw)
+            if m:
+                clean_email = m.group(0).lower()
+
+        # If input had no email at all: "Rahul Sharma"
+        if not clean_name and not clean_email:
+            clean_name = raw
+
+        return clean_name, clean_email
+
     def _find_customer(self, query: str) -> Optional[Dict[str, Any]]:
-        """Case-insensitive customer lookup helper."""
+        """
+        Deterministic customer lookup helper.
+        Matches by:
+        1. Exact customer ID or key (case-insensitive)
+        2. Exact normalized email match
+        3. Exact normalized full-name match
+        4. Exact match against company
+        """
         if not query:
             return None
-        q = query.strip().lower()
-        # Direct key match
-        if q in self._customers:
-            return self._customers[q]
-        # Match by name, email, or id
-        for key, cust in self._customers.items():
+        q = query.strip()
+        q_lower = q.lower()
+
+        # 1. Exact customer key or ID match
+        if q_lower in self._customers:
+            return self._customers[q_lower]
+        for cust in self._customers.values():
+            if cust.get("id", "").strip().lower() == q_lower:
+                return cust
+
+        # Normalize potential Gmail sender header / query
+        norm_name, norm_email = self.normalize_sender_info(q)
+
+        # 2. Exact normalized email match
+        if norm_email:
+            for cust in self._customers.values():
+                if cust.get("email", "").strip().lower() == norm_email:
+                    return cust
+
+        # 3. Exact normalized full-name match
+        if norm_name:
+            norm_name_lower = norm_name.lower()
+            for cust in self._customers.values():
+                if cust.get("name", "").strip().lower() == norm_name_lower:
+                    return cust
+
+        # 4. Fallback exact match on raw query against name, email, or company
+        for cust in self._customers.values():
             if (
-                q in cust.get("name", "").lower()
-                or q in cust.get("email", "").lower()
-                or q == cust.get("id", "").lower()
-                or q in cust.get("company", "").lower()
+                cust.get("name", "").strip().lower() == q_lower
+                or cust.get("email", "").strip().lower() == q_lower
+                or cust.get("company", "").strip().lower() == q_lower
             ):
                 return cust
+
         return None
 
     async def _handle_search_customer(
         self, parameters: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    ) -> Any:
         """Executes read-only customer search."""
         query = str(
             parameters.get("customer_name")
@@ -272,13 +335,19 @@ class CrmIntegrationAdapter(BaseIntegrationAdapter):
                     "customers": [copy.deepcopy(matched)],
                     "count": 1,
                 }
-            return {
-                "found": False,
-                "query": query,
-                "customers": [],
-                "count": 0,
-                "message": f"Customer '{query}' not found in CRM.",
-            }
+            # Customer not found -> Return failure result so workflow PAUSES for human intervention
+            return IntegrationActionResult(
+                action_name="search_customer",
+                success=False,
+                message=f"Customer '{query}' not found in CRM.",
+                data={
+                    "found": False,
+                    "query": query,
+                    "customers": [],
+                    "count": 0,
+                    "message": f"Customer '{query}' not found in CRM.",
+                },
+            )
         return {
             "found": True,
             "customers": [copy.deepcopy(c) for c in self._customers.values()],
@@ -360,17 +429,7 @@ class CrmIntegrationAdapter(BaseIntegrationAdapter):
 
         matched = self._find_customer(target)
         if not matched:
-            key = target.lower().replace(" ", "_")
-            matched = {
-                "id": f"cust_{key}",
-                "name": target,
-                "email": f"{key}@example.com",
-                "company": "Customer Company",
-                "tier": "Standard",
-                "notes": "",
-                "status": "Active",
-            }
-            self._customers[key] = matched
+            raise IntegrationValidationError(f"Customer '{target}' not found in CRM. Update rejected.")
 
         # Apply updates
         updates = parameters.get("updates")

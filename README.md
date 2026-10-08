@@ -66,8 +66,8 @@ flowchart TD
 * **Authoritative Collection Kill-Switch**: The `ACTIVITY_COLLECTION_ENABLED` flag immediately stops client-side collection and drops incoming events at the ingestion gate.
 * **Execution State Tracking**: Maintains transactional lifecycle states (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`) with step-level duration and receipt capture.
 * **11-Category Failure Taxonomy**: Classifies execution failures deterministically (`TIMEOUT`, `AUTHENTICATION`, `AUTHORIZATION`, `NETWORK`, `VALIDATION`, `TARGET_NOT_FOUND`, `UNSUPPORTED_ACTION`, `RATE_LIMIT`, `INTEGRATION_ERROR`, `BROWSER_ERROR`, `UNKNOWN`).
-* **Adaptive Strategy Scoring**: Dynamically adjusts strategy preference based on empirical success/failure receipts using a bounded deterministic evidence formula ($L \in [0.0, 1.0]$).
-* **Automated Regression Test Suite**: 459 backend unit, integration, and benchmark tests verifying discovery, planning, privacy, learning, and safety invariants.
+* **Adaptive Strategy Scoring**: Dynamically adjusts strategy preference based on empirical success/failure receipts using a bounded deterministic evidence-weighted adaptive learning/scoring formula ($L \in [0.0, 1.0]$).
+* **Automated Regression Test Suite**: 476 backend unit, integration, and benchmark tests verifying discovery, planning, privacy, learning, and safety invariants.
 
 ---
 
@@ -279,7 +279,7 @@ WorkFlowOS includes a standalone, deterministic benchmark harness (`evaluation/r
 
 ## Testing
 
-The repository contains 459 automated test cases covering discovery algorithms, planning logic, AI synthesis, privacy scrubbing, integration contracts, and regression suites.
+The repository contains 476 automated test cases covering discovery algorithms, planning logic, AI synthesis, privacy scrubbing, integration contracts, and regression suites.
 
 ### Running Backend Tests
 

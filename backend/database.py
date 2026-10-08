@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import certifi
 from typing import Optional
@@ -10,7 +11,22 @@ _mongo_client: Optional[AsyncIOMotorClient] = None
 _database: Optional[AsyncIOMotorDatabase] = None
 
 def get_client() -> AsyncIOMotorClient:
-    global _mongo_client
+    global _mongo_client, _database
+    if _mongo_client is not None:
+        try:
+            if hasattr(_mongo_client, "get_io_loop"):
+                client_loop = _mongo_client.get_io_loop()
+                if client_loop.is_closed():
+                    _mongo_client = None
+                    _database = None
+                else:
+                    running_loop = asyncio.get_running_loop()
+                    if client_loop != running_loop:
+                        _mongo_client = None
+                        _database = None
+        except Exception:
+            pass
+
     if _mongo_client is None:
         uri = settings.MONGODB_URI.strip()
         if not uri:
@@ -88,6 +104,11 @@ async def init_indexes():
         await learning_collection.create_index([("workflow_id", 1)], unique=True)
         await learning_collection.create_index([("updated_at", -1)])
         logger.info("MongoDB indexes verified on collection 'workflow_learning_state'.")
+
+        # Integration credentials collection indexes (Persistent encrypted OAuth tokens)
+        creds_collection = db["integration_credentials"]
+        await creds_collection.create_index([("integration_id", 1)], unique=True)
+        logger.info("MongoDB indexes verified on collection 'integration_credentials'.")
     except Exception as e:
         logger.warning(f"Could not initialize MongoDB indexes: {e}")
 

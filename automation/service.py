@@ -241,20 +241,20 @@ class AutomationService:
         template2 = WorkflowDefinition(
             id="wf_gmail_triage_pipeline",
             name="Gmail Inbox Triage & Customer Lookup",
-            description="Reads recent unread emails from Gmail, extracts sender inquiries, and queries CRM.",
+            description="Reads emails with attachments from Gmail, downloads attachments, cross-references CRM, updates customer records, and notifies team chat.",
             version="1.0.0",
             trigger=WorkflowTriggerConfig(
                 type="manual",
                 application="gmail",
-                description="Manual trigger to inspect unread Gmail inquiries"
+                description="Manual trigger to inspect Gmail inquiries with attachments"
             ),
             inputs=[
                 WorkflowInputDefinition(
                     name="query",
                     type="string",
-                    default="is:unread",
+                    default="has:attachment",
                     required=False,
-                    description="Gmail filter query"
+                    description="Gmail search query filter"
                 ),
                 WorkflowInputDefinition(
                     name="max_messages",
@@ -266,23 +266,70 @@ class AutomationService:
             ],
             steps=[
                 WorkflowStep(
-                    id="step_list_gmail",
-                    name="List Recent Gmail Messages",
-                    type="list_recent_messages",
+                    id="step_search_email",
+                    name="Search Gmail for Inquiries",
+                    type="search_messages",
                     application="gmail",
-                    description="Fetch recent email headers and snippets from Gmail",
-                    parameters={"max_results": "{{inputs.max_messages}}", "query": "{{inputs.query}}"},
+                    description="Search recent emails matching query with attachments",
+                    parameters={"query": "{{inputs.query}}", "max_results": "{{inputs.max_messages}}"},
                     output_mapping={"retrieved_count": "data.count"},
+                    retry_policy=RetryPolicy(max_retries=1, backoff_seconds=1.0),
+                ),
+                WorkflowStep(
+                    id="step_read_email",
+                    name="Read Customer Email",
+                    type="read_message",
+                    application="gmail",
+                    description="Retrieve sender headers, snippet, and attachment metadata",
+                    parameters={"message_id": "{{steps.step_search_email.data.messages[0].id}}"},
+                    retry_policy=RetryPolicy(max_retries=1, backoff_seconds=1.0),
+                ),
+                WorkflowStep(
+                    id="step_download_attachment",
+                    name="Download Attachment",
+                    type="download_attachment",
+                    application="gmail",
+                    description="Download message attachment and compute integrity hash",
+                    parameters={
+                        "message_id": "{{steps.step_read_email.data.id}}",
+                        "attachment_id": "{{steps.step_read_email.data.attachments[0].attachment_id}}",
+                        "filename": "{{steps.step_read_email.data.attachments[0].filename}}",
+                    },
                     retry_policy=RetryPolicy(max_retries=1, backoff_seconds=1.0),
                 ),
                 WorkflowStep(
                     id="step_search_crm",
                     name="Search CRM for Customer",
                     type="search_customer",
-                    application="demo_crm",
-                    description="Query customer profile in CRM",
-                    parameters={"customer_name": "Rahul Sharma"},
-                    continue_on_failure=True,
+                    application="crm",
+                    description="Query customer profile in CRM using sender information",
+                    parameters={"query": "{{steps.step_read_email.data.from}}"},
+                    continue_on_failure=False,
+                ),
+                WorkflowStep(
+                    id="step_update_crm",
+                    name="Update Customer in CRM",
+                    type="update_customer",
+                    application="crm",
+                    description="Update customer record with verified attachment hash and active status",
+                    parameters={
+                        "customer_id": "{{steps.step_search_crm.data.customer.id}}",
+                        "notes": "Attachment '{{steps.step_download_attachment.data.filename}}' verified (SHA256: {{steps.step_download_attachment.data.sha256}})",
+                        "status": "Verified",
+                    },
+                    continue_on_failure=False,
+                ),
+                WorkflowStep(
+                    id="step_send_chat",
+                    name="Send Chat Notification",
+                    type="send_message",
+                    application="chat",
+                    description="Notify team workspace that inquiry was triaged and customer updated",
+                    parameters={
+                        "channel": "general",
+                        "message": "Inquiry from {{steps.step_read_email.data.from}} triaged. Downloaded {{steps.step_download_attachment.data.filename}}. CRM updated to {{steps.step_update_crm.data.status}}.",
+                    },
+                    continue_on_failure=False,
                 ),
             ],
             requires_approval=True,
@@ -310,6 +357,35 @@ class AutomationService:
         """Returns all registered declarative workflow definitions."""
         return list(self._workflows.values())
 
+    @staticmethod
+    def _is_all_integrations_workflow(
+        workflow: Optional[WorkflowDefinition] = None,
+        proposal: Optional[WorkflowProposal] = None,
+    ) -> bool:
+        """
+        Determines if all steps target declared actions on registered integration adapters.
+        Used to automatically select IntegrationExecutor for pure integration pipelines.
+        """
+        from integrations.registry import integration_registry
+        steps_to_check = []
+        if workflow and workflow.steps:
+            steps_to_check = [(s.application, s.type) for s in workflow.steps]
+        elif proposal and proposal.actions:
+            steps_to_check = [(a.application, a.type) for a in proposal.actions]
+
+        if not steps_to_check:
+            return False
+
+        for app, action_type in steps_to_check:
+            raw_app = (app or "").strip()
+            app_id = raw_app.split(":", 1)[1].strip().lower() if raw_app.startswith("integration:") else raw_app.lower()
+            adapter = integration_registry.get(app_id) if app_id else integration_registry.find_adapter_by_action(action_type)
+            if not adapter:
+                return False
+            if action_type not in adapter.declared_action_names:
+                return False
+        return True
+
     async def run_declarative_workflow(
         self,
         workflow: WorkflowDefinition,
@@ -336,17 +412,24 @@ class AutomationService:
                 return existing
 
         active_executor = executor
-        if active_executor is None and executor_type:
-            if executor_type.lower() == "playwright":
-                from automation.playwright_executor import PlaywrightExecutor
-                active_executor = PlaywrightExecutor()
-            elif executor_type.lower() == "noop":
-                from automation.executor import NoOpExecutor
-                fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
-                active_executor = NoOpExecutor(fail_actions=fail_actions)
-            elif executor_type.lower() == "integration":
-                from integrations.executor import IntegrationExecutor
-                active_executor = IntegrationExecutor()
+        resolved_executor_type = executor_type
+        if active_executor is None:
+            # Auto-select IntegrationExecutor if all workflow steps are registered integrations
+            if self._is_all_integrations_workflow(workflow=workflow):
+                if not resolved_executor_type or resolved_executor_type.lower() == "playwright":
+                    resolved_executor_type = "integration"
+
+            if resolved_executor_type:
+                if resolved_executor_type.lower() == "playwright":
+                    from automation.playwright_executor import PlaywrightExecutor
+                    active_executor = PlaywrightExecutor()
+                elif resolved_executor_type.lower() == "noop":
+                    from automation.executor import NoOpExecutor
+                    fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
+                    active_executor = NoOpExecutor(fail_actions=fail_actions)
+                elif resolved_executor_type.lower() == "integration":
+                    from integrations.executor import IntegrationExecutor
+                    active_executor = IntegrationExecutor()
 
         execution = await self._engine.execute_declarative_workflow(
             workflow=workflow,
@@ -360,7 +443,7 @@ class AutomationService:
             idempotency_key=idempotency_key,
         )
         execution = execution.model_copy(update={
-            "executor_type": executor_type or "playwright",
+            "executor_type": resolved_executor_type or "playwright",
             "context": context or {},
             "idempotency_key": idempotency_key,
         })
@@ -410,17 +493,23 @@ class AutomationService:
                 return existing
 
         active_executor = executor
-        if active_executor is None and executor_type:
-            if executor_type.lower() == "playwright":
-                from automation.playwright_executor import PlaywrightExecutor
-                active_executor = PlaywrightExecutor()
-            elif executor_type.lower() == "noop":
-                from automation.executor import NoOpExecutor
-                fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
-                active_executor = NoOpExecutor(fail_actions=fail_actions)
-            elif executor_type.lower() == "integration":
-                from integrations.executor import IntegrationExecutor
-                active_executor = IntegrationExecutor()
+        resolved_executor_type = executor_type
+        if active_executor is None:
+            if proposal and self._is_all_integrations_workflow(proposal=proposal):
+                if not resolved_executor_type or resolved_executor_type.lower() == "playwright":
+                    resolved_executor_type = "integration"
+
+            if resolved_executor_type:
+                if resolved_executor_type.lower() == "playwright":
+                    from automation.playwright_executor import PlaywrightExecutor
+                    active_executor = PlaywrightExecutor()
+                elif resolved_executor_type.lower() == "noop":
+                    from automation.executor import NoOpExecutor
+                    fail_actions = (parameters or {}).get("fail_actions") or (context or {}).get("fail_actions")
+                    active_executor = NoOpExecutor(fail_actions=fail_actions)
+                elif resolved_executor_type.lower() == "integration":
+                    from integrations.executor import IntegrationExecutor
+                    active_executor = IntegrationExecutor()
 
         execution = await self._engine.execute_workflow(
             proposal=proposal,
@@ -430,7 +519,7 @@ class AutomationService:
             context=context,
         )
         execution = execution.model_copy(update={
-            "executor_type": executor_type or "playwright",
+            "executor_type": resolved_executor_type or "playwright",
             "context": context or {},
             "idempotency_key": idempotency_key,
         })
@@ -493,6 +582,14 @@ class AutomationService:
         active_executor = executor
         resolved_type = executor_type or execution.executor_type or "playwright"
         if active_executor is None:
+            if execution.serialized_workflow:
+                try:
+                    wf = WorkflowDefinition(**execution.serialized_workflow)
+                    if self._is_all_integrations_workflow(workflow=wf) and resolved_type.lower() == "playwright":
+                        resolved_type = "integration"
+                except Exception:
+                    pass
+
             if resolved_type.lower() == "playwright":
                 from automation.playwright_executor import PlaywrightExecutor
                 active_executor = PlaywrightExecutor()

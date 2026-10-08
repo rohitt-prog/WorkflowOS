@@ -13,6 +13,7 @@ import re
 import json
 import base64
 import logging
+from datetime import datetime, timezone
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Set
 from cryptography.fernet import Fernet, InvalidToken
@@ -145,6 +146,7 @@ class EncryptedTokenStorage(CredentialStorage):
     """
     Authenticated credential storage abstraction using Fernet (AES-128-CBC + HMAC-SHA256).
     Enforces tamper-resistant encryption with per-operation random IVs and integrity checks.
+    Provides optional MongoDB Atlas persistence in collection `integration_credentials`.
 
     SECURITY NOTE:
     The previous repeating-XOR implementation has been removed. Repeating-XOR is an insecure
@@ -162,9 +164,22 @@ class EncryptedTokenStorage(CredentialStorage):
     def __init__(
         self,
         encryption_key: Optional[str] = None,
-        allow_ephemeral_dev_key: bool = False
+        allow_ephemeral_dev_key: bool = False,
+        collection_name: str = "integration_credentials",
+        database: Optional[Any] = None,
+        persist_to_db: bool = True,
     ):
-        raw_key = encryption_key or os.getenv("WORKFLOWOS_CREDENTIAL_KEY")
+        raw_key = encryption_key
+        if raw_key is None:
+            if "WORKFLOWOS_CREDENTIAL_KEY" in os.environ:
+                raw_key = os.environ.get("WORKFLOWOS_CREDENTIAL_KEY")
+            else:
+                try:
+                    from backend.config import settings
+                    raw_key = settings.WORKFLOWOS_CREDENTIAL_KEY
+                except Exception:
+                    raw_key = None
+
         self._is_ephemeral = False
 
         if raw_key:
@@ -190,21 +205,78 @@ class EncryptedTokenStorage(CredentialStorage):
             )
 
         self._store: Dict[str, str] = {}
+        self._collection_name = collection_name
+        self._database = database
+        # Ephemeral dev keys should never be persisted to the database
+        self._persist_to_db = persist_to_db and (not self._is_ephemeral)
 
     @property
     def is_ephemeral(self) -> bool:
         return self._is_ephemeral
 
+    def _get_db(self) -> Optional[Any]:
+        if not self._persist_to_db:
+            return None
+        if self._database is not None:
+            return self._database
+        try:
+            from backend.database import get_database
+            return get_database()
+        except Exception as e:
+            logger.debug(f"[EncryptedTokenStorage] MongoDB database unavailable: {e}")
+            return None
+
     async def store_credential(self, integration_id: str, credential_data: Dict[str, Any]) -> str:
         raw_json = json.dumps(credential_data).encode("utf-8")
         ciphertext = self._fernet.encrypt(raw_json).decode("utf-8")
         self._store[integration_id] = ciphertext
+
+        db = self._get_db()
+        if db is not None:
+            try:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                collection = db[self._collection_name]
+                await collection.update_one(
+                    {"integration_id": integration_id},
+                    {
+                        "$set": {
+                            "encrypted_payload": ciphertext,
+                            "updated_at": now_iso,
+                        },
+                        "$setOnInsert": {
+                            "integration_id": integration_id,
+                            "created_at": now_iso,
+                        },
+                    },
+                    upsert=True,
+                )
+            except Exception as e:
+                safe_err = sanitize_log_message(str(e))
+                logger.warning(
+                    f"[EncryptedTokenStorage] MongoDB credential persistence failed for '{integration_id}': {safe_err}. "
+                    "Credential remains securely available in memory."
+                )
         return integration_id
 
     async def get_credential(self, integration_id: str) -> Optional[Dict[str, Any]]:
         ciphertext = self._store.get(integration_id)
         if not ciphertext:
+            db = self._get_db()
+            if db is not None:
+                try:
+                    collection = db[self._collection_name]
+                    doc = await collection.find_one({"integration_id": integration_id})
+                    if doc and "encrypted_payload" in doc:
+                        ciphertext = doc["encrypted_payload"]
+                        self._store[integration_id] = ciphertext
+                except Exception as e:
+                    safe_err = sanitize_log_message(str(e))
+                    logger.error(f"[EncryptedTokenStorage] Database query error for '{integration_id}': {safe_err}")
+                    return None
+
+        if not ciphertext:
             return None
+
         try:
             raw_bytes = self._fernet.decrypt(ciphertext.encode("utf-8"))
             return json.loads(raw_bytes.decode("utf-8"))
@@ -219,13 +291,38 @@ class EncryptedTokenStorage(CredentialStorage):
             return None
 
     async def delete_credential(self, integration_id: str) -> bool:
+        deleted_from_memory = False
         if integration_id in self._store:
             del self._store[integration_id]
-            return True
-        return False
+            deleted_from_memory = True
+
+        deleted_from_db = False
+        db = self._get_db()
+        if db is not None:
+            try:
+                collection = db[self._collection_name]
+                res = await collection.delete_one({"integration_id": integration_id})
+                deleted_from_db = res.deleted_count > 0
+            except Exception as e:
+                safe_err = sanitize_log_message(str(e))
+                logger.error(f"[EncryptedTokenStorage] Database error deleting credential for '{integration_id}': {safe_err}")
+
+        return deleted_from_memory or deleted_from_db
 
     async def has_credential(self, integration_id: str) -> bool:
-        return integration_id in self._store
+        if integration_id in self._store:
+            return True
+        db = self._get_db()
+        if db is not None:
+            try:
+                collection = db[self._collection_name]
+                doc = await collection.find_one({"integration_id": integration_id}, {"_id": 1})
+                return doc is not None
+            except Exception as e:
+                safe_err = sanitize_log_message(str(e))
+                logger.error(f"[EncryptedTokenStorage] Database error checking credential for '{integration_id}': {safe_err}")
+                return False
+        return False
 
 
 # Default credential storage instance for local development with ephemeral key fallback

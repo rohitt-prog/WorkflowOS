@@ -49,7 +49,10 @@ def derive_workflow_id_from_sequence(sequence: List[str], label: Optional[str] =
         "send_message",
     ]:
         return "wf_customer_support_pipeline"
-    if normalized_seq == ["list_recent_messages", "search_customer"]:
+    if normalized_seq in (
+        ["list_recent_messages", "search_customer"],
+        ["search_messages", "read_message", "download_attachment", "search_customer", "update_customer", "send_message"],
+    ):
         return "wf_gmail_triage_pipeline"
 
     # Deterministic SHA-256 fingerprint

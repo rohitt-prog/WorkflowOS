@@ -67,8 +67,8 @@ SUPPORTED_ACTION_TYPES: Set[str] = {
     "send_message",
 }
 
-# Regex for variable interpolation: {{variable.path}}
-_TEMPLATE_REGEX = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
+# Regex for variable interpolation: {{variable.path}} or {{steps.step.data.list[0].id}}
+_TEMPLATE_REGEX = re.compile(r"\{\{\s*([a-zA-Z0-9_.\[\]]+)\s*\}\}")
 
 
 def _get_nested_val(data: Any, path: str) -> Any:

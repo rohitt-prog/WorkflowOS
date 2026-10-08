@@ -22,6 +22,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger("workflowos")
 
+async def restore_persistent_integrations() -> None:
+    """
+    Restores connection state for persistent integrations on backend startup.
+    Loads encrypted credentials from MongoDB, decrypts them with WORKFLOWOS_CREDENTIAL_KEY,
+    and updates adapter connection status without making unnecessary external API requests.
+    """
+    try:
+        from integrations.registry import integration_registry
+        from integrations.models import IntegrationStatus
+        adapter = integration_registry.get("gmail")
+        if not adapter:
+            return
+
+        storage = adapter._get_storage()
+        if await storage.has_credential("gmail"):
+            stored = await storage.get_credential("gmail")
+            if stored and stored.get("access_token"):
+                adapter._status = IntegrationStatus.CONNECTED
+                adapter._last_error = None
+                logger.info("[Startup] Restored persistent Gmail integration state (CONNECTED).")
+            else:
+                adapter._status = IntegrationStatus.ERROR
+                adapter._last_error = "Stored Gmail credential could not be decrypted. Please reconnect."
+                logger.warning("[Startup] Persistent Gmail credential exists but could not be decrypted. Set status to ERROR.")
+    except Exception as e:
+        logger.warning(f"[Startup] Error restoring persistent integrations: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure indexes are initialized and safely restore execution state
@@ -46,6 +73,9 @@ async def lifespan(app: FastAPI):
         )
     except Exception as e:
         logger.warning(f"Could not load or recover executions during startup: {e}")
+
+    # Restore persistent integration state from MongoDB (e.g. Gmail)
+    await restore_persistent_integrations()
 
     yield
 
