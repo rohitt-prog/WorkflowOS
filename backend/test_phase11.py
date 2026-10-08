@@ -99,12 +99,36 @@ def make_execution(
 class TestPhase11ClosedLoopIntelligence(unittest.IsolatedAsyncioTestCase):
     """Deterministic, offline test suite for Phase 11 Closed-Loop Intelligence."""
 
+    async def _clean_mock_db(self):
+        try:
+            from backend.database import get_database
+            db = get_database()
+            if db is not None:
+                for col in (
+                    "strategy_outcome_evidence",
+                    "workflow_execution_outcomes",
+                    "workflow_feedback",
+                    "workflow_learning_state",
+                    "deleted_workflows",
+                ):
+                    await db[col].delete_many({})
+        except Exception:
+            pass
+
     def setUp(self):
         self.client = TestClient(app)
         learning_service.reset_cache()
 
+    async def asyncSetUp(self):
+        learning_service.reset_cache()
+        await self._clean_mock_db()
+
     def tearDown(self):
         learning_service.reset_cache()
+
+    async def asyncTearDown(self):
+        learning_service.reset_cache()
+        await self._clean_mock_db()
 
     # -----------------------------------------------------------------------
     # 1. Successful execution produces positive evidence
