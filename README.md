@@ -1,229 +1,265 @@
-# WorkFlowOS — AI-Powered Workflow Automation System
+# WorkFlowOS
 
-WorkFlowOS is an extensible, privacy-first desktop workflow automation system designed to observe user activity, autonomously discover repetitive task patterns, synthesize declarative automation workflows using AI, and execute them through an approval-gated, multi-strategy planning engine with closed-loop adaptive learning.
+**AI-assisted workflow automation system that discovers repetitive cross-application patterns from structured activity and executes them through an approval-gated planning engine.**
 
-Unlike traditional Robotic Process Automation (RPA) tools that require manual macro scripting and break upon minor UI changes, WorkFlowOS operates as an intelligent workflow discovery operating system. It observes routine desktop interactions non-invasively, identifies recurring cross-application sequences, converts them into structured declarative workflows, and validates all mutating operations through strict human approval.
-
-The system is a local, safety-first workflow automation platform engineered with production-oriented safety boundaries: it features a 5-tier hierarchical automation planner (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`), comprehensive PII and credential redaction, fail-closed safety boundaries, a read-only Gmail integration, and a deterministic evidence-weighted adaptive learning engine that dynamically adjusts execution confidence based on runtime receipts.
+WorkFlowOS observes routine user interactions non-invasively, identifies repeating multi-step action sequences across sessions using local sequence alignment, synthesizes declarative workflow plans using LLM semantics with deterministic fallbacks, and executes approved steps through a hierarchical multi-strategy automation engine (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`). All mutating actions require explicit human approval, unknown capabilities fail closed, and runtime receipts feed back into an adaptive strategy scoring loop.
 
 ---
 
-## The Problem
+## Why WorkFlowOS?
 
-Knowledge workers spend substantial portions of their workdays executing repetitive, multi-step procedures across disparate desktop and web applications: copying customer details from CRM software, composing repetitive confirmation emails, updating spreadsheets, and pinging team chat channels.
+Knowledge workers spend hours daily executing repetitive routines across disconnected tools—copying data between emails, CRMs, spreadsheets, and chat channels. Existing automation solutions suffer from fundamental friction:
 
-While workers intuitively understand their day-to-day tasks, traditional automation solutions present critical barriers:
-1. **High Authoring Friction**: Traditional RPA tools require users to manually record brittle coordinate clicks, configure XPath selectors, or write custom glue scripts.
-2. **Brittle Execution**: Coordinate and selector-based automations break when window sizes change, applications update, or network latency causes timing mismatches.
-3. **Severe Privacy Concerns**: Many experimental "desktop AI agents" capture continuous desktop video streams, run keystroke loggers, or send raw desktop screenshots to cloud LLMs, leaking sensitive corporate data and credentials.
-4. **Lack of Outcome Feedback**: Most automations operate in an open-loop model with zero self-assessment, repeatedly failing on the same error without adapting.
+* **Manual authoring overhead**: Traditional RPA and script-based tools require users to manually record brittle coordinate clicks, configure XPath selectors, or write custom glue code.
+* **Invisible workflows**: Organizations often cannot identify which processes are actually repetitive or worth automating without tedious time-tracking audits.
+* **Brittle execution**: Coordinate- and selector-based automations break when application layouts shift, elements re-render, or network latency causes timing mismatches.
+* **Safety & privacy risks**: Many experimental "desktop AI agents" capture continuous desktop video streams, log keystrokes, or grant language models unconstrained execution authority over user systems.
+
+**WorkFlowOS approaches the problem differently**: It separates observation from execution, replaces invasive video capture with non-invasive window and semantic event logging, uses algorithmic sequence alignment to discover recurring patterns, restricts the AI to semantic interpretation, enforces strict human approval before any state mutation, and selects the most reliable automation strategy available.
 
 ---
 
-## The Solution
+## How It Works
 
-WorkFlowOS solves this problem through an end-to-end, privacy-conscious closed-loop pipeline:
-
-```text
-Observe
-   ↓
-Understand
-   ↓
-Detect Repetition
-   ↓
-Generate Workflow
-   ↓
-User Approval
-   ↓
-Plan Automation
-   ↓
-Execute
-   ↓
-Evaluate Outcome
-   ↓
-Learn
+```mermaid
+flowchart TD
+    A[User Activity] --> B[Event Collection]
+    B --> C[Privacy / Redaction]
+    C --> D[(MongoDB)]
+    D --> E[Workflow Discovery]
+    E --> F[AI Workflow Understanding]
+    F --> G[Workflow Planning]
+    G --> H{Human Approval Gate}
+    H -->|Approved| I[Automation Execution]
+    H -->|Rejected| J[Workflow Deprioritized]
+    I --> K[Outcome Evaluation]
+    K --> L[Adaptive Strategy Scoring]
 ```
 
-1. **Observe**: Ingests activity from multiple complementary sources: the non-invasive macOS desktop agent (observing OS-level application switches and window focus without screenshots or keylogging) and controlled web application emitters (capturing discrete semantic actions: `open_email`, `download_attachment`, `search_customer`, `update_customer`, `send_message`).
-2. **Understand**: Sanitizes and normalizes event streams into structured event logs with automatic PII and credential scrubbing.
-3. **Detect Repetition**: Pattern discovery engine identifies recurring multi-step sequences across distinct sessions using sliding-window n-gram mining and local sequence alignment.
-4. **Generate Workflow**: AI synthesizer (powered by Google Gemini with deterministic heuristic fallbacks) maps raw UI events into declarative workflow graphs with parameterized inputs and semantic descriptions.
-5. **User Approval**: Mandatory human approval gate halts all mutating operations (`send_email`, `update_record`, `post_message`), guaranteeing that no state-altering actions execute autonomously.
-6. **Plan Automation**: Multi-strategy planner evaluates available system capabilities, application adapters, and historical reliability to select the safest execution path.
-7. **Execute**: Declarative workflow engine executes approved steps with timeout enforcement, exponential retry backoff, and failure containment.
-8. **Evaluate Outcome**: Outcome evaluation engine compares runtime execution receipts against post-conditions, classifying errors using an 11-category failure taxonomy.
-9. **Learn**: Closed-loop adaptive learning engine updates empirical strategy weights, reinforcing reliable connectors and routing future plans around flaky paths.
+1. **User Activity**: Routine user actions performed across desktop applications or controlled web interfaces.
+2. **Event Collection**: The macOS desktop agent polls frontmost window/app metadata, while web applications emit structured semantic actions (`open_email`, `search_customer`).
+3. **Privacy / Redaction**: In-flight sanitization scrubs authentication tokens, credentials, and Luhn-validated payment cards before storage.
+4. **MongoDB**: Schema-fluid storage persists sanitized event streams, candidate workflows, execution traces, and learning states.
+5. **Workflow Discovery**: Dynamic programming semi-global local alignment and sliding-window n-gram mining extract recurring multi-session sequences.
+6. **AI Workflow Understanding**: Google Gemini (or an offline heuristic fallback) infers high-level user intent, assigns semantic names, and extracts parameter roles.
+7. **Workflow Planning**: A deterministic 5-tier planner inspects registered capabilities to select the most reliable execution strategy per step.
+8. **Human Approval**: A mandatory authorization gate requires explicit operator confirmation before any state-mutating action can proceed.
+9. **Automation Execution**: Declarative engine executes approved steps via integration adapters or Playwright browser automation with retry backoff.
+10. **Outcome Evaluation**: Post-execution receipts are validated against expected state changes and classified across an 11-category failure taxonomy.
+11. **Adaptive Strategy Scoring**: Empirical execution evidence updates bounded strategy suitability scores, steering future plans away from flaky connectors.
 
 ---
 
-## System Architecture
+## Key Features
 
-```text
+* **Workflow Discovery from Repeated Activity**: Mines recurring multi-step workflows from event streams without requiring predefined templates.
+* **Multi-Session Sequence Analysis**: Validates that patterns recur across distinct user sessions rather than isolated single-session bursts.
+* **Semi-Global Local Sequence Alignment**: Matches workflow patterns embedded inside longer, noisy sessions, tolerating prefix/suffix noise, insertions, omissions, and step transpositions.
+* **AI-Assisted Workflow Understanding**: Uses Google Gemini to translate raw event verb sequences into human-readable workflows with typed parameters and semantic step descriptions.
+* **Offline Deterministic Fallback**: Automatically falls back to rule-based heuristic workflow synthesis when LLM APIs are unconfigured or unavailable.
+* **Structured Declarative Workflow Model**: Represents workflows as versioned JSON/Pydantic schemas with typed inputs, preconditions, timeouts, and idempotency keys.
+* **Human-in-the-Loop Approval Gate**: Halts all mutating operations (`update_customer`, `send_message`, `post_message`) until an operator explicitly approves them.
+* **Fail-Closed Capability Registry**: Enforces an explicit capability manifest; unregistered actions or unknown applications fail closed and cannot execute silently.
+* **Hierarchical Strategy Planner**: Dynamically selects execution strategies across 5 tiers: `API` → `Integration Adapter` → `Semantic UI` → `Browser Automation` → `Manual Intervention`.
+* **Playwright Browser Automation**: Drives headless/headed browser sessions across web applications when direct API or integration adapters are unavailable.
+* **Sensitive Data Redaction Engine**: Scrubs API tokens (`ghp_`, `ya29.`, `sk-`, `AKIA`), bearer headers, private keys, emails, and Luhn-validated credit card PANs.
+* **Authoritative Collection Kill-Switch**: The `ACTIVITY_COLLECTION_ENABLED` flag immediately stops client-side collection and drops incoming events at the ingestion gate.
+* **Execution State Tracking**: Maintains transactional lifecycle states (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`) with step-level duration and receipt capture.
+* **11-Category Failure Taxonomy**: Classifies execution failures deterministically (`TIMEOUT`, `AUTHENTICATION`, `AUTHORIZATION`, `NETWORK`, `VALIDATION`, `TARGET_NOT_FOUND`, `UNSUPPORTED_ACTION`, `RATE_LIMIT`, `INTEGRATION_ERROR`, `BROWSER_ERROR`, `UNKNOWN`).
+* **Adaptive Strategy Scoring**: Dynamically adjusts strategy preference based on empirical success/failure receipts using a bounded deterministic evidence formula ($L \in [0.0, 1.0]$).
+* **Automated Regression Test Suite**: 459 backend unit, integration, and benchmark tests verifying discovery, planning, privacy, learning, and safety invariants.
+
+---
+
+## Workflow Discovery
+
+Workflow discovery is the core pattern-detection engine of WorkFlowOS. It operates autonomously on normalized event logs without requiring users to label or record their workflows.
+
+```
+Session 1: [ open_email ──► download_attachment ──► search_customer ──► update_customer ──► send_message ]
+Session 2: [ open_email ──► search_customer ──► (noise click) ──► update_customer ──► send_message ]
+Session 3: [ open_email ──► download_attachment ──► search_customer ──► update_customer ──► send_message ]
+                                                  │
+                                                  ▼
+Discovered Workflow: "Customer Support Request Processing" (Confidence: 0.88, Occurrences: 3)
+```
+
+### 1. Event Collection & Session Representation
+Events are captured non-invasively (application name, window title, semantic action, timestamp). Events sharing a common `session_id` are grouped and chronologically sorted by parsed ISO-8601 timestamps. Each session is normalized into an ordered list of functional action verbs:
+```python
+session = ["open_email", "download_attachment", "search_customer", "update_customer", "send_message"]
+```
+
+### 2. Repeated Sequence Detection
+The discovery engine uses sliding-window n-gram mining (lengths 2 to 10) and pairwise Longest Common Subsequences (LCS) across sessions to identify candidate recurring sequences that meet a configurable minimum support threshold (default: $\ge 2$ distinct sessions).
+
+### 3. Local Sequence Alignment & Noise Handling
+Real desktop activity contains interruptions, extraneous clicks, and minor variations. WorkFlowOS employs a **semi-global dynamic programming local alignment** algorithm ($O(m \cdot n)$) with Damerau-Levenshtein transposition awareness:
+* **Prefix / Suffix Noise**: Free start and end gaps allow a 5-step workflow to be detected even if buried inside a 50-event session.
+* **Insertions**: Unrelated actions between workflow steps (e.g. checking a notification) are penalized as gap insertions rather than aborting the match.
+* **Omissions & Transpositions**: Optional steps or adjacent order swaps (e.g. searching CRM before downloading attachment) are scored with controlled edit penalties.
+* **Monotonous Loop Suppression**: Low-entropy sequences repeating a single action (e.g. scrolling or repetitive clicking) are automatically filtered out.
+
+### 4. Candidate Ranking & Confidence Scoring
+Discovered patterns are evaluated by two transparent, bounded scoring models:
+
+* **Confidence Score** ($C \in [0.0, 1.0]$): Combines 5 orthogonal empirical signals:
+  * Repetition Support (weight: 0.30): Number of distinct sessions containing the pattern.
+  * Sequence Similarity (weight: 0.25): Average alignment score across matched sessions.
+  * Action Diversity (weight: 0.20): Entropy / variety of actions, penalizing repetitive loops.
+  * Sequence Length (weight: 0.15): Structural depth and complexity.
+  * Session Consistency (weight: 0.10): Proportion of exact replay instances vs. partial matches.
+
+* **Utility Ranking Score** ($R \in [0.0, 1.0]$): Prioritizes candidates for human presentation based on operational impact:
+  $$\text{Ranking Score} = 0.30 \cdot C_{\text{confidence}} + 0.25 \cdot F_{\text{fidelity}} + 0.20 \cdot V_{\text{volume}} + 0.15 \cdot I_{\text{impact}} + 0.10 \cdot R_{\text{richness}}$$
+
+Candidates are categorized into quality tiers (`exceptional` $\ge 0.85$, `strong` $\ge 0.70$, `moderate` $\ge 0.50$, `low` $< 0.50$). Subsumed or shadow variants of longer primary patterns are automatically linked and suppressed.
+
+---
+
+## AI Layer
+
+WorkFlowOS strictly separates non-deterministic language model responsibilities from deterministic system execution:
+
+```
 ┌────────────────────────────────────────────────────────┐
-│               Desktop Activity Agent                   │
-│   (macOS NSWorkspace Poller → Normalizer → Privacy)    │
+│             Generative AI (Google Gemini)              │
+│  - Natural language intent inference                   │
+│  - Semantic workflow naming and categorization         │
+│  - Variable identification and parameter extraction    │
+│  - Offline fallback to deterministic heuristic rules   │
 └───────────────────────────┬────────────────────────────┘
-                            │ POST /api/events/batch
+                            │ Structured Proposal
 ┌───────────────────────────▼────────────────────────────┐
-│                  Privacy & Safety Gate                 │
-│    (PII / Secret Redaction • Collection Kill-Switch)   │
-└───────────────────────────┬────────────────────────────┘
-                            │ Clean Normalized Events
-┌───────────────────────────▼────────────────────────────┐
-│                    MongoDB Atlas                       │
-│    (Events • Workflows • Executions • Learning State)  │
-└───────────────────────────┬────────────────────────────┘
-                            │
-              ┌─────────────┴─────────────┐
-              ▼                           ▼
-┌──────────────────────────┐  ┌──────────────────────────┐
-│ Workflow Discovery Engine│  │   AI Workflow Synthesizer│
-│ - Sliding-Window Mining  │  │   - Intent Classification│
-│ - DP Local Alignment     │  │   - Schema Synthesis     │
-│ - Pattern Deduplication  │  │   - Parameter Extraction │
-└─────────────┬────────────┘  └───────────┬──────────────┘
-              │                           │
-              └─────────────┬─────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│             Human-in-the-Loop Approval Gate            │
-│   (Mandatory Authorization for All Mutating Actions)   │
-└───────────────────────────┬────────────────────────────┘
-                            │ Approved Workflow
-┌───────────────────────────▼────────────────────────────┐
-│               Automation Strategy Planner              │
-│    API ──► Integration ──► Semantic UI ──► Browser ──► │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│          Declarative Workflow Execution Engine         │
-│   (Step Timeout • Retry Backoff • Failure Containment) │
-└───────────────────────────┬────────────────────────────┘
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│             Outcome Evaluator & Adaptive Loop          │
-│  (11-Category Taxonomy • Evidence-Weighted Updates)   │
+│              Deterministic System Engine               │
+│  - Capability manifest & schema validation             │
+│  - 5-tier strategy selection & fallback planning       │
+│  - Human-in-the-loop approval gate enforcement         │
+│  - Fail-closed execution & step timeouts               │
+│  - Luhn checksum redaction & secret scrubbing          │
+│  - Execution state lifecycle tracking                  │
+│  - 11-category failure taxonomy classification         │
+│  - Bounded evidence-weighted strategy scoring          │
 └────────────────────────────────────────────────────────┘
 ```
 
-*For comprehensive architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).*
+* **What the AI does**: Given an observed sequence of event verbs and application metadata, Gemini infers high-level user intent (e.g. classifying `[open_email, download_attachment, update_customer]` as `"Customer Support Request Processing"`), extracts parameter roles (`customer_id`, `attachment_name`), and generates human-readable step descriptions.
+* **What the AI NEVER does**: The LLM never executes shell commands, never interacts with operating system APIs, never accesses raw credentials, and never bypasses safety boundaries. All AI outputs must conform to strict Pydantic schemas before entering the planner.
 
 ---
 
-## Roadmap & Phase Status
+## Safety Architecture
 
-WorkFlowOS was engineered across 16 sequential, verified architectural phases:
+Safety is designed into the core system invariants rather than added as an afterthought:
 
-| Phase | Milestone | Description | Status |
-|:---|:---|:---|:---:|
-| **Phase 1** | Foundation & Events | Core event schemas, REST ingestion, MongoDB Atlas storage | Complete |
-| **Phase 2** | Workflow Discovery | Sliding-window candidate detection & repetition frequency | Complete |
-| **Phase 3** | AI Understanding | Gemini-powered intent classification & workflow generation | Complete |
-| **Phase 4** | Automation Engine | Playwright browser executor, demo apps, execution tracking | Complete |
-| **Phase 5** | Desktop Activity Agent | macOS activity collector, focus polling, batch synchronization | Complete |
-| **Phase 6** | Declarative Engine | AST step validation, variable interpolation, condition branches | Complete |
-| **Phase 7** | Integrations & Reliability | Fernet-encrypted token storage, Gmail OAuth 2.0, state recovery | Complete |
-| **Phase 8** | Discovery Intelligence | Calibrated confidence, DP alignment, ranking, explainability | Complete |
-| **Phase 9** | Adaptive Learning | Human review feedback loops, deterministic adaptive strategy scoring formula | Complete |
-| **Phase 10** | Intelligent Automation | Multi-strategy planning hierarchy, failure-aware fallback | Complete |
-| **Phase 11** | Closed-Loop Intelligence | 11-category failure taxonomy, strategy outcome feedback | Complete |
-| **Phase 12** | Privacy & Safety | Authoritative kill-switch, Luhn credit card & token redaction | Complete |
-| **Phase 13** | Application Ecosystem | Capability registry, read-only vs mutating, fail-closed actions | Complete |
-| **Phase 14** | Productization | Unified Next.js product dashboard, onboarding & telemetry | Complete |
-| **Phase 15** | Evaluation & Benchmarking | 10-scenario deterministic benchmark, deterministic evaluation | Complete |
-| **Phase 16** | Final Product Release | Production documentation, full regression, portfolio release | Complete |
+* **Human-in-the-Loop Approval Gate**: All state-mutating operations (`mutating: true`, such as `update_customer`, `send_message`, or `post_message`) require explicit operator authorization before execution. Read-only actions (`read_message`, `search_customer`) can run autonomously only when explicitly configured.
+* **Fail-Closed Execution**: Any action not explicitly declared in an application's capability manifest is classified as `UNKNOWN_ACTION`. Unknown actions and unregistered applications are rejected immediately and cannot execute.
+* **Capability Registry**: Applications expose explicit manifests declaring supported actions, required parameters, and whether each action is read-only or mutating.
+* **Sensitive Data Redaction**: The redaction service sanitizes structured and unstructured payloads before persistence:
+  * Platform tokens: `ghp_`, `ya29.`, `sk-`, `AKIA`, JWTs, and private keys.
+  * Financial data: Credit card PANs (13–19 digits) validated via the **Luhn checksum algorithm** to eliminate false positives on order IDs.
+  * Personal data: Email addresses, phone numbers, and authorization headers.
+* **Authoritative Collection Kill-Switch**: The `ACTIVITY_COLLECTION_ENABLED` setting provides an instant kill-switch. When toggled off, the desktop agent halts event emission and backend ingestion endpoints drop payloads immediately.
+* **Execution State Validation & Idempotency**: Workflows are assigned unique execution IDs and idempotency tokens. Completed executions cannot be re-executed, preventing duplicate writes.
+* **Read-Only Gmail Integration**: The Gmail adapter requests strictly read-only OAuth scopes (`https://www.googleapis.com/auth/gmail.readonly`). WorkFlowOS cannot send, modify, or delete emails in user mailboxes.
 
 ---
 
-## Feature Matrix
+## Automation Strategy
 
-| Capability | Status | Implementation Details |
-|:---|:---:|:---|
-| **Event Ingestion & Normalization** | Implemented | High-throughput FastAPI endpoints (`/api/events`), batch ingestion, UUID deduplication |
-| **MongoDB Atlas Persistence** | Implemented | Schema-fluid document storage for events, workflows, executions, and learning state |
-| **Workflow Pattern Discovery** | Implemented | Sliding-window n-gram mining, dynamic local sequence alignment, noise suppression |
-| **AI Workflow Synthesis** | Implemented | Google Gemini prompt engineering with deterministic rule-based heuristic fallbacks |
-| **Human Approval Boundary** | Implemented | Cryptographically bound approval gate; mutating actions cannot execute autonomously |
-| **Hierarchical Strategy Planner** | Implemented | Strict 5-tier fallback planner (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`) |
-| **Declarative Execution Engine** | Implemented | Step execution with timeout control, exponential retry backoff, and variable interpolation |
-| **Desktop Activity Agent** | Implemented | Non-invasive macOS agent capturing active window focus and metadata at 1.0s intervals |
-| **Application Ecosystem** | Implemented | Decoupled adapter contracts (Gmail, CRM, Chat) with explicit capability schemas |
-| **Closed-Loop Adaptive Learning** | Implemented | Deterministic evidence-weighted adaptive learning ($L \in [0.0, 1.0]$) dynamically tuning strategy selection |
-| **Privacy & Secret Redaction** | Implemented | Authoritative collection switch, Luhn-verified PAN scrubbing, credential pattern redaction |
-| **Fail-Closed Unknown Handling** | Implemented | Unregistered actions and unknown apps fail closed; cannot be classified as read-only |
-| **Product Dashboard UI** | Implemented | Next.js 16 (React 19, Tailwind CSS v4) with unified navigation, activity stream, execution logs |
-| **Evaluation Framework** | Implemented | 10-scenario deterministic benchmark testing discovery, planning, learning, and safety |
+When an approved workflow is scheduled for execution, the **Intelligent Automation Planner** evaluates every step against a 5-tier strategy hierarchy:
 
----
+```
+Tier 1: API Direct
+   ↓  (Direct HTTP/REST call to application service)
+Tier 2: Integration Adapter
+   ↓  (Registered native adapter, e.g. OAuth connector or SDK)
+Tier 3: Semantic UI
+   ↓  (Accessibility/DOM-level semantic interaction)
+Tier 4: Browser Automation
+   ↓  (Playwright headless/headed browser execution)
+Tier 5: Manual Intervention
+      (Operator manual fallback when automated paths fail)
+```
 
-## Technology Stack
+### Strategy Selection Principle
+The planner prefers more reliable, stable interfaces (`API` and native `Integration` adapters) over fragile browser or UI automation. Browser automation via Playwright is selected only when no direct programmatic interface is available.
 
-### Backend
-* **Python**: 3.11+
-* **FastAPI**: Asynchronous REST API framework
-* **Pydantic v2**: Runtime data validation and schema enforcement
-* **Uvicorn**: ASGI web server
-* **Cryptography (Fernet)**: AES-128-CBC + HMAC-SHA256 authenticated token encryption
+### Playwright Browser Automation
+WorkFlowOS implements a functional Playwright executor (`automation/playwright_executor.py`) that drives browser automation across supported web applications (`/demo/email`, `/demo/crm`, `/demo/chat`).
 
-### Frontend
-* **Next.js**: 16.3.6 (React 19, App Router)
-* **TypeScript**: 5.x for static typing
-* **Tailwind CSS**: v4 for utility-first responsive styling
-* **Lucide React**: Clean iconography
-
-### Database & Storage
-* **MongoDB Atlas**: Managed cloud document database for events, workflows, executions, and learning state
-* **PyMongo**: Asynchronous and synchronous MongoDB drivers with compound indexing
-
-### AI & Automation
-* **Google Gemini**: Gemini 2.5 Flash API for natural language workflow synthesis and intent extraction
-* **Deterministic Fallback Engine**: AST-based rule engine providing 100% offline workflow synthesis
-* **Playwright**: Headless/headed browser automation for web application workflows
+### Realistic Automation Limitations
+In real-world environments, browser and UI automations face operational boundaries:
+* **DOM Drifts & Layout Changes**: Third-party website redesigns, dynamic element classes, or shadow DOM trees can invalidate selectors.
+* **Session Expiry & Authentication**: Expired cookies, session timeouts, or rotated credentials halt execution and require re-authentication.
+* **CAPTCHAs & 2FA / MFA**: Automated browser runners cannot solve interactive bot challenges or out-of-band two-factor verification.
+* **System Permissions**: Native desktop observation and UI interaction depend on operating system accessibility permissions that can be revoked.
 
 ---
 
-## Application Ecosystem
+## Architecture
 
-WorkFlowOS interacts with external applications through an explicit, decoupled integration registry (`integrations/registry.py`). Each integration publishes a strict capability manifest:
-
-| Application | Adapter Type | Supported Operations | Capability Safety |
-|:---|:---|:---|:---:|
-| **Gmail** | Google Workspace OAuth 2.0 (Read-Only) | `list_recent_messages`, `search_messages`, `read_message`, `download_attachment` | Read-Only (Safe) |
-| **CRM System** | Local Mock Adapter | `search_customer`, `get_contact` | Read-Only (Safe) |
-| **CRM System** | Local Mock Adapter | `update_customer`, `create_deal` | Mutating (Approval Gated) |
-| **Chat / Messaging** | Local Mock Adapter | `read_channel` | Read-Only (Safe) |
-| **Chat / Messaging** | Local Mock Adapter | `post_message` | Mutating (Approval Gated) |
-
-> [!NOTE]
-> **Gmail Integration Scope**: Gmail uses read-only OAuth access (`https://www.googleapis.com/auth/gmail.readonly`). It intentionally supports only read operations (`list_recent_messages`, `search_messages`, `read_message`, and `download_attachment`). WorkFlowOS cannot send, modify, or delete emails in Gmail.
-
-### Fail-Closed Security Policy
-* **Unregistered Actions**: Any action not explicitly declared in an application's capability manifest is rejected immediately (`UNKNOWN_ACTION`). It is **never** classified as read-only and **cannot** execute silently.
-* **Unregistered Applications**: Calls targeting unknown applications fail closed with zero side effects.
-* **Mutating Operations**: Any action altering external state requires explicit human confirmation before execution can begin.
-
----
-
-## Privacy & Safety Controls
-
-WorkFlowOS enforces a strict privacy boundary:
-
-1. **No Invasive Monitoring**: The system captures **zero screenshots**, **zero desktop video streams**, **zero keystroke buffers**, and **zero OCR images**.
-2. **Authoritative Master Kill-Switch**: The `ACTIVITY_COLLECTION_ENABLED` setting acts as an authoritative privacy gate. When set to `false`, the desktop agent immediately drops all OS focus events before they enter the pipeline.
-3. **Comprehensive Secret & PII Redaction**: The redaction service (`backend/privacy/redaction.py`) automatically sanitizes all event payloads, execution outputs, and log messages:
-   * **Authentication Secrets**: Bearer tokens, GitHub personal tokens (`ghp_`), Google tokens (`ya29.`), OpenAI keys (`sk-`), AWS keys (`AKIA`), passwords, and private keys.
-   * **Financial Data**: Credit card PANs validated via the **Luhn checksum algorithm** to eliminate false positives on order IDs.
-   * **Personal Data**: Email addresses, phone numbers, and identifying session tokens.
-4. **Application Denylisting**: Sensitive desktop applications (e.g. 1Password, Bitwarden, banking portals) are denylisted by default.
-5. **Configurable Data Retention**: Stored events auto-expire after a configurable window (`EVENT_RETENTION_DAYS`, default: 30 days).
+```text
+workflowOS/
+├── agent/                  # macOS activity capture agent (AppKit/Carbon window focus poller)
+├── ai/                     # Gemini 2.5 Flash SDK integration with deterministic heuristic fallback
+├── automation/             # Declarative execution engine, Playwright runner, and step executors
+│   └── planner/            # 5-tier hierarchical strategy planner and capability scorer
+├── backend/                # FastAPI application backend (REST routes, database, configuration)
+│   ├── discovery/          # Sequence mining, local alignment, pattern ranking, explainability
+│   ├── learning/           # Closed-loop outcome evaluation, 11-category failure taxonomy, adaptive scoring
+│   ├── privacy/            # Sensitive data redaction engine, retention pruning, kill switch
+│   └── routes/             # API endpoints (events, discovery, workflows, execution, integrations)
+├── discovery/              # Core algorithmic discovery models (LCS, alignment, confidence, ranking)
+├── docs/                   # Architectural specifications, API docs, evaluation reports, demo guides
+├── evaluation/             # Phase 15 benchmark harness (10 deterministic scenarios A–J) and metrics
+├── frontend/               # Next.js 16 (React 19 + Tailwind CSS) product dashboard
+│   ├── src/app/            # App router pages and interactive demo apps (/demo/email, crm, chat)
+│   └── src/components/     # Dashboard, Discovery, Workflows, Executions, and Settings views
+└── integrations/           # Application capability registry, read-only Gmail OAuth, and mock adapters
+```
 
 ---
 
-## Phase 15 Evaluation & Benchmark Results
+## Tech Stack
 
-In Phase 15, WorkFlowOS was evaluated across a standardized 10-scenario deterministic benchmark (Scenarios A through J in `docs/PHASE_15_REPORT.md` and `evaluation/README.md`) testing discovery precision, strategy planning, failure classification, and security guardrails:
+| Layer | Technology | Purpose |
+|:---|:---|:---|
+| **Backend Framework** | FastAPI / Python 3.11 | Asynchronous REST API server and routing |
+| **Data Validation** | Pydantic v2 | Strict schema definitions and runtime data validation |
+| **Database** | MongoDB / Motor | Document persistence for events, workflows, executions, and learning states |
+| **Frontend Framework** | Next.js 16 (React 19) | Server-rendered and interactive client dashboard (App Router) |
+| **Styling** | Tailwind CSS v4 | Utility-first responsive design and modern interface tokens |
+| **AI Layer** | Google Gemini 2.5 Flash | Semantic workflow understanding via `google-genai` SDK |
+| **Fallback AI Engine** | Deterministic Rule Heuristics | 100% offline workflow synthesis when Gemini is unconfigured |
+| **Browser Automation** | Playwright | Headless and headed browser execution across web interfaces |
+| **Desktop Agent** | PyObjC / AppKit / Carbon | Non-invasive macOS window focus and application switch polling |
+| **Token Encryption** | Cryptography (Fernet) | AES-128-CBC + HMAC-SHA256 authenticated credential storage |
+| **Testing** | pytest & unittest | Automated test runners for unit, integration, and benchmark suites |
+| **Continuous Integration** | GitHub Actions | Automated build, dependency validation, and test execution on push/PR |
 
-| Evaluation Benchmark | Metric | Verified Result | Target Standard |
+---
+
+## Evaluation
+
+WorkFlowOS includes a standalone, deterministic benchmark harness (`evaluation/run.py`) evaluating the end-to-end pipeline against a standardized 10-scenario test matrix (`SCENARIO_A` through `SCENARIO_J`):
+
+* `SCENARIO_A`: Canonical Customer Support sequence (5 actions across 3 distinct sessions).
+* `SCENARIO_B`: Repeated workflow with minor step variations (optional attachment download).
+* `SCENARIO_C`: Similar but distinct workflows ensuring separate identities (CRM Update vs Order Cancel).
+* `SCENARIO_D`: Intermediate noise tolerance (random navigation actions between valid steps).
+* `SCENARIO_E`: Short sequence rejection (< 3 steps rejected below threshold).
+* `SCENARIO_F`: Single-session occurrence rejection (unrepeated single session rejected).
+* `SCENARIO_G`: Multi-session isolation (disjoint sequences across sessions remain unmerged).
+* `SCENARIO_H`: Mutating workflow authorization enforcement (mutating actions require approval).
+* `SCENARIO_I`: Unknown action fail-closed rejection (`UNKNOWN_ACTION` rejected).
+* `SCENARIO_J`: Unknown application ecosystem boundary enforcement.
+
+### Benchmark Results
+
+> **Important**: The results below reflect deterministic evaluation on the included synthetic benchmark dataset. They validate structural correctness, alignment accuracy, and safety boundaries under controlled conditions; they do not represent statistical accuracy across noisy, unconstrained real-world desktop environments.
+
+| Subsystem | Metric | Measured Result | Benchmark Standard |
 |:---|:---|:---:|:---:|
 | **Workflow Discovery** | Precision | **100.0%** | $\ge 90.0\%$ |
 | **Workflow Discovery** | Recall | **100.0%** | $\ge 90.0\%$ |
@@ -233,77 +269,115 @@ In Phase 15, WorkFlowOS was evaluated across a standardized 10-scenario determin
 | **Explainability Engine** | Audit Coverage | **100.0%** | $100.0\%$ |
 | **Automation Planning** | Strategy Selection Accuracy | **100.0%** | $\ge 95.0\%$ |
 | **Outcome Evaluation** | 11-Category Taxonomy Accuracy | **100.0%** | $\ge 95.0\%$ |
-| **Execution Safety** | Unauthorized Bypass Rate | **0.0%** | $0.0\%$ |
-| **Safety Compliance** | Safety Compliance Rate | **100.0%** | $100.0\%$ |
-| **End-to-End Pipeline** | Full Synthetic Run Success | **100.0%** | $100.0\%$ |
+| **Execution Safety Gate** | Unauthorized Mutation Bypass Rate | **0.0%** | $0.0\%$ |
+| **Safety Compliance** | Unknown Action Fail-Closed Rate | **100.0%** | $100.0\%$ |
+| **End-to-End Pipeline** | Full 10-Stage Synthetic Run Success | **100.0%** | $100.0\%$ |
 
-*Note: Benchmarks reflect deterministic evaluation over synthetic scenario matrices (Scenarios A through J). These synthetic results validate structural correctness and safety boundaries under controlled conditions; they do not establish 100% production accuracy across noisy, unconstrained real-world environments. Full benchmark reports are documented in [docs/PHASE_15_REPORT.md](docs/PHASE_15_REPORT.md).*
-
----
-
-## Quick Start & Local Setup
-
-### Prerequisites
-* **Python**: 3.11+
-* **Node.js**: v18+ (Node 20+ recommended)
-* **MongoDB**: Active MongoDB Atlas cluster URI
+*Full evaluation reports and raw timing data are documented in [docs/PHASE_15_REPORT.md](docs/PHASE_15_REPORT.md).*
 
 ---
 
-### 1. Environment Setup
+## Testing
 
-Copy `.env.example` to `.env` in the repository root:
+The repository contains 459 automated test cases covering discovery algorithms, planning logic, AI synthesis, privacy scrubbing, integration contracts, and regression suites.
+
+### Running Backend Tests
 
 ```bash
-cp .env.example .env
-```
-
-Configure your environment variables:
-* `MONGODB_URI`: Your MongoDB Atlas connection URI.
-* `GEMINI_API_KEY`: *(Optional)* Google AI Studio API key for live LLM inference.
-* `WORKFLOWOS_CREDENTIAL_KEY`: Fernet 32-byte base64 encryption key (generate via `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
-
----
-
-### 2. Backend Setup
-
-```bash
-# Create and activate virtual environment
-python3 -m venv .venv
+# Activate virtual environment
 source .venv/bin/activate
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Run all backend tests with pytest
+pytest backend
 
-# Start FastAPI backend
-python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+# Run with concise progress output
+pytest -q backend
+
+# Run via Python's standard unittest runner
+python -m unittest discover -s backend -p "test_*.py"
+
+# Run the Phase 15 evaluation benchmark harness
+python -m evaluation.run
 ```
 
-Verify backend health at `http://127.0.0.1:8000/api/health`.
-
----
-
-### 3. Frontend Setup
-
-In a separate terminal:
+### Running Frontend Checks
 
 ```bash
 cd frontend
 
-# Install Node dependencies
-npm install
+# Run ESLint validation
+npm run lint
 
-# Start Next.js development server
-npm run dev
+# Run TypeScript static type checking
+npm run type-check
+
+# Run unit tests
+npm test
+
+# Build production bundle
+npm run build
 ```
-
-Open `http://localhost:3000` in your browser.
 
 ---
 
-### 4. Desktop Activity Agent (Optional)
+## Getting Started
 
-To start observing active desktop application windows on macOS:
+### Prerequisites
+* **Python**: 3.11+
+* **Node.js**: 18+ (Node 20+ recommended)
+* **MongoDB**: A running local MongoDB instance or MongoDB Atlas cluster URI
+
+### 1. Clone & Configure Environment
+
+```bash
+git clone https://github.com/rohitt-prog/WorkflowOS.git
+cd WorkflowOS
+
+# Copy environment configuration template
+cp .env.example .env
+```
+
+Edit `.env` to configure your settings:
+```dotenv
+MONGODB_URI=mongodb://localhost:27017/workflowos
+GEMINI_API_KEY=your_optional_gemini_api_key
+WORKFLOWOS_CREDENTIAL_KEY=your_32_byte_base64_fernet_key
+ACTIVITY_COLLECTION_ENABLED=true
+```
+*(If no `GEMINI_API_KEY` is provided, the system operates seamlessly using its offline deterministic heuristic fallback).*
+
+### 2. Backend Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Start FastAPI server on port 8000
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Verify backend health at `http://127.0.0.1:8000/api/health`. Interactive OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
+
+### 3. Frontend Setup
+
+In a separate terminal window:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000` to access the WorkFlowOS dashboard. Interactive demo web applications are accessible at:
+* `/demo` — Demo Hub overview
+* `/demo/email` — Demo Webmail client
+* `/demo/crm` — Demo Customer Relationship Manager
+* `/demo/chat` — Demo Team Messaging client
+
+### 4. macOS Desktop Activity Agent (Optional)
+
+To observe active desktop application window switches on macOS:
 
 ```bash
 source .venv/bin/activate
@@ -312,137 +386,15 @@ python -m agent run --interval 1.0
 
 ---
 
-### 5. Running the Test Suite
-
-Execute the full backend unit and integration test suite (453 tests):
-
-```bash
-source .venv/bin/activate
-python -m unittest discover -s backend -p "test_*.py"
-```
-
-Verify frontend TypeScript types and production build:
-
-```bash
-cd frontend
-npm run lint
-npm run type-check
-npm run build
-```
-
----
-
-## Demonstration Guide
-
-WorkFlowOS provides a complete, 12-step guided demonstration flow:
-
-1. **Product Dashboard**: Inspect system health, desktop agent connectivity, and live telemetry cards.
-2. **Activity Stream**: View sanitized, non-invasive desktop telemetry events.
-3. **Workflow Discovery**: View discovered workflow candidates with repetition counts and confidence scores.
-4. **AI Understanding**: Inspect generated declarative workflow graphs with parameterized inputs.
-5. **Human Approval**: Review the approval gate for mutating actions.
-6. **Strategy Planning**: Inspect the hierarchical plan (`API` → `Integration` → `Semantic UI` → `Browser` → `Manual`).
-7. **Execution**: Trace step-by-step progress with retry and error containment.
-8. **Outcome Evaluation**: Review post-condition evaluation and 11-category failure taxonomy.
-9. **Adaptive Learning**: Inspect deterministic evidence-weighted adaptive learning records and dynamic confidence adjustments.
-10. **Privacy Controls**: Test the authoritative kill-switch and PII redaction engine.
-11. **Application Ecosystem**: Verify capability schemas and fail-closed security for unknown actions.
-12. **Evaluation Suite**: Run the Phase 15 benchmark harness.
-
-*For complete step-by-step scripts and talking points, see [docs/DEMO.md](docs/DEMO.md).*
-
----
-
-## API Overview
-
-The backend exposes a clean REST API documented via OpenAPI at `http://127.0.0.1:8000/docs`:
-
-| Resource Area | Route Pattern | Description |
-|:---|:---|:---|
-| **Health & Telemetry** | `GET /api/health`, `GET /api/system/status` | System readiness, component connectivity, onboarding checks |
-| **Event Ingestion** | `POST /api/events`, `POST /api/events/batch` | Ingest sanitized desktop activity events |
-| **Workflow Discovery** | `GET /api/discovery/patterns`, `POST /api/discovery/scan` | Mine recurring patterns from event sequences |
-| **AI Generation** | `POST /api/ai/generate-workflow` | Synthesize declarative workflows from natural language or events |
-| **Workflow Management** | `GET /api/workflows`, `POST /api/workflows` | Register, retrieve, and update declarative workflows |
-| **Automation Planning** | `POST /api/workflows/{id}/automation-plan` | Generate deterministic multi-strategy automation plans |
-| **Execution Engine** | `POST /api/automation/execute` | Execute approved workflows with live progress tracking |
-| **Closed-Loop Learning** | `GET /api/workflows/{id}/learning` | Inspect deterministic adaptive learning scores and evidence records |
-| **Privacy Controls** | `GET /api/privacy/status`, `POST /api/privacy/toggle` | Manage authoritative kill-switch and retention pruning |
-| **Integrations** | `GET /api/integrations`, `GET /api/integrations/gmail/connect`| Inspect connected apps and initiate OAuth flows |
-
-*For complete endpoint schemas, parameters, and payloads, see [docs/API.md](docs/API.md).*
-
----
-
-## Project Structure
-
-```text
-workflowOS/
-├── agent/                  # Desktop activity capture agent (macOS NSWorkspace poller)
-│   ├── collector.py        # Active window polling and normalization
-│   ├── normalizer.py       # Event schema normalization & PII scrubbing
-│   ├── client.py           # HTTP client with exponential retry backoff
-│   └── cli.py              # Command-line interface (`python -m agent`)
-├── ai/                     # AI workflow understanding & synthesis
-│   └── gemini_service.py   # Google Gemini API integration with deterministic fallbacks
-├── automation/             # Declarative workflow engine & strategy planner
-│   ├── engine.py           # AST step executor, variable interpolation, condition evaluation
-│   ├── planner.py          # 5-tier hierarchical strategy planner
-│   ├── models.py           # Pydantic schemas for workflows, steps, and plans
-│   ├── service.py          # Execution state management and crash recovery
-│   └── playwright_executor.py # Headless browser automation runner
-├── backend/                # FastAPI application backend
-│   ├── main.py             # FastAPI entrypoint, middleware, lifespan handlers
-│   ├── config.py           # Environment settings and configuration validation
-│   ├── routes/             # REST route handlers (events, discovery, execution, privacy, etc.)
-│   ├── discovery/          # Discovery engine, local alignment, pattern ranking, explainability
-│   ├── learning/           # Phase 9/11 adaptive learning & closed-loop evidence stores
-│   ├── privacy/            # Phase 12 redaction engine, retention pruning, privacy gate
-│   └── tests/              # Comprehensive test suites (Phases 1–15)
-├── docs/                   # Engineering documentation
-│   ├── ARCHITECTURE.md     # Full architectural specification & safety invariants
-│   ├── API.md              # REST API reference guide
-│   ├── DEMO.md             # 12-step end-to-end demonstration guide
-│   ├── PHASE_15_REPORT.md  # Verified benchmark evaluation report
-│   ├── RELEASE_CHECKLIST.md# Phase 16 release verification checklist
-│   └── RESUME.md           # Resume bullet points & 19 technical interview questions
-├── frontend/               # Next.js 16 product dashboard (React 19 + Tailwind CSS)
-│   ├── src/app/            # App router page routes
-│   ├── src/components/     # UI views (Dashboard, Activity, Workflows, Applications, etc.)
-│   └── src/lib/api.ts      # Strongly typed API client
-├── integrations/           # Application ecosystem & adapter registry
-│   ├── registry.py         # Capability registry & fail-closed action classifier
-│   ├── oauth.py            # OAuth 2.0 PKCE / state management
-│   ├── credentials.py      # Fernet AES-128-CBC token encryption
-│   └── mock.py             # Mock adapters for local development & benchmarking
-├── .env.example            # Environment configuration template (zero secrets)
-├── requirements.txt        # Python backend dependencies
-└── README.md               # Main project overview (this file)
-```
-
----
-
 ## Known Limitations
 
-To maintain absolute technical transparency, the current implementation has the following defined boundaries:
+To maintain engineering transparency, the following design boundaries are documented:
 
-1. **Synthetic Benchmark Dataset**: Phase 15 evaluation metrics reflect testing against a standardized 10-scenario deterministic benchmark rather than live enterprise multi-tenant traces.
-2. **Local Single-User Architecture**: WorkFlowOS is designed and tested as a local, safety-first workflow automation platform running on a single node; it does not currently provide multi-tenant team isolation or Kubernetes clustering.
-3. **Mock & In-Memory Application Adapters**: While the Gmail integration supports live Google OAuth 2.0 authentication (strictly read-only OAuth access), CRM and Chat capabilities currently utilize local mock adapters implementing realistic capability schemas.
-4. **UI Automation DOM Sensitivity**: Browser and UI automation tiers are vulnerable to unexpected third-party DOM changes, application redesigns, or OS accessibility permission revocations.
-5. **External AI API Dependency**: High-level natural language prompt synthesis relies on the external Google Gemini API; when unconfigured, the system gracefully falls back to deterministic rule-based heuristic generation.
-
----
-
-## Future Scope
-
-The following areas represent natural engineering extensions for WorkFlowOS:
-
-* **Enterprise Multi-Tenancy**: Add organization workspaces, role-based access control (RBAC), and SSO authentication via OIDC/SAML.
-* **Distributed Task Workers**: Decouple long-running workflow executions onto distributed worker pools (e.g. Celery or Temporal) for high-concurrency enterprise execution.
-* **Native OS Accessibility Drivers**: Extend the Semantic UI tier with native macOS Accessibility (`AXUIElement`) and Windows UI Automation (`UIA`) drivers to automate non-web desktop applications without DOM selectors.
-* **Self-Healing Automation Selectors**: Implement automatic runtime diagnosis of broken UI selectors using semantic DOM trees and visual diffing to auto-correct step parameters without failing.
-* **Expanded Integration Connectors**: Implement production OAuth integrations for Salesforce, HubSpot, Slack, Jira, and Microsoft 365.
+1. **Synthetic Benchmark Scope**: Benchmark metrics reflect the included 10-scenario synthetic dataset (Scenarios A–J) designed to verify algorithmic correctness, not real-world enterprise telemetry.
+2. **Local Single-User Architecture**: WorkFlowOS is implemented and tested as a single-node system without distributed multi-tenant isolation or worker clustering.
+3. **Controlled Integration Scope**: While the Gmail adapter supports live Google OAuth 2.0 (strictly read-only access), CRM and Chat capabilities currently utilize local mock adapters implementing realistic capability schemas.
+4. **Non-Invasive Observation Boundaries**: The macOS desktop agent observes window titles and application switch events. It does not perform full screen OCR, pixel analysis, or deep accessibility tree inspection.
+5. **UI & Browser Automation Fragility**: Browser executions driven by Playwright are inherently vulnerable to unexpected third-party DOM shifts, element re-renderings, or bot-detection challenges.
 
 ---
 
@@ -450,7 +402,7 @@ The following areas represent natural engineering extensions for WorkFlowOS:
 
 * [System Architecture Specification](docs/ARCHITECTURE.md)
 * [REST API Reference](docs/API.md)
-* [Demonstration Guide & Script](docs/DEMO.md)
-* [Phase 15 Evaluation Report](docs/PHASE_15_REPORT.md)
-* [Phase 16 Release Checklist](docs/RELEASE_CHECKLIST.md)
-* [Resume & Technical Interview Guide](docs/RESUME.md)
+* [12-Step Demonstration Script](docs/DEMO.md)
+* [Phase 15 Benchmark Evaluation Report](docs/PHASE_15_REPORT.md)
+* [Release Verification Checklist](docs/RELEASE_CHECKLIST.md)
+* [Interview Guide & Technical Architecture FAQ](docs/RESUME.md)
