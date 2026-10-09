@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { AutomationExecutionRecord, ActionDetail } from "@/lib/types";
 import { statusBadgeConfig, getApplicationDisplayName, getAppBadgeClass, API_BASE_URL, formatApiErrorMessage } from "@/lib/utils";
+import WorkflowVisualizer from "@/components/WorkflowVisualizer";
+import ExecutionSummary from "@/components/ExecutionSummary";
 
 interface ExecutionsViewProps {
   executions: AutomationExecutionRecord[];
@@ -23,6 +25,7 @@ export function ExecutionDetailModal({
   const [isResuming, setIsResuming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
 
   // Lock body scroll while modal is open to avoid background page shifting
   useEffect(() => {
@@ -32,6 +35,30 @@ export function ExecutionDetailModal({
       document.body.style.overflow = originalOverflow;
     };
   }, []);
+
+  // Keyboard accessibility: Escape to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isResuming && !isCancelling) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, isResuming, isCancelling]);
+
+  const handleCopyId = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(execution.execution_id);
+        setCopiedId(true);
+        setTimeout(() => setCopiedId(false), 2000);
+      }
+    } catch {
+      // Fallback
+    }
+  };
 
   const handleResume = async () => {
     setIsResuming(true);
@@ -81,10 +108,6 @@ export function ExecutionDetailModal({
 
   const cfg = statusBadgeConfig(execution.status);
   const actions: ActionDetail[] = execution.all_actions || execution.actions_detail || [];
-  const progress =
-    execution.total_actions > 0
-      ? Math.round((execution.completed_actions.length / execution.total_actions) * 100)
-      : 0;
 
   if (typeof document === "undefined") {
     return null;
@@ -100,23 +123,40 @@ export function ExecutionDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* HEADER: fixed/sticky inside modal */}
-        <div className="px-6 py-4.5 border-b border-[#E2E8F0] flex items-start justify-between shrink-0 bg-[#F8FAFC]">
+        <div className="px-6 py-4.5 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-start justify-between shrink-0 bg-[#F8FAFC] dark:bg-[#0B0F17]">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
                 {cfg.label}
               </span>
-              <code className="text-[11px] font-mono text-[#64748B] bg-white px-2 py-0.5 rounded border border-[#E2E8F0]">
-                {execution.execution_id}
-              </code>
+              <div className="flex items-center gap-1">
+                <code className="text-[11px] font-mono text-[#64748B] dark:text-[#94A3B8] bg-white dark:bg-[#162035] px-2 py-0.5 rounded border border-[#E2E8F0] dark:border-[#1E293B]">
+                  {execution.execution_id}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopyId}
+                  className="p-1 rounded text-[#64748B] hover:text-[#0F172A] dark:text-[#94A3B8] dark:hover:text-white hover:bg-slate-200 dark:hover:bg-[#1E293B] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  title="Copy execution ID"
+                  aria-label="Copy execution ID"
+                >
+                  {copiedId ? (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">✓</span>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
-            <h3 className="text-base font-bold text-[#0F172A]">
+            <h3 className="text-base font-bold text-[#0F172A] dark:text-[#F8FAFC]">
               {execution.workflow_name || "Automation Workflow"}
             </h3>
           </div>
           <button
             onClick={onClose}
-            className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#E2E8F0] transition-colors duration-150 cursor-pointer"
+            className="text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-white p-1.5 rounded-lg hover:bg-[#E2E8F0] dark:hover:bg-[#1E293B] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             aria-label="Close execution details"
           >
             ✕
@@ -125,94 +165,34 @@ export function ExecutionDetailModal({
 
         {/* CONTENT: ONLY this region scrolls */}
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5 text-xs overscroll-contain">
-          {/* Metadata Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
-              <span className="text-[10px] text-[#64748B] block font-medium">Progress</span>
-              <span className="text-sm font-bold text-[#0F172A]">
-                {execution.completed_actions.length} / {execution.total_actions}
-              </span>
-            </div>
-            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
-              <span className="text-[10px] text-[#64748B] block font-medium">Runtime</span>
-              <span className="text-sm font-bold text-[#0F172A]">
-                {execution.execution_time_seconds != null ? `${execution.execution_time_seconds}s` : "—"}
-              </span>
-            </div>
-            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
-              <span className="text-[10px] text-[#64748B] block font-medium">Started At</span>
-              <span className="text-[11px] font-mono text-[#0F172A]">
-                {execution.started_at ? new Date(execution.started_at).toLocaleTimeString() : "—"}
-              </span>
-            </div>
-            <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
-              <span className="text-[10px] text-[#64748B] block font-medium">Resumes</span>
-              <span className="text-sm font-bold text-[#0F172A]">
-                {execution.resume_count ?? 0}
-              </span>
-            </div>
-          </div>
+          {/* Polished Compact Execution Summary */}
+          <ExecutionSummary execution={execution} isExecuting={false} />
 
-          {/* Progress Bar */}
-          <div>
-            <div className="flex items-center justify-between text-[11px] text-[#64748B] mb-1">
-              <span>Overall Completion</span>
-              <span className="font-semibold text-[#0F172A]">{progress}%</span>
-            </div>
-            <div className="h-2 bg-[#F1F5F9] rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  execution.status === "completed"
-                    ? "bg-[#16A34A]"
-                    : execution.status === "failed"
-                    ? "bg-[#DC2626]"
-                    : execution.status === "paused"
-                    ? "bg-[#F59E0B]"
-                    : "bg-[#2563EB]"
-                }`}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Action Required Banner for Paused executions */}
-          {execution.status === "paused" && (
-            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-xs space-y-1">
-              <div className="flex items-center gap-2 text-amber-900 font-bold">
-                <span>⏸ Operator Action Required</span>
-              </div>
-              <p className="text-amber-800">
-                Action <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-amber-900">{execution.current_action || "current"}</code> paused due to missing target or validation condition.
-              </p>
-              {execution.error && (
-                <p className="text-amber-700 italic mt-1 font-mono text-[11px]">
-                  Reason: {execution.error}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Error Banner */}
-          {execution.error && execution.status !== "paused" && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-700">
-              <span className="font-semibold">Execution Failure: </span>
-              {execution.error}
-            </div>
-          )}
+          {/* Visual Execution Pipeline & Timeline Status */}
+          <WorkflowVisualizer
+            execution={execution}
+            workflowName={execution.workflow_name}
+          />
 
           {/* Steps Audit Trail */}
-          <div>
-            <h4 className="font-semibold text-[#0F172A] uppercase tracking-wider text-[11px] mb-2.5">
-              Action Execution Trace
-            </h4>
+          <div className="bg-white dark:bg-[#111827] border border-[#E2E8F0] dark:border-[#1E293B] rounded-2xl p-4 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-[#0F172A] dark:text-[#F8FAFC] uppercase tracking-wider text-[11px]">
+                Action Execution Trace ({actions.length} records)
+              </h4>
+              <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] font-mono">
+                Chronological Log
+              </span>
+            </div>
+
             {actions.length === 0 ? (
-              <p className="text-xs text-[#94A3B8] italic">No step records available.</p>
+              <p className="text-xs text-[#94A3B8] italic py-2">No step records available.</p>
             ) : (
               <div className="space-y-2">
                 {actions.map((act, idx) => (
                   <div
                     key={act.action_id || idx}
-                    className="flex items-start gap-3 p-3 rounded-xl border border-[#E2E8F0] bg-white shadow-2xs"
+                    className="flex items-start gap-3 p-3 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#162035] transition-colors"
                   >
                     <span
                       className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
@@ -222,24 +202,37 @@ export function ExecutionDetailModal({
                           ? "bg-[#DC2626] text-white"
                           : act.status === "running"
                           ? "bg-[#2563EB] text-white animate-spin"
-                          : "bg-slate-200 text-slate-500"
+                          : "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
                       }`}
                     >
                       {act.status === "completed" ? "✓" : act.status === "failed" ? "✕" : "○"}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono font-semibold text-xs text-[#0F172A]">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="font-mono font-semibold text-xs text-[#0F172A] dark:text-[#F8FAFC]">
                           {act.action || act.action_type || `Action #${idx + 1}`}
                         </span>
-                        {act.application && (
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded border shrink-0 ${getAppBadgeClass(act.application)}`}>
-                            {getApplicationDisplayName(act.application)}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {act.application && (
+                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded border shrink-0 ${getAppBadgeClass(act.application)}`}>
+                              {getApplicationDisplayName(act.application)}
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded capitalize ${
+                              act.status === "completed"
+                                ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300"
+                                : act.status === "failed"
+                                ? "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                            }`}
+                          >
+                            {act.status}
                           </span>
-                        )}
+                        </div>
                       </div>
                       {act.message && (
-                        <p className="text-[11px] text-[#64748B] mt-0.5 break-words">
+                        <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] mt-1 break-words">
                           {act.message}
                         </p>
                       )}
@@ -412,8 +405,17 @@ export default function ExecutionsView({
                 return (
                   <tr
                     key={exec.execution_id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Inspect execution ${exec.execution_id} for ${exec.workflow_name || "Automation Workflow"}`}
                     onClick={() => setSelectedExecution(exec)}
-                    className="hover:bg-[#F8FAFC] transition-colors duration-150 animate-row-enter cursor-pointer group"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedExecution(exec);
+                      }
+                    }}
+                    className="hover:bg-[#F8FAFC] transition-colors duration-150 animate-row-enter cursor-pointer group focus-visible:outline-none focus-visible:bg-[#F1F5F9]"
                   >
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
@@ -425,7 +427,11 @@ export default function ExecutionsView({
                       {exec.workflow_name || "Automation Workflow"}
                     </td>
                     <td className="py-3 px-4 font-mono text-[#64748B] text-[11px] whitespace-nowrap">
-                      {exec.execution_id}
+                      <span title={exec.execution_id}>
+                        {exec.execution_id.length > 20
+                          ? `${exec.execution_id.slice(0, 8)}…${exec.execution_id.slice(-6)}`
+                          : exec.execution_id}
+                      </span>
                     </td>
                     <td className="py-3 px-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
@@ -457,7 +463,7 @@ export default function ExecutionsView({
                           e.stopPropagation();
                           setSelectedExecution(exec);
                         }}
-                        className="px-2.5 py-1 text-xs font-semibold rounded bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#2563EB] shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer"
+                        className="px-2.5 py-1 text-xs font-semibold rounded bg-white hover:bg-[#F8FAFC] border border-[#E2E8F0] text-[#2563EB] shadow-2xs transition-all duration-150 active:translate-y-px cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                       >
                         Inspect →
                       </button>

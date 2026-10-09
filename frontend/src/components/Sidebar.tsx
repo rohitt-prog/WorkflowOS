@@ -39,7 +39,6 @@ const IconDiscovery = () => (
   </svg>
 );
 
-
 const IconExecutions = () => (
   <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
@@ -164,7 +163,7 @@ export default function Sidebar({
       <button
         type="button"
         onClick={() => handleNavClick("dashboard")}
-        className="h-16 px-5 flex items-center border-b border-[#E2E8F0] gap-3 shrink-0 text-left hover:bg-[#F8FAFC] transition-colors duration-150 cursor-pointer w-full group focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
+        className="h-16 px-5 flex items-center border-b border-[#E2E8F0] dark:border-[#1E293B] gap-3 shrink-0 text-left hover:bg-[#F8FAFC] dark:hover:bg-[#162035] transition-colors duration-150 cursor-pointer w-full group focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#2563EB]/40 dark:focus-visible:ring-[#3B82F6]/50"
         title="Return to WorkFlowOS Overview"
         aria-label="Return to WorkFlowOS Overview"
       >
@@ -175,14 +174,14 @@ export default function Sidebar({
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-sm font-bold tracking-tight text-[#0F172A] leading-none group-hover:text-[#2563EB] transition-colors duration-150">
-              WorkFlow<span className="text-[#2563EB]">OS</span>
+            <span className="text-sm font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] leading-none group-hover:text-[#2563EB] dark:group-hover:text-[#60A5FA] transition-colors duration-150">
+              WorkFlow<span className="text-[#2563EB] dark:text-[#3B82F6]">OS</span>
             </span>
-            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[#DBEAFE] text-[#1D4ED8] font-mono leading-none">
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[#DBEAFE] dark:bg-[#1E293B] text-[#1D4ED8] dark:text-[#60A5FA] font-mono leading-none border border-transparent dark:border-[#2563EB]/30">
               v1.0
             </span>
           </div>
-          <p className="text-[11px] text-[#475569] leading-tight mt-1 truncate">
+          <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-tight mt-1 truncate">
             Intelligent Automation
           </p>
         </div>
@@ -191,7 +190,7 @@ export default function Sidebar({
       {/* Navigation Groups */}
       <nav className="flex-1 py-4 px-3 space-y-6 overflow-y-auto">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#94A3B8] px-2.5 pb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#94A3B8] dark:text-[#64748B] px-2.5 pb-2">
             Navigation
           </p>
           <div className="space-y-1">
@@ -206,12 +205,12 @@ export default function Sidebar({
                   className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer text-left
                     ${
                       isActive
-                        ? "bg-[#DBEAFE] text-[#1D4ED8] font-semibold shadow-2xs"
-                        : "text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC]"
+                        ? "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-[#1E293B] dark:text-[#60A5FA] font-semibold shadow-2xs border border-transparent dark:border-[#3B82F6]/30"
+                        : "text-[#475569] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#162035]"
                     }`}
                 >
                   <span className="flex items-center gap-2.5 truncate">
-                    <span className={isActive ? "text-[#2563EB]" : "text-[#64748B]"}>
+                    <span className={isActive ? "text-[#2563EB] dark:text-[#60A5FA]" : "text-[#64748B] dark:text-[#94A3B8]"}>
                       {item.icon}
                     </span>
                     <span className="truncate">{item.label}</span>
@@ -221,8 +220,8 @@ export default function Sidebar({
                       className={`text-[10px] font-mono px-2 py-0.5 rounded-full border min-w-[20px] text-center shrink-0
                         ${
                           isActive
-                            ? "bg-white text-[#1D4ED8] border-[#BFDBFE] font-bold"
-                            : "bg-[#F1F5F9] text-[#64748B] border-[#E2E8F0]"
+                            ? "bg-white dark:bg-[#111827] text-[#1D4ED8] dark:text-[#60A5FA] border-[#BFDBFE] dark:border-[#2563EB]/40 font-bold"
+                            : "bg-[#F1F5F9] dark:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8] border-[#E2E8F0] dark:border-[#334155]"
                         }`}
                     >
                       {item.badge}
@@ -236,7 +235,7 @@ export default function Sidebar({
 
         {/* Tools Group */}
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#94A3B8] px-2.5 pb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#94A3B8] dark:text-[#64748B] px-2.5 pb-2">
             Playground
           </p>
           <div className="space-y-1">
@@ -246,15 +245,15 @@ export default function Sidebar({
                 setIsHovered(false);
                 setIsFocused(false);
               }}
-              className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium text-[#475569] hover:text-[#0F172A] hover:bg-[#F8FAFC] transition-colors duration-150 cursor-pointer"
+              className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs font-medium text-[#475569] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#162035] transition-colors duration-150 cursor-pointer"
             >
               <span className="flex items-center gap-2.5">
-                <svg className="w-4.5 h-4.5 text-[#64748B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <svg className="w-4.5 h-4.5 text-[#64748B] dark:text-[#94A3B8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
                 <span>Demo Applications</span>
               </span>
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1E293B] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                 3 Apps
               </span>
             </Link>
@@ -263,8 +262,8 @@ export default function Sidebar({
       </nav>
 
       {/* Backend Status Footer */}
-      <div className="p-3 border-t border-[#E2E8F0] bg-[#F8FAFC] shrink-0">
-        <div className="flex items-center justify-between p-2.5 rounded-lg border border-[#E2E8F0] bg-white shadow-2xs">
+      <div className="p-3 border-t border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B0F17] shrink-0">
+        <div className="flex items-center justify-between p-2.5 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#162035] shadow-2xs">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="relative flex h-2 w-2 shrink-0">
               {backendStatus === "connected" && (
@@ -281,15 +280,15 @@ export default function Sidebar({
               />
             </span>
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-[#0F172A] truncate">
+              <div className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
                 Backend API
               </div>
-              <div className="text-[10px] text-[#475569] capitalize">
+              <div className="text-[10px] text-[#475569] dark:text-[#94A3B8] capitalize">
                 {backendStatus}
               </div>
             </div>
           </div>
-          <span className="text-[10px] font-mono text-[#94A3B8]">
+          <span className="text-[10px] font-mono text-[#94A3B8] dark:text-[#64748B]">
             :8000
           </span>
         </div>
@@ -299,7 +298,7 @@ export default function Sidebar({
 
   if (isOverview) {
     return (
-      <aside className="w-60 shrink-0 bg-white border-r border-[#E2E8F0] flex flex-col h-screen sticky top-0 z-30 select-none">
+      <aside className="w-60 shrink-0 bg-white dark:bg-[#111827] border-r border-[#E2E8F0] dark:border-[#1E293B] flex flex-col h-screen sticky top-0 z-30 select-none transition-colors duration-150">
         {sidebarContent}
       </aside>
     );
@@ -309,7 +308,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Subtle left-edge hover reveal trigger strip (approx. 12px width) */}
+      {/* Subtle left-edge hover reveal trigger strip */}
       <div
         className="fixed inset-y-0 left-0 w-3 z-30 group cursor-pointer"
         onMouseEnter={handleMouseEnter}
@@ -317,7 +316,7 @@ export default function Sidebar({
         aria-label="Expand sidebar"
         role="region"
       >
-        <div className="w-1 h-12 rounded-r bg-slate-300 group-hover:bg-[#2563EB] group-hover:w-1.5 transition-all duration-200 absolute top-1/2 -translate-y-1/2 left-0 opacity-40 group-hover:opacity-100" />
+        <div className="w-1 h-12 rounded-r bg-slate-300 dark:bg-slate-700 group-hover:bg-[#2563EB] group-hover:w-1.5 transition-all duration-200 absolute top-1/2 -translate-y-1/2 left-0 opacity-40 group-hover:opacity-100" />
       </div>
 
       {/* Flyout Sidebar */}
@@ -327,7 +326,7 @@ export default function Sidebar({
         onFocusCapture={handleFocusCapture}
         onBlurCapture={handleBlurCapture}
         onKeyDown={handleKeyDown}
-        className={`fixed inset-y-0 left-0 z-40 w-60 h-screen bg-white border-r border-[#E2E8F0] shadow-2xl flex flex-col select-none transition-transform duration-[250ms] ease-out motion-reduce:transition-none ${
+        className={`fixed inset-y-0 left-0 z-40 w-60 h-screen bg-white dark:bg-[#111827] border-r border-[#E2E8F0] dark:border-[#1E293B] shadow-2xl flex flex-col select-none transition-transform duration-[250ms] ease-out motion-reduce:transition-none ${
           isRevealed ? "translate-x-0" : "-translate-x-full"
         }`}
       >

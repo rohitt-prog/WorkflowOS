@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --primary: #2563EB;
   --primary-hover: #1D4ED8;
@@ -9,10 +11,37 @@
   --border: #E2E8F0;
   --background: #F7F9FC;
   --surface: #FFFFFF;
+  --surface-raised: #F8FAFC;
+  --surface-subtle: #F1F5F9;
   --success: #16A34A;
   --warning: #F59E0B;
   --error: #DC2626;
   --highlight: #10B981;
+}
+
+.dark {
+  --primary: #3B82F6;
+  --primary-hover: #60A5FA;
+  --primary-tint: #1E293B;
+  --heading: #F8FAFC;
+  --body: #94A3B8;
+  --border: #1E293B;
+  --background: #0B0F17;
+  --surface: #111827;
+  --surface-raised: #162035;
+  --surface-subtle: #1E293B;
+  --success: #22C55E;
+  --warning: #FBBF24;
+  --error: #EF4444;
+  --highlight: #34D399;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -27,7 +56,7 @@ code, kbd, samp, pre {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
-/* Custom scrollbar for light theme */
+/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -46,6 +75,14 @@ code, kbd, samp, pre {
   background: #94A3B8;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 /* Hide scrollbar utility */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
@@ -55,7 +92,257 @@ code, kbd, samp, pre {
   scrollbar-width: none;
 }
 
-/* Smooth fade-in for modals and dynamic cards */
+/* =========================================================================
+   Linear & Vercel Inspired Restrained Dark Theme Mappings
+   Ensures all 8 existing views, modals, cards, badges, and tables
+   render seamlessly with slate/charcoal tones without pitch black.
+   ========================================================================= */
+
+/* Surface backgrounds */
+.dark .bg-white {
+  background-color: #111827 !important;
+}
+
+.dark .bg-\[\#F7F9FC\] {
+  background-color: #0B0F17 !important;
+}
+
+.dark .bg-\[\#F8FAFC\] {
+  background-color: #162035 !important;
+}
+
+.dark .bg-\[\#F1F5F9\] {
+  background-color: #1E293B !important;
+}
+
+.dark .bg-\[\#F8FAFC\]\/80 {
+  background-color: rgba(22, 32, 53, 0.8) !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: #111827 !important;
+}
+
+.dark .bg-slate-100 {
+  background-color: #1E293B !important;
+}
+
+.dark .bg-slate-200 {
+  background-color: #334155 !important;
+}
+
+/* Surface hovers */
+.dark .hover\:bg-\[\#F8FAFC\]:hover {
+  background-color: #162035 !important;
+}
+
+.dark .hover\:bg-white:hover {
+  background-color: #162035 !important;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  background-color: #162035 !important;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #1E293B !important;
+}
+
+.dark .hover\:bg-slate-200:hover {
+  background-color: #334155 !important;
+}
+
+/* Borders and dividers */
+.dark .border-\[\#E2E8F0\] {
+  border-color: #1E293B !important;
+}
+
+.dark .border-\[\#CBD5E1\] {
+  border-color: #334155 !important;
+}
+
+.dark .border-\[\#E5E7EB\] {
+  border-color: #1E293B !important;
+}
+
+.dark .border-slate-200 {
+  border-color: #1E293B !important;
+}
+
+.dark .border-slate-300 {
+  border-color: #334155 !important;
+}
+
+.dark .divide-\[\#E2E8F0\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1E293B !important;
+}
+
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1E293B !important;
+}
+
+/* Typography */
+.dark .text-\[\#0F172A\] {
+  color: #F8FAFC !important;
+}
+
+.dark .text-\[\#1E293B\] {
+  color: #F1F5F9 !important;
+}
+
+.dark .text-\[\#334155\] {
+  color: #E2E8F0 !important;
+}
+
+.dark .text-\[\#475569\] {
+  color: #94A3B8 !important;
+}
+
+.dark .text-\[\#64748B\] {
+  color: #94A3B8 !important;
+}
+
+.dark .text-slate-900 {
+  color: #F8FAFC !important;
+}
+
+.dark .text-slate-800 {
+  color: #F1F5F9 !important;
+}
+
+.dark .text-slate-700 {
+  color: #CBD5E1 !important;
+}
+
+.dark .text-slate-600 {
+  color: #94A3B8 !important;
+}
+
+.dark .hover\:text-\[\#0F172A\]:hover {
+  color: #F8FAFC !important;
+}
+
+.dark .hover\:text-\[\#2563EB\]:hover {
+  color: #60A5FA !important;
+}
+
+/* Status Badges, Chips & Alerts */
+/* Blue */
+.dark .bg-blue-50,
+.dark .bg-\[\#EFF6FF\] {
+  background-color: rgba(30, 58, 138, 0.28) !important;
+}
+.dark .border-blue-200,
+.dark .border-\[\#BFDBFE\] {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+.dark .text-blue-700,
+.dark .text-blue-800,
+.dark .text-\[\#1D4ED8\] {
+  color: #93C5FD !important;
+}
+.dark .bg-\[\#DBEAFE\] {
+  background-color: rgba(30, 58, 138, 0.38) !important;
+}
+
+/* Emerald / Green */
+.dark .bg-emerald-50,
+.dark .bg-green-50,
+.dark .bg-\[\#F0FDF4\] {
+  background-color: rgba(6, 78, 59, 0.28) !important;
+}
+.dark .border-emerald-200,
+.dark .border-green-200 {
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-green-700 {
+  color: #6EE7B7 !important;
+}
+
+/* Amber / Yellow */
+.dark .bg-amber-50,
+.dark .bg-yellow-50,
+.dark .bg-\[\#FEF3C7\] {
+  background-color: rgba(120, 53, 15, 0.28) !important;
+}
+.dark .border-amber-200,
+.dark .border-yellow-200 {
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+.dark .text-amber-700,
+.dark .text-amber-800 {
+  color: #FCD34D !important;
+}
+
+/* Rose / Red */
+.dark .bg-rose-50,
+.dark .bg-red-50,
+.dark .bg-\[\#FEF2F2\] {
+  background-color: rgba(136, 19, 55, 0.28) !important;
+}
+.dark .border-rose-200,
+.dark .border-red-200 {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-red-700 {
+  color: #FCA5A5 !important;
+}
+
+/* Purple */
+.dark .bg-purple-50 {
+  background-color: rgba(88, 28, 135, 0.28) !important;
+}
+.dark .border-purple-200 {
+  border-color: rgba(168, 85, 247, 0.35) !important;
+}
+.dark .text-purple-700,
+.dark .text-purple-800 {
+  color: #D8B4FE !important;
+}
+
+/* Inputs, Textareas, Selects */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark textarea,
+.dark select {
+  background-color: #111827 !important;
+  border-color: #1E293B !important;
+  color: #F8FAFC !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748B !important;
+}
+
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  border-color: #3B82F6 !important;
+}
+
+/* Modal Backdrops */
+.dark .bg-slate-900\/50,
+.dark .bg-slate-900\/40,
+.dark .bg-black\/50,
+.dark .bg-black\/40 {
+  background-color: rgba(3, 7, 18, 0.75) !important;
+}
+
+/* Tables */
+.dark th {
+  background-color: #162035 !important;
+  color: #94A3B8 !important;
+}
+
+.dark td {
+  border-color: #1E293B !important;
+}
+
+/* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: scale(0.98); }
   to   { opacity: 1; transform: scale(1); }
@@ -65,7 +352,6 @@ code, kbd, samp, pre {
   animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Professional SaaS micro-animations */
 @keyframes cardEnter {
   from {
     opacity: 0;
@@ -137,6 +423,35 @@ code, kbd, samp, pre {
 
 .animate-modal-enter {
   animation: modalEnter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Workflow pipeline flow & node pulse animations */
+@keyframes connectorFlow {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-connector-flow {
+  background: linear-gradient(90deg, #3B82F6 0%, #60A5FA 50%, #3B82F6 100%);
+  background-size: 200% 100%;
+  animation: connectorFlow 1.8s linear infinite;
+}
+
+@keyframes nodePulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+  }
+}
+
+.animate-node-pulse {
+  animation: nodePulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* Accessibility: Respect prefers-reduced-motion */

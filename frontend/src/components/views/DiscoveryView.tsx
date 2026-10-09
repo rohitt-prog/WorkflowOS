@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   DiscoveryResult,
   DiscoveredWorkflow,
@@ -14,12 +14,14 @@ import {
 import {
   API_BASE_URL,
   formatEventStep,
-  getAppBadgeClass,
-  getApplicationDisplayName,
   formatApiErrorMessage,
   getWorkflowCanonicalId,
 } from "@/lib/utils";
 import { deleteWorkflow } from "@/lib/api";
+import WorkflowVisualizer, {
+  GMAIL_TRIAGE_PIPELINE_DEF,
+} from "@/components/WorkflowVisualizer";
+import ExecutionSummary from "@/components/ExecutionSummary";
 
 interface DiscoveryViewProps {
   discovery: DiscoveryResult | null;
@@ -68,6 +70,13 @@ export default function DiscoveryView({
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [testCustomer, setTestCustomer] = useState("Rahul");
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("idle");
+
+  const loadedWorkflowIdRef = useRef<string | null>(null);
+  const approvalsRef = useRef<Record<string, "approved" | "rejected">>({});
+
+  useEffect(() => {
+    approvalsRef.current = approvals;
+  }, [approvals]);
 
   const fetchLearningState = useCallback(async (wf: DiscoveredWorkflow) => {
     setLearningLoading(true);
@@ -147,6 +156,8 @@ export default function DiscoveryView({
 
   const handleReview = useCallback(
     async (wf: DiscoveredWorkflow) => {
+      const canonicalWfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
+      loadedWorkflowIdRef.current = canonicalWfId;
       setReviewWorkflow(wf);
       setProposal(null);
       setEditedProposal(null);
@@ -159,8 +170,7 @@ export default function DiscoveryView({
       setAiError(null);
       setExecutionResult(null);
       setExecutionError(null);
-      const canonicalWfId = getWorkflowCanonicalId(wf.sequence, wf.workflow_id);
-      setApprovalStatus(approvals[canonicalWfId] || (wf.is_rejected ? "rejected" : "idle"));
+      setApprovalStatus(approvalsRef.current[canonicalWfId] || (wf.is_rejected ? "rejected" : "idle"));
       setAutomationPlan(null);
       setClosedLoopSummary(null);
       setExpandedStepWhy({});
@@ -200,18 +210,19 @@ export default function DiscoveryView({
         setAiLoading(false);
       }
     },
-    [approvals, fetchLearningState, fetchAutomationPlan, fetchClosedLoopSummary]
+    [fetchLearningState, fetchAutomationPlan, fetchClosedLoopSummary]
   );
 
   const submitFeedback = async (
     decision: "approve" | "reject" | "edit_approve",
     opts?: { rejection_reason?: string; edited_workflow?: WorkflowProposal | Record<string, unknown> }
   ) => {
-    if (!reviewWorkflow) return;
+    const targetWf = reviewWorkflow || selectedWorkflow;
+    if (!targetWf) return;
     setIsSubmittingFeedback(true);
     setFeedbackSuccessMsg(null);
     setFeedbackErrorMsg(null);
-    const wfId = getWorkflowCanonicalId(reviewWorkflow.sequence, reviewWorkflow.workflow_id);
+    const wfId = getWorkflowCanonicalId(targetWf.sequence, targetWf.workflow_id);
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/workflows/${wfId}/feedback`, {
@@ -222,7 +233,7 @@ export default function DiscoveryView({
           rejection_reason: opts?.rejection_reason,
           edited_workflow: opts?.edited_workflow,
           original_workflow: proposal,
-          session_id: reviewWorkflow.session_ids?.[0],
+          session_id: targetWf.session_ids?.[0],
         }),
       });
       if (!res.ok) {
@@ -261,10 +272,9 @@ export default function DiscoveryView({
   };
 
   const handleApproveAndRun = async () => {
-    if (!proposal) return;
+    if (!proposal || isExecuting) return;
     setIsExecuting(true);
     setExecutionError(null);
-    setExecutionResult(null);
 
     const activeWorkflow = editedProposal || proposal;
     const updatedActions = activeWorkflow.actions.map((act) =>
@@ -273,6 +283,9 @@ export default function DiscoveryView({
         : act
     );
 
+    const targetWf = reviewWorkflow || selectedWorkflow;
+    const sessionId = targetWf?.session_ids?.[0];
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/automation/execute`, {
         method: "POST",
@@ -280,31 +293,42 @@ export default function DiscoveryView({
         body: JSON.stringify({
           workflow: { ...activeWorkflow, actions: updatedActions },
           approved: true,
-          session_id: reviewWorkflow?.session_ids?.[0],
+          session_id: sessionId,
           parameters: { customer_name: testCustomer },
           executor_type: "playwright",
         }),
       });
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(formatApiErrorMessage(errData, `Execution failed with HTTP ${res.status}`));
+      }
+
       const data: AutomationExecutionResponse = await res.json();
       setExecutionResult(data);
 
+      const canonicalWfId = targetWf
+        ? getWorkflowCanonicalId(targetWf.sequence, targetWf.workflow_id)
+        : activeWorkflow.name;
+
       if (data.status === "completed") {
         setApprovalStatus("approved");
-        if (reviewWorkflow) {
-          const canonicalWfId = getWorkflowCanonicalId(reviewWorkflow.sequence, reviewWorkflow.workflow_id);
-          setApprovals((prev) => ({ ...prev, [canonicalWfId]: "approved" }));
-          fetchLearningState(reviewWorkflow);
+        setApprovals((prev) => ({ ...prev, [canonicalWfId]: "approved" }));
+        if (targetWf) {
+          fetchLearningState(targetWf);
+          fetchClosedLoopSummary(targetWf);
         }
         onExecutionComplete();
       } else if (data.status === "paused") {
         setApprovalStatus("approved");
-        if (reviewWorkflow) {
-          fetchLearningState(reviewWorkflow);
-          fetchAutomationPlan(reviewWorkflow);
-          fetchClosedLoopSummary(reviewWorkflow);
+        if (targetWf) {
+          fetchLearningState(targetWf);
+          fetchAutomationPlan(targetWf);
+          fetchClosedLoopSummary(targetWf);
         }
         onExecutionComplete();
+      } else if (data.status === "failed") {
+        setExecutionError(data.message || data.failure_reason || "Execution failed");
       } else {
         setExecutionError(data.message || "Execution encountered an error");
       }
@@ -316,9 +340,11 @@ export default function DiscoveryView({
   };
 
   const handleResume = async () => {
-    if (!executionResult?.workflow_id) return;
+    if (!executionResult?.workflow_id || isResuming || isCancelling) return;
     setIsResuming(true);
     setExecutionError(null);
+
+    const targetWf = reviewWorkflow || selectedWorkflow;
 
     try {
       const res = await fetch(
@@ -330,13 +356,18 @@ export default function DiscoveryView({
         }
       );
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(formatApiErrorMessage(errData, `Resume failed with HTTP ${res.status}`));
+      }
+
       const data: AutomationExecutionResponse = await res.json();
       setExecutionResult(data);
       if (data.status === "completed") {
-        if (reviewWorkflow) {
-          fetchLearningState(reviewWorkflow);
-          fetchAutomationPlan(reviewWorkflow);
-          fetchClosedLoopSummary(reviewWorkflow);
+        if (targetWf) {
+          fetchLearningState(targetWf);
+          fetchAutomationPlan(targetWf);
+          fetchClosedLoopSummary(targetWf);
         }
         onExecutionComplete();
       }
@@ -348,21 +379,29 @@ export default function DiscoveryView({
   };
 
   const handleCancel = async () => {
-    if (!executionResult?.workflow_id) return;
+    if (!executionResult?.workflow_id || isResuming || isCancelling) return;
     setIsCancelling(true);
     setExecutionError(null);
+
+    const targetWf = reviewWorkflow || selectedWorkflow;
 
     try {
       const res = await fetch(
         `${API_BASE_URL}/api/automation/executions/${executionResult.workflow_id}/cancel`,
         { method: "POST" }
       );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(formatApiErrorMessage(errData, `Cancel failed with HTTP ${res.status}`));
+      }
+
       const data: AutomationExecutionResponse = await res.json();
       setExecutionResult(data);
-      if (reviewWorkflow) {
-        fetchLearningState(reviewWorkflow);
-        fetchAutomationPlan(reviewWorkflow);
-        fetchClosedLoopSummary(reviewWorkflow);
+      if (targetWf) {
+        fetchLearningState(targetWf);
+        fetchAutomationPlan(targetWf);
+        fetchClosedLoopSummary(targetWf);
       }
       onExecutionComplete();
     } catch (e: unknown) {
@@ -375,18 +414,24 @@ export default function DiscoveryView({
   useEffect(() => {
     let ignore = false;
     if (selectedWorkflow) {
-      void Promise.resolve().then(() => {
-        if (!ignore) {
-          handleReview(selectedWorkflow);
-        }
-      });
+      const canonicalWfId = getWorkflowCanonicalId(
+        selectedWorkflow.sequence,
+        selectedWorkflow.workflow_id
+      );
+      if (loadedWorkflowIdRef.current !== canonicalWfId) {
+        void Promise.resolve().then(() => {
+          if (!ignore) {
+            handleReview(selectedWorkflow);
+          }
+        });
+      }
     }
     return () => {
       ignore = true;
     };
   }, [selectedWorkflow, handleReview]);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setReviewWorkflow(null);
     setProposal(null);
     setExecutionResult(null);
@@ -396,10 +441,27 @@ export default function DiscoveryView({
     setExpandedStepWhy({});
     setShowDeleteConfirm(false);
     setDeleteError(null);
+    loadedWorkflowIdRef.current = null;
     if (onClose) {
       onClose();
     }
-  };
+  }, [onClose]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isExecuting && !isResuming && !isCancelling) {
+        if (showDeleteConfirm) {
+          setShowDeleteConfirm(false);
+        } else if (reviewWorkflow || selectedWorkflow) {
+          closeModal();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isExecuting, isResuming, isCancelling, showDeleteConfirm, reviewWorkflow, selectedWorkflow, closeModal]);
 
   const handleConfirmDelete = async () => {
     const targetWf = reviewWorkflow || selectedWorkflow;
@@ -907,7 +969,9 @@ export default function DiscoveryView({
       {(selectedWorkflow ? activeWf : reviewWorkflow) && activeWf && (
         <div
           className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn"
-          onClick={closeModal}
+          onClick={() => {
+            if (!isExecuting && !isResuming && !isCancelling) closeModal();
+          }}
         >
           <div
             className="bg-white border border-[#E2E8F0] rounded-2xl max-w-4xl w-full shadow-xl flex flex-col max-h-[90vh] overflow-hidden"
@@ -930,7 +994,9 @@ export default function DiscoveryView({
               </div>
               <button
                 onClick={closeModal}
-                className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#E2E8F0] transition cursor-pointer"
+                disabled={isExecuting || isResuming || isCancelling}
+                className="text-[#94A3B8] hover:text-[#0F172A] p-1.5 rounded-lg hover:bg-[#E2E8F0] transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Close modal"
               >
                 ✕
               </button>
@@ -959,38 +1025,23 @@ export default function DiscoveryView({
                     </div>
                   )}
 
-                  {/* Proposed Actions List */}
+                  {/* Animated Workflow Execution Pipeline Visualization */}
                   <div>
-                    <h4 className="font-semibold text-[#0F172A] mb-2 uppercase tracking-wider text-[11px]">
-                      Action Sequence ({proposal?.actions.length ?? 0} Steps)
-                    </h4>
-                    <div className="space-y-2">
-                      {proposal?.actions.map((act, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between p-3 rounded-xl border border-[#E2E8F0] bg-white shadow-2xs"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="w-6 h-6 rounded-full bg-[#EFF6FF] text-[#2563EB] font-bold text-xs flex items-center justify-center font-mono shrink-0">
-                              {i + 1}
-                            </span>
-                            <div>
-                              <div className="font-mono font-semibold text-[#0F172A]">
-                                {formatEventStep(act.type)}
-                              </div>
-                              {act.target && (
-                                <div className="text-[11px] text-[#64748B] mt-0.5">
-                                  Target: <span className="font-mono text-[#0F172A]">{act.target}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded border shrink-0 ${getAppBadgeClass(act.application)}`}>
-                            {getApplicationDisplayName(act.application)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                    <WorkflowVisualizer
+                      workflowId={getWorkflowCanonicalId(activeWf.sequence, activeWf.workflow_id)}
+                      workflowName={proposal?.name || activeWf.label}
+                      sequence={activeWf.sequence}
+                      definition={
+                        activeWf.label.toLowerCase().includes("gmail") ||
+                        activeWf.sequence.some(
+                          (s) => s.includes("list_recent_messages") || s.includes("search_messages")
+                        )
+                          ? GMAIL_TRIAGE_PIPELINE_DEF
+                          : null
+                      }
+                      execution={executionResult}
+                      isExecuting={isExecuting}
+                    />
                   </div>
 
                   {/* Phase 10: Intelligent Automation Strategy Plan */}
@@ -1534,90 +1585,29 @@ export default function DiscoveryView({
                     </div>
                   )}
 
-                  {/* Execution Result Card */}
+                  {/* Compact Execution Summary & Controls */}
                   {executionResult && !isExecuting && (
-                    <div
-                      className={`rounded-xl p-4 border ${
-                        executionResult.status === "completed"
-                          ? "bg-emerald-50 border-emerald-200"
-                          : executionResult.status === "paused"
-                          ? "bg-amber-50 border-amber-200"
-                          : executionResult.status === "cancelled"
-                          ? "bg-slate-100 border-slate-200"
-                          : "bg-rose-50 border-rose-200"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <p
-                          className={`text-xs font-bold ${
-                            executionResult.status === "completed"
-                              ? "text-emerald-800"
-                              : executionResult.status === "paused"
-                              ? "text-amber-800"
-                              : executionResult.status === "cancelled"
-                              ? "text-slate-700"
-                              : "text-rose-800"
-                          }`}
-                        >
-                          {executionResult.status === "completed"
-                            ? "✓ Automation Completed Successfully"
-                            : executionResult.status === "paused"
-                            ? "⏸ Paused — Human Intervention Required"
-                            : executionResult.status === "cancelled"
-                            ? "✕ Execution Cancelled"
-                            : "⚠ Execution Failed"}
-                        </p>
-                        <span className="text-[10px] font-mono text-[#64748B]">
-                          {executionResult.completed_actions.length}/{executionResult.total_actions} steps completed
-                        </span>
-                      </div>
+                    <div className="space-y-3">
+                      <ExecutionSummary
+                        execution={executionResult}
+                        workflowName={proposal?.name || activeWf.label}
+                        isExecuting={isExecuting}
+                      />
 
-                      {/* Human intervention details */}
-                      {executionResult.human_intervention && (
-                        <div className="bg-white/80 border border-amber-300 rounded-lg p-3 my-2 text-xs space-y-1">
-                          <p className="font-semibold text-amber-900">{executionResult.human_intervention.title}</p>
-                          <p className="text-amber-800">{executionResult.human_intervention.reason}</p>
-                          <p className="text-amber-700 italic">{executionResult.human_intervention.action_required}</p>
-                        </div>
-                      )}
-
-                      {/* Step Results List */}
-                      {executionResult.all_actions && executionResult.all_actions.length > 0 && (
-                        <div className="space-y-1.5 mt-3 pt-3 border-t border-[#E2E8F0]/60">
-                          {executionResult.all_actions.map((a, i) => (
-                            <div key={i} className="flex items-center gap-2 text-xs">
-                              <span
-                                className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                                  a.status === "completed"
-                                    ? "bg-[#16A34A] text-white"
-                                    : a.status === "failed"
-                                    ? "bg-[#DC2626] text-white"
-                                    : "bg-slate-200 text-slate-500"
-                                }`}
-                              >
-                                {a.status === "completed" ? "✓" : a.status === "failed" ? "✗" : "○"}
-                              </span>
-                              <span className="font-mono text-[#0F172A] font-semibold">{a.action}</span>
-                              {a.message && <span className="text-[#64748B]">— {a.message}</span>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Resume / Cancel Controls */}
+                      {/* Resume / Cancel Controls when Paused */}
                       {executionResult.status === "paused" && executionResult.resume_available && (
-                        <div className="flex items-center gap-2.5 mt-4 pt-3 border-t border-amber-200">
+                        <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
                           <button
                             onClick={handleResume}
                             disabled={isResuming || isCancelling}
-                            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 disabled:opacity-60 cursor-pointer"
+                            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white shadow-2xs transition active:scale-97 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                           >
                             {isResuming ? "Resuming…" : "Resume Execution"}
                           </button>
                           <button
                             onClick={handleCancel}
                             disabled={isResuming || isCancelling}
-                            className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white hover:bg-rose-50 text-[#DC2626] border border-rose-200 transition active:scale-97 disabled:opacity-60 cursor-pointer"
+                            className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-[#111827] hover:bg-rose-50 text-[#DC2626] border border-rose-200 dark:border-rose-800 transition active:scale-97 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                           >
                             {isCancelling ? "Cancelling…" : "Cancel Workflow"}
                           </button>
@@ -1654,6 +1644,14 @@ export default function DiscoveryView({
 
                 <div className="flex items-center gap-2.5">
                   <button
+                    type="button"
+                    onClick={closeModal}
+                    disabled={isExecuting || isResuming || isCancelling}
+                    className="px-3.5 py-2 text-xs font-medium rounded-lg bg-white hover:bg-[#F8FAFC] text-[#475569] border border-[#E2E8F0] transition disabled:opacity-50 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
                     onClick={() => {
                       submitFeedback("reject", { rejection_reason: "Dismissed in operator review" });
                     }}
@@ -1682,7 +1680,7 @@ export default function DiscoveryView({
                       ? "Executing…"
                       : approvalStatus === "approved"
                       ? "Run Again"
-                      : "Approve & Execute via Playwright"}
+                      : "Approve & Execute"}
                   </button>
                 </div>
               </div>

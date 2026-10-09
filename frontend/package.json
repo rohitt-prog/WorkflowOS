@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "type-check": "tsc --noEmit",
-    "test": "node --test test_semantic_events.mjs"
+    "test": "node --test test_*.mjs"
   },
   "dependencies": {
     "next": "16.3.6",

@@ -3,6 +3,9 @@
 import React, { useState } from "react";
 import { WorkflowDefinition, WorkflowStep, ViewId, AutomationExecutionResponse } from "@/lib/types";
 import { API_BASE_URL, getApplicationDisplayName, formatApiErrorMessage } from "@/lib/utils";
+import WorkflowVisualizer, {
+  GMAIL_TRIAGE_PIPELINE_DEF,
+} from "@/components/WorkflowVisualizer";
 
 const DEFAULT_WORKFLOW: WorkflowDefinition = {
   id: "wf_customer_verification",
@@ -71,71 +74,7 @@ const DEFAULT_WORKFLOW: WorkflowDefinition = {
   tags: ["enterprise", "crm", "email"],
 };
 
-const GMAIL_TRIAGE_WORKFLOW: WorkflowDefinition = {
-  id: "wf_gmail_triage",
-  name: "Gmail Inbox Triage & CRM Lookup",
-  description: "Queries Gmail read-only API for recent messages, parses headers, and verifies CRM accounts.",
-  trigger: { type: "manual", application: "gmail", event: "workflow_triggered" },
-  inputs: [
-    {
-      name: "query",
-      type: "string",
-      description: "Search filter for Gmail inbox messages",
-      required: false,
-      default: "label:INBOX",
-    },
-    {
-      name: "max_results",
-      type: "number",
-      description: "Maximum emails to retrieve (1-20)",
-      required: false,
-      default: 5,
-    },
-    {
-      name: "customer_name",
-      type: "string",
-      description: "Target customer name for CRM query",
-      required: false,
-      default: "Rahul",
-    },
-  ],
-  steps: [
-    {
-      id: "step_1",
-      name: "List Recent Inbox Emails",
-      type: "list_recent_messages",
-      application: "gmail",
-      parameters: {
-        max_results: 5,
-        query: "{{inputs.query}}",
-      },
-      retry_policy: {
-        max_attempts: 2,
-        delay_seconds: 2,
-      },
-    },
-    {
-      id: "step_2",
-      name: "Query CRM Account Records",
-      type: "search_customer",
-      application: "demo_crm",
-      parameters: {
-        customer_name: "{{inputs.customer_name}}",
-      },
-    },
-    {
-      id: "step_3",
-      name: "Send Confirmation Alert",
-      type: "send_message",
-      application: "demo_chat",
-      parameters: {
-        message: "Gmail triage completed. Recent messages retrieved and customer account reconciled.",
-      },
-    },
-  ],
-  requires_approval: true,
-  tags: ["gmail", "read-only", "triage", "phase7.3"],
-};
+const GMAIL_TRIAGE_WORKFLOW: WorkflowDefinition = GMAIL_TRIAGE_PIPELINE_DEF;
 
 const STEP_TYPES = [
   "list_recent_messages",
@@ -678,6 +617,15 @@ export default function BuilderView({ onExecutionComplete, onNavigate }: Builder
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Visual Execution Pipeline Graph */}
+      <section>
+        <WorkflowVisualizer
+          definition={workflow}
+          execution={runResult}
+          isExecuting={isRunning}
+        />
       </section>
 
       {/* Step Sequence Builder */}

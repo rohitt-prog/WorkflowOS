@@ -24,6 +24,9 @@ import {
   fetchClosedLoopSummary,
   deleteWorkflow,
 } from "@/lib/api";
+import WorkflowVisualizer, {
+  GMAIL_TRIAGE_PIPELINE_DEF,
+} from "@/components/WorkflowVisualizer";
 
 interface WorkflowsViewProps {
   discovery: DiscoveryResult | null;
@@ -156,11 +159,11 @@ function WorkflowDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-white border border-[#E2E8F0] rounded-2xl max-w-2xl w-full shadow-2xl flex flex-col max-h-[calc(100dvh-96px)] sm:max-h-[calc(100dvh-112px)] overflow-hidden animate-modal-enter"
+        className="bg-white dark:bg-[#111827] border border-[#E2E8F0] dark:border-[#1E293B] rounded-2xl max-w-4xl w-full shadow-2xl flex flex-col max-h-[calc(100dvh-96px)] sm:max-h-[calc(100dvh-112px)] overflow-hidden animate-modal-enter transition-colors duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4.5 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-start justify-between shrink-0">
+        <div className="px-6 py-4.5 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B0F17] flex items-start justify-between shrink-0">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
@@ -185,7 +188,7 @@ function WorkflowDetailModal({
               )}
             </div>
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-[#0F172A]">
+              <h3 className="text-base font-bold text-[#0F172A] dark:text-[#F8FAFC]">
                 {workflow.label}
               </h3>
               {loadingDetails && (
@@ -206,8 +209,20 @@ function WorkflowDetailModal({
 
         {/* Scrollable Content Body */}
         <div className="p-6 pb-8 sm:pb-10 overflow-y-auto overscroll-contain space-y-5 text-xs flex-1 min-h-0">
+          {/* Animated Workflow Execution Pipeline Visualization */}
+          <WorkflowVisualizer
+            workflowId={wfId}
+            workflowName={workflow.label}
+            sequence={workflow.sequence}
+            definition={
+              wfId === "wf_gmail_triage_pipeline" || workflow.label.toLowerCase().includes("gmail")
+                ? GMAIL_TRIAGE_PIPELINE_DEF
+                : null
+            }
+          />
+
           {/* Discovery Stage */}
-          <div className="border border-[#E2E8F0] rounded-xl p-4 bg-white space-y-1.5 shadow-2xs">
+          <div className="border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl p-4 bg-white dark:bg-[#162035] space-y-1.5 shadow-2xs">
             <div className="flex items-center gap-2 text-[#0F172A] font-bold">
               <span className="text-emerald-600 font-bold">✓</span>
               <span>Discovery</span>

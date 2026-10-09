@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export default function DemoLayout({
   children,
@@ -61,14 +62,14 @@ export default function DemoLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-[#F7F9FC] text-[#475569] flex font-sans">
+    <div className="min-h-screen bg-[#F7F9FC] dark:bg-[#0B0F17] text-[#475569] dark:text-[#94A3B8] flex font-sans">
       {/* Global Shared Sidebar in Auto-Hide Mode for Demo Applications */}
       <Sidebar activeView="demo" />
 
       {/* Main App Canvas */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Demo Bar */}
-        <header className="border-b border-[#E2E8F0] bg-white sticky top-0 z-30 shadow-2xs">
+        <header className="border-b border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#111827] sticky top-0 z-30 shadow-2xs transition-colors duration-150">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             {/* Brand & Section Title - Logo navigates to Overview */}
             <div className="flex items-center gap-3">
@@ -83,25 +84,25 @@ export default function DemoLayout({
                   </svg>
                 </div>
                 <div>
-                  <span className="text-sm font-bold tracking-tight text-[#0F172A] flex items-center gap-1 group-hover:text-[#2563EB] transition-colors duration-150">
-                    WorkFlow<span className="text-[#2563EB]">OS</span>
+                  <span className="text-sm font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-1 group-hover:text-[#2563EB] dark:group-hover:text-[#60A5FA] transition-colors duration-150">
+                    WorkFlow<span className="text-[#2563EB] dark:text-[#3B82F6]">OS</span>
                   </span>
-                  <span className="text-[10px] text-[#64748B] block leading-tight font-mono">
+                  <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] block leading-tight font-mono">
                     Demo Playground
                   </span>
                 </div>
               </Link>
 
-              <span className="text-[#CBD5E1] hidden sm:inline">/</span>
+              <span className="text-[#CBD5E1] dark:text-[#334155] hidden sm:inline">/</span>
 
-              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-purple-50 text-purple-700 border border-purple-200">
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
                 <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
                 Target Test Apps
               </span>
             </div>
 
             {/* Navigation Tabs between Demo Apps */}
-            <nav className="flex items-center gap-1 bg-[#F8FAFC] p-1 rounded-xl border border-[#E2E8F0]" aria-label="Demo Applications">
+            <nav className="flex items-center gap-1 bg-[#F8FAFC] dark:bg-[#162035] p-1 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B]" aria-label="Demo Applications">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
@@ -110,13 +111,13 @@ export default function DemoLayout({
                     href={item.href}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer ${
                       isActive
-                        ? "bg-white text-[#1D4ED8] font-semibold shadow-2xs border border-[#BFDBFE]"
-                        : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
+                        ? "bg-white dark:bg-[#111827] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold shadow-2xs border border-[#BFDBFE] dark:border-[#2563EB]/40"
+                        : "text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-white/60 dark:hover:bg-white/5"
                     }`}
                   >
-                    <span className={isActive ? "text-[#2563EB]" : "text-[#94A3B8]"}>{item.icon}</span>
+                    <span className={isActive ? "text-[#2563EB] dark:text-[#60A5FA]" : "text-[#94A3B8] dark:text-[#64748B]"}>{item.icon}</span>
                     <span>{item.name}</span>
-                    <span className={`text-[10px] font-mono px-1 rounded ${isActive ? "bg-blue-50 text-[#2563EB]" : "text-[#94A3B8]"}`}>
+                    <span className={`text-[10px] font-mono px-1 rounded ${isActive ? "bg-blue-50 dark:bg-[#1E293B] text-[#2563EB] dark:text-[#60A5FA]" : "text-[#94A3B8] dark:text-[#64748B]"}`}>
                       {item.step}
                     </span>
                   </Link>
@@ -124,13 +125,14 @@ export default function DemoLayout({
               })}
             </nav>
 
-            {/* Return to Dashboard */}
-            <div>
+            {/* Return to Dashboard and Theme Toggle */}
+            <div className="flex items-center gap-2.5">
+              <ThemeToggle />
               <Link
                 href="/"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white hover:bg-[#F8FAFC] hover:shadow-xs border border-[#E2E8F0] text-[#0F172A] shadow-2xs transition-colors duration-150 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-[#162035] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] hover:shadow-xs border border-[#E2E8F0] dark:border-[#1E293B] text-[#0F172A] dark:text-[#F8FAFC] shadow-2xs transition-colors duration-150 cursor-pointer"
               >
-                <svg className="w-3.5 h-3.5 text-[#64748B]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-3.5 h-3.5 text-[#64748B] dark:text-[#94A3B8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
                 <span>Back to Overview</span>

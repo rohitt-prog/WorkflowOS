@@ -20,6 +20,7 @@ import {
   disconnectIntegration,
   testIntegrationAction,
 } from "@/lib/api";
+import { useTheme } from "@/lib/theme";
 
 interface GmailMessagePreview {
   id: string;
@@ -31,6 +32,7 @@ interface GmailMessagePreview {
 }
 
 export default function SettingsView() {
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
   // System Settings & Privacy States
@@ -293,6 +295,101 @@ export default function SettingsView() {
           </span>
         )}
       </div>
+
+      {/* Appearance & Interface Theme */}
+      <section className="bg-white dark:bg-[#111827] border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl p-5 space-y-4 shadow-2xs transition-colors duration-150">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#64748B] dark:text-[#94A3B8]">
+            Appearance & Interface Theme
+          </h3>
+          <p className="text-xs text-[#475569] dark:text-[#94A3B8] mt-0.5">
+            Select your preferred color theme. Choose clean light, Linear-inspired dark charcoal slate, or sync automatically with your system.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Light Theme Option */}
+          <button
+            type="button"
+            onClick={() => setTheme("light")}
+            aria-pressed={theme === "light"}
+            className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+              theme === "light"
+                ? "border-[#2563EB] bg-blue-50/60 dark:bg-blue-950/40 shadow-2xs ring-2 ring-[#2563EB]/25"
+                : "border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#CBD5E1] dark:hover:border-[#334155] bg-white dark:bg-[#162035]"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-1.5">
+                <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+                Light Mode
+              </span>
+              <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${theme === "light" ? "border-[#2563EB] bg-[#2563EB]" : "border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111827]"}`}>
+                {theme === "light" && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] leading-relaxed">
+              Clean neutral backgrounds with crisp high-contrast slate borders.
+            </p>
+          </button>
+
+          {/* Dark Theme Option */}
+          <button
+            type="button"
+            onClick={() => setTheme("dark")}
+            aria-pressed={theme === "dark"}
+            className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+              theme === "dark"
+                ? "border-[#2563EB] dark:border-[#3B82F6] bg-blue-50/60 dark:bg-blue-950/40 shadow-2xs ring-2 ring-[#2563EB]/25 dark:ring-[#3B82F6]/30"
+                : "border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#CBD5E1] dark:hover:border-[#334155] bg-white dark:bg-[#162035]"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-1.5">
+                <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+                Dark Mode
+              </span>
+              <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${theme === "dark" ? "border-[#2563EB] dark:border-[#3B82F6] bg-[#2563EB] dark:bg-[#3B82F6]" : "border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111827]"}`}>
+                {theme === "dark" && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] leading-relaxed">
+              Linear-style charcoal slate surfaces with restrained, readable contrast.
+            </p>
+          </button>
+
+          {/* System Theme Option */}
+          <button
+            type="button"
+            onClick={() => setTheme("system")}
+            aria-pressed={theme === "system"}
+            className={`p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+              theme === "system"
+                ? "border-[#2563EB] dark:border-[#3B82F6] bg-blue-50/60 dark:bg-blue-950/40 shadow-2xs ring-2 ring-[#2563EB]/25 dark:ring-[#3B82F6]/30"
+                : "border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#CBD5E1] dark:hover:border-[#334155] bg-white dark:bg-[#162035]"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-1.5">
+                <svg className="w-4 h-4 text-[#64748B] dark:text-[#94A3B8] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                System Auto
+              </span>
+              <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${theme === "system" ? "border-[#2563EB] dark:border-[#3B82F6] bg-[#2563EB] dark:bg-[#3B82F6]" : "border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111827]"}`}>
+                {theme === "system" && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] leading-relaxed">
+              Synchronizes with your OS preference (currently {resolvedTheme} mode).
+            </p>
+          </button>
+        </div>
+      </section>
 
       {/* Section 12: Privacy & Safety Controls */}
       <section className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4 shadow-2xs">

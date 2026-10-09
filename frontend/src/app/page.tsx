@@ -158,7 +158,7 @@ export default function WorkFlowOSApp() {
   }, [loadDiscoveryData]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F7F9FC] text-[#475569]">
+    <div className="flex h-screen overflow-hidden bg-[#F7F9FC] dark:bg-[#0B0F17] text-[#475569] dark:text-[#94A3B8]">
       {/* Sidebar Navigation */}
       <Sidebar
         activeView={activeView}
