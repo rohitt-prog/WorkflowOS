@@ -78,6 +78,8 @@ const GMAIL_TRIAGE_WORKFLOW: WorkflowDefinition = GMAIL_TRIAGE_PIPELINE_DEF;
 
 const STEP_TYPES = [
   "list_recent_messages",
+  "search_messages",
+  "read_message",
   "open_email",
   "download_attachment",
   "search_customer",
@@ -92,6 +94,8 @@ const STEP_TYPES = [
 
 const APPLICATIONS = [
   "gmail",
+  "crm",
+  "chat",
   "demo_email",
   "demo_crm",
   "demo_chat",
@@ -709,7 +713,28 @@ export default function BuilderView({ onExecutionComplete, onNavigate }: Builder
                       const updates: Partial<WorkflowStep> = { type: newType };
                       if (newType === "list_recent_messages") {
                         updates.application = "gmail";
-                        updates.parameters = { max_results: 5, query: "label:INBOX" };
+                        updates.parameters = {
+                          ...step.parameters,
+                          max_results: (step.parameters?.max_results as number) || 5,
+                          query: (step.parameters?.query as string) || "label:INBOX",
+                        };
+                      } else if (newType === "search_messages") {
+                        const isCompatible = step.application === "gmail" || step.application === "chat";
+                        const targetApp = isCompatible ? step.application : "gmail";
+                        updates.application = targetApp;
+                        updates.parameters = {
+                          ...step.parameters,
+                          query: (step.parameters?.query as string) || (targetApp === "gmail" ? "label:INBOX" : ""),
+                          ...(targetApp === "gmail" ? { max_results: (step.parameters?.max_results as number) || 5 } : {}),
+                        };
+                      } else if (newType === "read_message") {
+                        const isCompatible = step.application === "gmail" || step.application === "chat";
+                        const targetApp = isCompatible ? step.application : "gmail";
+                        updates.application = targetApp;
+                        updates.parameters = {
+                          ...step.parameters,
+                          message_id: (step.parameters?.message_id as string) || "",
+                        };
                       }
                       updateStep(idx, updates);
                     }}
@@ -733,8 +758,10 @@ export default function BuilderView({ onExecutionComplete, onNavigate }: Builder
                       const newApp = e.target.value;
                       const updates: Partial<WorkflowStep> = { application: newApp };
                       if (newApp === "gmail") {
-                        updates.type = "list_recent_messages";
-                        updates.parameters = { max_results: 5, query: "label:INBOX" };
+                        if (!["list_recent_messages", "search_messages", "read_message", "download_attachment"].includes(step.type)) {
+                          updates.type = "list_recent_messages";
+                          updates.parameters = { max_results: 5, query: "label:INBOX" };
+                        }
                       }
                       updateStep(idx, updates);
                     }}
@@ -749,10 +776,13 @@ export default function BuilderView({ onExecutionComplete, onNavigate }: Builder
                 </div>
               </div>
 
-              {/* Step Parameters Configuration */}
-              {(step.application === "gmail" || step.type === "list_recent_messages") && (
+              {/* Step Parameters Configuration for list_recent_messages and search_messages */}
+              {(
+                (step.application === "gmail" && (step.type === "list_recent_messages" || step.type === "search_messages")) ||
+                (step.application === "chat" && step.type === "search_messages")
+              ) && (
                 <div className="space-y-3 pt-3 border-t border-[#E2E8F0]">
-                  {gmailStatus && !gmailStatus.is_connected && (
+                  {step.application === "gmail" && gmailStatus && !gmailStatus.is_connected && (
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-xs text-amber-800">
                       <span className="text-amber-600 font-bold shrink-0">⚠️</span>
                       <div className="space-y-0.5">
@@ -764,7 +794,7 @@ export default function BuilderView({ onExecutionComplete, onNavigate }: Builder
                     </div>
                   )}
 
-                  {gmailStatus?.is_connected && (
+                  {step.application === "gmail" && gmailStatus?.is_connected && (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 flex items-center justify-between text-xs text-emerald-800">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
@@ -778,40 +808,107 @@ export default function BuilderView({ onExecutionComplete, onNavigate }: Builder
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3">
+                  <div className={`grid grid-cols-1 ${step.application === "gmail" ? "sm:grid-cols-2" : ""} gap-3 text-xs bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3`}>
+                    {step.application === "gmail" && (
+                      <div>
+                        <label
+                          htmlFor={`step-${idx}-max-results`}
+                          className="text-[11px] font-semibold text-[#64748B] block mb-1"
+                        >
+                          Max Results (1 – 20)
+                        </label>
+                        <input
+                          id={`step-${idx}-max-results`}
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={(step.parameters?.max_results as number) ?? 5}
+                          onChange={(e) =>
+                            updateStep(idx, {
+                              parameters: {
+                                ...step.parameters,
+                                max_results: parseInt(e.target.value) || 5,
+                              },
+                            })
+                          }
+                          className="w-full bg-white border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-xs text-[#0F172A] font-mono focus:outline-none focus:border-[#2563EB]"
+                        />
+                      </div>
+                    )}
                     <div>
-                      <label className="text-[11px] font-semibold text-[#64748B] block mb-1">
-                        Max Results (1 – 20)
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={(step.parameters?.max_results as number) ?? 5}
-                        onChange={(e) =>
-                          updateStep(idx, {
-                            parameters: {
-                              ...step.parameters,
-                              max_results: parseInt(e.target.value) || 5,
-                            },
-                          })
-                        }
-                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-xs text-[#0F172A] font-mono focus:outline-none focus:border-[#2563EB]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-[#64748B] block mb-1">
+                      <label
+                        htmlFor={`step-${idx}-query`}
+                        className="text-[11px] font-semibold text-[#64748B] block mb-1"
+                      >
                         Search Query Filter
                       </label>
                       <input
+                        id={`step-${idx}-query`}
                         type="text"
-                        placeholder="label:INBOX, is:unread, or {{inputs.query}}"
+                        placeholder={step.application === "gmail" ? "label:INBOX, is:unread, or {{inputs.query}}" : "Search keyword or {{inputs.query}}"}
                         value={(step.parameters?.query as string) ?? ""}
                         onChange={(e) =>
                           updateStep(idx, {
                             parameters: {
                               ...step.parameters,
                               query: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-2.5 py-1.5 text-xs text-[#0F172A] font-mono focus:outline-none focus:border-[#2563EB]"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step Parameters Configuration for read_message */}
+              {(step.application === "gmail" || step.application === "chat") && step.type === "read_message" && (
+                <div className="space-y-3 pt-3 border-t border-[#E2E8F0]">
+                  {step.application === "gmail" && gmailStatus && !gmailStatus.is_connected && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-xs text-amber-800">
+                      <span className="text-amber-600 font-bold shrink-0">⚠️</span>
+                      <div className="space-y-0.5">
+                        <span className="font-semibold block">Gmail Account Disconnected</span>
+                        <span className="text-[11px] text-amber-700">
+                          This step will fail or pause during execution. Please connect your Google account in Settings.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {step.application === "gmail" && gmailStatus?.is_connected && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 flex items-center justify-between text-xs text-emerald-800">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                        <span className="font-medium">
+                          Connected: {gmailStatus.email_address || "Google Account"}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Read-Only Scope
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3 text-xs">
+                    <div>
+                      <label
+                        htmlFor={`step-${idx}-message-id`}
+                        className="text-[11px] font-semibold text-[#64748B] block mb-1"
+                      >
+                        Message ID
+                      </label>
+                      <input
+                        id={`step-${idx}-message-id`}
+                        type="text"
+                        placeholder="e.g. 18f2a4b9c8d... or {{steps.step_1.output.id}}"
+                        value={(step.parameters?.message_id as string) ?? ""}
+                        onChange={(e) =>
+                          updateStep(idx, {
+                            parameters: {
+                              ...step.parameters,
+                              message_id: e.target.value,
                             },
                           })
                         }

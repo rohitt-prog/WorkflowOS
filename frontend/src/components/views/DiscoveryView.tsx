@@ -1039,7 +1039,7 @@ export default function DiscoveryView({
                           ? GMAIL_TRIAGE_PIPELINE_DEF
                           : null
                       }
-                      execution={executionResult}
+                      execution={isExecuting ? null : executionResult}
                       isExecuting={isExecuting}
                     />
                   </div>

@@ -356,7 +356,7 @@ class AutomationEngine:
                 "application": act.application,
                 "target": act.target,
                 "status": act_status,
-                "message": msg,
+                "message": sanitize_log_message(str(msg)) if msg else "",
             })
         return details
 
@@ -945,19 +945,28 @@ class AutomationEngine:
         runtime_context = dict(context or {})
         runtime_context["inputs"] = dict(merged_inputs)
         runtime_context["variables"] = dict(variables)
+        prior_valid_step_ids = {s.id for s in workflow.steps[:start_step_idx]}
         runtime_context["steps"] = {}
         for sr in prior_step_results:
-            runtime_context["steps"][sr.step_id] = {
-                "status": sr.status,
-                "output": sr.outputs,
-                "data": sr.outputs,
-                "error": sr.error,
-            }
+            if sr.step_id in prior_valid_step_ids:
+                runtime_context["steps"][sr.step_id] = {
+                    "status": sr.status,
+                    "output": sr.outputs,
+                    "data": sr.outputs,
+                    "error": sr.error,
+                }
 
+        # Historical step attempts remain preserved for reporting and audit trail
         step_results: List[StepExecutionResult] = list(prior_step_results)
         completed_actions: List[str] = list(prior_completed)
         results: List[ExecutionActionResult] = list(prior_results)
         execution_logs: List[str] = list(prior_logs)
+
+        # Active step results for the current execution snapshot:
+        # seeded only with steps strictly before start_step_idx
+        active_step_results: Dict[str, StepExecutionResult] = {
+            sr.step_id: sr for sr in prior_step_results if sr.step_id in prior_valid_step_ids
+        }
 
         step_map = {s.id: s for s in workflow.steps}
         step_ids = [s.id for s in workflow.steps]
@@ -984,17 +993,24 @@ class AutomationEngine:
         ) -> AutomationExecution:
             now_iso = datetime.now(timezone.utc).isoformat()
             elapsed = round(accumulated_time + (time.perf_counter() - start_time), 3)
-            completed_step_ids = {r.step_id for r in step_results if r.status == "completed"}
-            skipped_step_ids = {r.step_id for r in step_results if r.status == "skipped"}
+            completed_step_ids = {sid for sid, r in active_step_results.items() if r.status == "completed"}
+            skipped_step_ids = {sid for sid, r in active_step_results.items() if r.status == "skipped"}
+            failed_step_ids = {sid for sid, r in active_step_results.items() if r.status == "failed"}
 
             actions_detail = []
             for s in workflow.steps:
-                if s.id in completed_step_ids:
+                if status == AutomationStatus.RUNNING and s.id == current_action_id:
+                    s_status = "running"
+                    s_msg = "Executing action"
+                elif s.id in completed_step_ids:
                     s_status = "completed"
-                    s_msg = next((r.logs[-1] for r in step_results if r.step_id == s.id), "Completed")
+                    s_msg = active_step_results[s.id].logs[-1] if active_step_results[s.id].logs else "Completed"
                 elif s.id in skipped_step_ids:
                     s_status = "skipped"
-                    s_msg = next((r.logs[-1] for r in step_results if r.step_id == s.id), "Skipped")
+                    s_msg = active_step_results[s.id].logs[-1] if active_step_results[s.id].logs else "Skipped"
+                elif s.id in failed_step_ids:
+                    s_status = "failed"
+                    s_msg = active_step_results[s.id].error or (active_step_results[s.id].logs[-1] if active_step_results[s.id].logs else "Failed")
                 elif s.id == current_action_id:
                     if paused:
                         s_status = "failed"
@@ -1002,15 +1018,16 @@ class AutomationEngine:
                     elif status == AutomationStatus.FAILED:
                         s_status = "failed"
                         s_msg = error_str or "Action failed"
-                    elif status == AutomationStatus.RUNNING:
-                        s_status = "running"
-                        s_msg = "Executing action"
                     else:
                         s_status = "pending"
                         s_msg = "Pending"
                 else:
-                    s_status = "pending"
-                    s_msg = "Pending"
+                    if completed:
+                        s_status = "skipped"
+                        s_msg = "Skipped"
+                    else:
+                        s_status = "pending"
+                        s_msg = "Pending"
                 actions_detail.append({
                     "action": s.type,
                     "action_id": s.id,
@@ -1018,7 +1035,7 @@ class AutomationEngine:
                     "application": s.application,
                     "target": s.target or "",
                     "status": s_status,
-                    "message": s_msg,
+                    "message": sanitize_log_message(str(s_msg)) if s_msg else "",
                 })
 
             sanitized_step_results = [
@@ -1112,20 +1129,26 @@ class AutomationEngine:
                     execution_logs.append(log_cond)
 
                     if not cond_met:
-                        step_results.append(
-                            StepExecutionResult(
-                                step_id=step.id,
-                                action_type=step.type,
-                                application=step.application,
-                                status="skipped",
-                                attempts=0,
-                                started_at=step_start_iso,
-                                completed_at=datetime.now(timezone.utc).isoformat(),
-                                inputs={},
-                                outputs={},
-                                logs=step_logs + ["Condition evaluated False; step skipped"],
-                            )
+                        step_res = StepExecutionResult(
+                            step_id=step.id,
+                            action_type=step.type,
+                            application=step.application,
+                            status="skipped",
+                            attempts=0,
+                            started_at=step_start_iso,
+                            completed_at=datetime.now(timezone.utc).isoformat(),
+                            inputs={},
+                            outputs={},
+                            logs=step_logs + ["Condition evaluated False; step skipped"],
                         )
+                        step_results.append(step_res)
+                        active_step_results[step.id] = step_res
+                        runtime_context["steps"][step.id] = {
+                            "status": "skipped",
+                            "output": {},
+                            "data": {},
+                            "error": None,
+                        }
                         if step.on_false and step.on_false in step_map:
                             execution_logs.append(f"Branching on_false: jumping from '{step.id}' to '{step.on_false}'")
                             curr_idx = step_ids.index(step.on_false)
@@ -1229,6 +1252,7 @@ class AutomationEngine:
                     error=None if result.success else result.message,
                 )
                 step_results.append(step_res)
+                active_step_results[step.id] = step_res
                 results.append(result)
 
                 if result.success:
@@ -1321,7 +1345,16 @@ class AutomationEngine:
         progress_callback: Optional[Callable[[AutomationExecution], Awaitable[None]]] = None,
     ) -> AutomationExecution:
         """
-        Resumes a PAUSED declarative workflow execution from the failed step.
+        Resumes a PAUSED declarative workflow execution from the failed step or specified step cursor.
+
+        Carried-forward state isolation contract:
+        - Only results for steps positioned strictly before start_step_idx in the workflow definition
+          are restored into active runtime state (`runtime_context["steps"]`) and deduplicated results.
+        - The resume cursor and all downstream steps start clean, preventing stale failure or output
+          pollution during retries or alternative branching.
+        - Backward branching/cycles prior to the resume cursor are not carried forward into active state
+          to ensure clean, deterministic replay from the designated cursor.
+        - Full historical step records remain preserved in `step_results` for audit and telemetry.
         """
         if not is_valid_transition(execution.status, AutomationStatus.RUNNING):
             raise InvalidStateTransitionError(
@@ -1350,12 +1383,62 @@ class AutomationEngine:
         if parameters:
             merged_inputs.update(parameters)
 
-        merged_variables = dict(execution.variables or {})
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        prior_step_results = [sr for sr in execution.step_results if sr.status == "completed"]
-        prior_completed = list(execution.completed_actions)
-        prior_results = [r for r in execution.results if r.success]
+        prior_step_ids = {s.id for s in workflow.steps[:start_step_idx]}
+        prior_step_results = [sr for sr in execution.step_results if sr.status in ("completed", "failed", "skipped")]
+
+        # Determine latest StepExecutionResult for each step before start_step_idx
+        # A newer failed/skipped attempt takes precedence over an older completed attempt
+        latest_prior_step_results: Dict[str, StepExecutionResult] = {}
+        for sr in execution.step_results:
+            if sr.step_id in prior_step_ids:
+                latest_prior_step_results[sr.step_id] = sr
+
+        prior_completed_step_ids = {
+            sid for sid, sr in latest_prior_step_results.items()
+            if sr.status == "completed"
+        }
+        prior_completed = [
+            s.type for s in workflow.steps[:start_step_idx]
+            if s.id in prior_completed_step_ids
+        ]
+
+        # Determine latest ExecutionActionResult for each action_id
+        latest_results_by_action_id: Dict[str, ExecutionActionResult] = {}
+        for r in execution.results:
+            aid = getattr(r, "action_id", None)
+            if aid and aid in prior_step_ids:
+                latest_results_by_action_id[aid] = r
+
+        # Retained successful results for completed steps strictly before start_step_idx
+        prior_results = [
+            latest_results_by_action_id[s.id]
+            for s in workflow.steps[:start_step_idx]
+            if s.id in prior_completed_step_ids
+            and s.id in latest_results_by_action_id
+            and latest_results_by_action_id[s.id].success
+        ]
+
+        # Rebuild active variables at the resume cursor:
+        # 1. Start from workflow defaults and optional context variables
+        rebuilt_variables = dict(workflow.variables or {})
+        if context and isinstance(context.get("variables"), dict):
+            rebuilt_variables.update(context["variables"])
+
+        # 2. Replay output mappings strictly for steps validly completed before start_step_idx
+        for s in workflow.steps[:start_step_idx]:
+            if s.id in prior_completed_step_ids and s.output_mapping:
+                sr = latest_prior_step_results.get(s.id)
+                if sr and sr.outputs:
+                    step_data_ctx = {
+                        "data": sr.outputs,
+                        **(sr.outputs if isinstance(sr.outputs, dict) else {}),
+                    }
+                    for var_key, data_path in s.output_mapping.items():
+                        val = _get_nested_val(step_data_ctx, data_path)
+                        rebuilt_variables[var_key] = val
+
         prior_logs = list(execution.execution_logs or [])
         prior_logs.append(
             f"Resuming execution from step '{step_ids[start_step_idx]}' (resume_count={execution.resume_count + 1})"
@@ -1366,7 +1449,7 @@ class AutomationEngine:
             execution_id=execution.execution_id,
             start_step_idx=start_step_idx,
             merged_inputs=merged_inputs,
-            variables=merged_variables,
+            variables=rebuilt_variables,
             prior_step_results=prior_step_results,
             prior_completed=prior_completed,
             prior_results=prior_results,

@@ -405,17 +405,9 @@ export default function ExecutionsView({
                 return (
                   <tr
                     key={exec.execution_id}
-                    tabIndex={0}
-                    role="button"
                     aria-label={`Inspect execution ${exec.execution_id} for ${exec.workflow_name || "Automation Workflow"}`}
                     onClick={() => setSelectedExecution(exec)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedExecution(exec);
-                      }
-                    }}
-                    className="hover:bg-[#F8FAFC] transition-colors duration-150 animate-row-enter cursor-pointer group focus-visible:outline-none focus-visible:bg-[#F1F5F9]"
+                    className="hover:bg-[#F8FAFC] transition-colors duration-150 animate-row-enter cursor-pointer group"
                   >
                     <td className="py-3 px-4 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>

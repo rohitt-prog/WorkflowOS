@@ -472,7 +472,7 @@ export default function WorkflowVisualizer({
             status = "running";
           }
         } else if (execution.status === "completed") {
-          status = "completed";
+          status = "skipped";
         } else if (execution.status === "cancelled" && idx >= completedList.length) {
           status = "skipped";
         } else if (execution.status === "failed" && !isCompleted && !isFailed && status === "pending") {
@@ -532,6 +532,7 @@ export default function WorkflowVisualizer({
 
   // Overall pipeline progress
   const completedCount = derivedSteps.filter((s) => s.status === "completed").length;
+  const skippedCount = derivedSteps.filter((s) => s.status === "skipped").length;
   const isRunningAny = isExecuting || derivedSteps.some((s) => s.status === "running");
   const isFailedAny = derivedSteps.some((s) => s.status === "failed");
   const isPausedAny = derivedSteps.some((s) => s.status === "paused");
@@ -580,6 +581,13 @@ export default function WorkflowVisualizer({
               <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-semibold">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
                 Executing…
+              </span>
+            ) : execution?.status === "completed" ? (
+              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                {skippedCount > 0
+                  ? `Completed (${completedCount} completed, ${skippedCount} skipped)`
+                  : `All ${derivedSteps.length} Completed`}
               </span>
             ) : completedCount === derivedSteps.length && derivedSteps.length > 0 ? (
               <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
@@ -770,7 +778,9 @@ export default function WorkflowVisualizer({
                     {/* Step Skipped Explanation */}
                     {step.status === "skipped" && (
                       <p className="text-[11px] text-[#94A3B8] italic mt-1">
-                        Step was not executed because upstream execution stopped.
+                        {execution?.status === "completed"
+                          ? "Step was not executed."
+                          : "Step was not executed because upstream execution stopped."}
                       </p>
                     )}
 
@@ -797,7 +807,12 @@ export default function WorkflowVisualizer({
         ) : (
           // ================= HORIZONTAL CONNECTED PIPELINE (DEFAULT) =================
           <div className="min-w-max pb-2">
-            <div className="grid grid-cols-6 gap-3 items-stretch relative">
+            <div
+              className="grid gap-3 items-stretch relative"
+              style={{
+                gridTemplateColumns: `repeat(${Math.max(derivedSteps.length, 1)}, minmax(0, 1fr))`,
+              }}
+            >
               {derivedSteps.map((step, idx) => {
                 const isSelected = selectedStepId === step.id;
                 const isLast = idx === derivedSteps.length - 1;
@@ -1016,6 +1031,14 @@ export default function WorkflowVisualizer({
                       {step.errorMessage && (
                         <div className="mt-2 p-2.5 rounded bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-medium">
                           Failed Reason: {step.errorMessage}
+                        </div>
+                      )}
+
+                      {step.status === "skipped" && (
+                        <div className="mt-2 p-2.5 rounded bg-slate-100 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 text-xs text-[#64748B] dark:text-[#94A3B8] italic">
+                          {execution?.status === "completed"
+                            ? "Step was not executed."
+                            : "Step was not executed because upstream execution stopped."}
                         </div>
                       )}
                     </div>
